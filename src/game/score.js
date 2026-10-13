@@ -30,6 +30,7 @@ export default class MatchScore {
 
     const ev = game.events;
     ev.on('kill', (e) => this._onKill(e));
+    ev.on('objective:score', (e) => { if (e) this.award(e.points, e.label); });
     ev.on('player:death', () => { this.streak = 0; this._chain = 0; });
     ev.on('ui:start', () => this.reset());
     ev.on('ui:restart', () => this.reset());

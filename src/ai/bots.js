@@ -14,6 +14,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { weaponInstance, hasWeaponModel } from '../gfx/weapons/registry.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { isRespawnMode } from '../game/tdm.js';
 import {
   SSAO_PARS_FRAGMENT,
   ssaoUniforms,
@@ -215,6 +216,7 @@ const T_HOLD_MIN = 3.0;
 const T_HOLD_MAX = 5.5;
 const TDM_HOLD_MAX = 1.6;        // respawn modes keep everyone moving
 const GHOST_FOOTSTEP_RANGE = 0.45; // Ghost perk: bots hear the player's steps at this fraction
+const SUPPRESSED_HEARING = 0.35;  // suppressor: bots hear the player's primary at this fraction
 const INVESTIGATE_HOLD_MIN = 2.0;
 const INVESTIGATE_HOLD_MAX = 3.8;
 
@@ -1913,7 +1915,11 @@ export default class Bots {
 
     ev.on('weapon:fire', (p) => {
       if (!p || !p.byPlayer || !p.origin) return;
-      this._hearSound(p.origin, (this.game.player && this.game.player.team) || 'ct', this._cfg.HEAR_RANGE * 1.6);
+      const w = this.game.weapons;
+      const suppressed = this.game.player && this.game.player.attachment === 'suppressor' &&
+        w && typeof w.current === 'function' && w.current().slot === 1;
+      this._hearSound(p.origin, (this.game.player && this.game.player.team) || 'ct',
+        this._cfg.HEAR_RANGE * 1.6 * (suppressed ? SUPPRESSED_HEARING : 1));
     });
 
     ev.on('bot:fire', (p) => {
@@ -2635,7 +2641,7 @@ export default class Bots {
     }
 
     // Objective logic per mode / team.
-    if (this.game.state.mode === 'tdm') this._thinkHunt(bot);
+    if (isRespawnMode(this.game.state.mode)) this._thinkHunt(bot);
     else if (bot.team === 't') this._thinkT(bot);
     else this._thinkCT(bot);
 
@@ -2678,8 +2684,13 @@ export default class Bots {
     const uavUp = !!(streaks && typeof streaks.enemyUavActive === 'function' && streaks.enemyUavActive()) &&
       bot.team !== ((player && player.team) || 'ct');
     if (player && !(uavUp && player.perk === 'ghost')) consider(player, player.position);
+    // Objective modes: most decisions go to the tag / flag the objective picks.
+    const objective = this.game.rounds && this.game.rounds.tdm && this.game.rounds.tdm.objective;
+    const objectiveGoal = objective && typeof objective.botGoal === 'function' ? objective.botGoal(bot) : null;
     let goal = null;
-    if (nearest && Math.random() < (uavUp ? 0.95 : 0.7)) {
+    if (objectiveGoal && Math.random() < 0.75) {
+      goal = this._diverseNear(bot, objectiveGoal, 3);
+    } else if (nearest && Math.random() < (uavUp ? 0.95 : 0.7)) {
       goal = this._diverseNear(bot, nearest, 12);
     } else {
       const nodes = this.game.world && this.game.world.waypoints && this.game.world.waypoints.nodes;

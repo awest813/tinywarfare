@@ -11,9 +11,9 @@
 import * as THREE from 'three';
 import { MAP_CATALOG, normalizeMapId } from '../maps/catalog.js';
 import { FACTIONS, faction, scoreLine } from '../shared/factions.js';
-import { GAME_MODES, TDM, normalizeModeId } from '../game/tdm.js';
+import { GAME_MODES, TDM, isRespawnMode, modeRules, normalizeModeId } from '../game/tdm.js';
 import { STREAKS } from '../game/streaks.js';
-import { PRIMARIES, SECONDARIES, TACTICALS, PERKS, PERK_IDS } from '../game/loadouts.js';
+import { ATTACHMENTS, ATTACHMENT_IDS, PRIMARIES, SECONDARIES, TACTICALS, PERKS, PERK_IDS } from '../game/loadouts.js';
 import { resolveHumanPlayerName } from '../player/profile.js';
 import {
   KEY_BINDING_DEFINITIONS,
@@ -394,6 +394,7 @@ export default class HUD {
       crosshair: $('hud-crosshair'),
       scorePop: $('hud-score-pop'),
       streaks: $('hud-streaks'),
+      objective: $('hud-objective'),
       chL: $('hud-ch-l'), chR: $('hud-ch-r'), chT: $('hud-ch-t'), chB: $('hud-ch-b'),
       hitmarker: $('hud-hitmarker'),
       killcue: $('hud-killcue'),
@@ -1305,7 +1306,7 @@ export default class HUD {
         button.setAttribute('aria-pressed', selected ? 'true' : 'false');
       }
     }
-    if (this._el.classPicker) this._el.classPicker.hidden = id !== 'tdm';
+    if (this._el.classPicker) this._el.classPicker.hidden = !isRespawnMode(id);
     this._updateStartSub();
   }
 
@@ -1323,6 +1324,7 @@ export default class HUD {
     };
     const weaponName = (id) => String(this._names[id] || id).toUpperCase();
     fill(document.getElementById('hud-class-primary'), PRIMARIES, weaponName);
+    fill(document.getElementById('hud-class-attachment'), ATTACHMENT_IDS, (id) => ATTACHMENTS[id].label);
     fill(document.getElementById('hud-class-secondary'), SECONDARIES, weaponName);
     fill(document.getElementById('hud-class-tactical'), TACTICALS, weaponName);
     fill(document.getElementById('hud-class-perk'), PERK_IDS, (id) => PERKS[id].label);
@@ -1359,15 +1361,19 @@ export default class HUD {
       '<button type="button" class="mn-class' + (i === loadouts.selected ? ' selected' : '') +
       '" data-class-index="' + i + '" aria-pressed="' + (i === loadouts.selected) + '">' +
       '<small>' + (i + 1) + '</small><strong>' + esc(c.name) + '</strong>' +
-      '<span>' + esc(weaponName(c.primary)) + ' · ' + esc(weaponName(c.secondary)) + '</span>' +
+      '<span>' + esc(weaponName(c.primary)) + (c.attachment && c.attachment !== 'none' ? ' + ' + esc(ATTACHMENTS[c.attachment].short) : '') +
+      ' · ' + esc(weaponName(c.secondary)) + '</span>' +
       '<em>' + esc(PERKS[c.perk]?.label || '') + '</em></button>').join('');
     const active = loadouts.active();
     if (el.className && document.activeElement !== el.className) el.className.value = active.name;
-    for (const slot of ['primary', 'secondary', 'tactical', 'perk']) {
+    for (const slot of ['primary', 'attachment', 'secondary', 'tactical', 'perk']) {
       const select = document.getElementById('hud-class-' + slot);
       if (select) select.value = active[slot];
     }
-    if (el.classPerkDetail) el.classPerkDetail.textContent = PERKS[active.perk]?.detail || '';
+    if (el.classPerkDetail) {
+      const att = ATTACHMENTS[active.attachment];
+      el.classPerkDetail.textContent = [att && att.detail, PERKS[active.perk]?.detail].filter(Boolean).join('  ·  ');
+    }
   }
 
   _updateStartSub() {
@@ -1577,6 +1583,12 @@ export default class HUD {
     ev.on('streak:ready', (d) => this._showMsg(String(d?.label || '') + ' READY', 'PRESS ' + this._bindingLabel(d?.id === 'uav' ? 'streak1' : 'streak2'), 2));
     ev.on('streak:activate', (d) => this._showMsg(d?.id === 'airstrike' ? 'AIRSTRIKE INBOUND' : 'UAV ONLINE', d?.id === 'airstrike' ? 'TAKE COVER' : 'ENEMIES MARKED ON RADAR', 1.8));
     ev.on('streak:enemy', () => this._showMsg('ENEMY UAV OVERHEAD', 'KEEP MOVING', 2.2));
+    ev.on('objective:flag', (d) => {
+      const mine = (this.game.player && this.game.player.team) || 'ct';
+      if (d?.owner === mine) this._showMsg('FLAG ' + d.name + ' SECURED', '', 1.4);
+      else if (d?.owner) this._showMsg('FLAG ' + d.name + ' LOST', '', 1.4);
+      else if (d?.previous === mine) this._showMsg('FLAG ' + d.name + ' NEUTRALIZED', 'RETAKE IT', 1.4);
+    });
     ev.on('hud:hitmarker', (d) => this._onHitmarker(d || {}));
     ev.on('player:damage', (d) => this._onPlayerDamage(d || {}));
     ev.on('player:death', (d) => this._onPlayerDeath(d || {}));
@@ -1789,8 +1801,9 @@ export default class HUD {
     const cfg = (this.game && this.game.config) || {};
     switch (d.phase) {
       case 'freeze': {
-        if (this.game.state && this.game.state.mode === 'tdm') {
-          this._showMsg('TEAM DEATHMATCH', 'FIRST TEAM TO ' + TDM.SCORE_LIMIT + ' KILLS WINS', TDM.READY_TIME - 0.5);
+        const mode = this.game.state && this.game.state.mode;
+        if (isRespawnMode(mode)) {
+          this._showMsg(GAME_MODES[mode].label, modeRules(mode).brief, TDM.READY_TIME - 0.5);
           break;
         }
         const dur = Math.max(1.5, (cfg.MATCH && cfg.MATCH.FREEZE_TIME || 6) - 0.5);
@@ -1953,9 +1966,28 @@ export default class HUD {
           ? humanCallsign(this.game, k.name, k.networkId || k.id)
           : k.name)
       : (typeof k === 'string' ? k : '');
+    this._deathRecap = this._buildDeathRecap(d || {});
     // Hold a strong impact vignette for the opening beat of the collapse.
     this._dmg = Math.max(this._dmg, 0.8);
     this._sbDirty = true;
+  }
+
+  /** "AK-47 · 23 M · HEADSHOT · 64 HP LEFT" for the respawn-mode death screen. */
+  _buildDeathRecap(d) {
+    const parts = [];
+    const weaponId = typeof d.weapon === 'string' ? d.weapon : d.weapon && d.weapon.id;
+    if (weaponId) parts.push(String(this._names[weaponId] || weaponId).toUpperCase());
+    const k = d.killer;
+    const from = k && (k.pos || k.position);
+    const me = this.game.player && this.game.player.position;
+    if (from && me && k !== this.game.player) {
+      parts.push(Math.round(Math.hypot(from.x - me.x, from.z - me.z)) + ' M');
+    }
+    if (d.headshot) parts.push('HEADSHOT');
+    if (k && k !== this.game.player && Number.isFinite(k.health) && k.health > 0) {
+      parts.push(Math.ceil(k.health) + ' HP LEFT');
+    }
+    return parts.join(' · ');
   }
 
   _onFlash(d) {
@@ -2110,18 +2142,20 @@ export default class HUD {
     }
 
     const round = st.round | 0;
-    const roundKey = st.mode === 'tdm' ? 'tdm' : round;
+    const respawnMode = isRespawnMode(st.mode);
+    const roundKey = respawnMode ? st.mode : round;
     if (roundKey !== c.round) {
       c.round = roundKey;
       const winRounds = (this.game.config && this.game.config.MATCH &&
         this.game.config.MATCH.WIN_ROUNDS) || 8;
       if (this._el.round) {
-        this._el.round.textContent = st.mode === 'tdm'
-          ? GAME_MODES.tdm.label + '  ·  FIRST TO ' + TDM.SCORE_LIMIT
+        this._el.round.textContent = respawnMode
+          ? GAME_MODES[st.mode].label + '  ·  FIRST TO ' + modeRules(st.mode).scoreLimit
           : 'ROUND ' + round + '  ·  FIRST TO ' + winRounds;
       }
     }
-    const showMoney = st.mode !== 'tdm';
+    const showMoney = !respawnMode;
+    this._updateObjectiveChips(st);
     if (showMoney !== c.showMoney) {
       c.showMoney = showMoney;
       if (this._el.moneyBox) this._el.moneyBox.style.display = showMoney ? '' : 'none';
@@ -2131,6 +2165,26 @@ export default class HUD {
   // --------------------------------------------------------------------------
   // Crosshair + hitmarker
   // --------------------------------------------------------------------------
+
+  /** Domination flag chips under the score: owner colour and capture bar. */
+  _updateObjectiveChips(st) {
+    const root = this._el.objective;
+    if (!root) return;
+    const objective = isRespawnMode(st.mode) ? this.game.rounds?.tdm?.objective : null;
+    const flags = objective && typeof objective.hud === 'function' ? objective.hud() : null;
+    const key = flags
+      ? flags.map((f) => f.name + (f.owner || '-') + (f.contested ? '!' : '') + Math.round(f.control * 20)).join('|')
+      : '';
+    if (key === this._cache.objectiveKey) return;
+    this._cache.objectiveKey = key;
+    root.hidden = !flags;
+    if (!flags) { root.innerHTML = ''; return; }
+    root.innerHTML = flags.map((f) => {
+      const toward = f.control >= 0 ? '#5f9fe0' : '#e0603c';
+      return '<span class="obj-flag ' + (f.owner || '') + (f.contested ? ' contested' : '') + '" ' +
+        'style="--cap:' + Math.round(Math.abs(f.control) * 100) + '%;--capc:' + toward + '">' + esc(f.name) + '<i></i></span>';
+    }).join('');
+  }
 
   /** Streak rail above the ammo box: progress toward each streak, ready glow. */
   _updateStreaks() {
@@ -2377,7 +2431,7 @@ export default class HUD {
 
     // bomb sites (label + zone outline)
     const world = g.world;
-    if (world && Array.isArray(world.bombSites)) {
+    if (world && Array.isArray(world.bombSites) && st.mode !== 'dom') {
       for (const site of world.bombSites) {
         if (!site || !site.center) continue;
         const sx = (site.center.x - px) * RADAR_SCALE;
@@ -2409,6 +2463,38 @@ export default class HUD {
       const pulse = 0.55 + 0.45 * Math.sin(this._time * 7);
       c.fillStyle = 'rgba(232,64,42,' + (bl.cl ? pulse * 0.5 : pulse).toFixed(3) + ')';
       c.fillRect(bl.x - 3, bl.y - 3, 6, 6);
+    }
+
+    // objective markers: Domination flags (owner colour, letter) and KC tags
+    const objective = isRespawnMode(st.mode) ? g.rounds?.tdm?.objective : null;
+    const markers = objective && typeof objective.radarMarkers === 'function' ? objective.radarMarkers() : null;
+    if (markers) {
+      for (const m of markers) {
+        const bl = this._clampBlip((m.x - px) * RADAR_SCALE, (m.z - pz) * RADAR_SCALE);
+        if (m.kind === 'flag') {
+          const color = m.owner === 'ct' ? '95,159,224' : m.owner === 't' ? '224,96,60' : '216,220,205';
+          c.save();
+          c.translate(bl.x, bl.y);
+          c.rotate(-yaw);
+          c.fillStyle = 'rgba(' + color + ',' + (m.contested ? (0.5 + 0.5 * Math.sin(this._time * 10)).toFixed(2) : '0.9') + ')';
+          c.fillRect(-6, -6, 12, 12);
+          c.font = '900 9px "Arial Narrow", Arial, sans-serif';
+          c.textAlign = 'center';
+          c.textBaseline = 'middle';
+          c.fillStyle = '#0b0f08';
+          c.fillText(m.name || '', 0, 0.5);
+          c.restore();
+        } else if (m.kind === 'tag') {
+          c.fillStyle = m.team === ((p && p.team) || 'ct') ? 'rgba(95,159,224,0.9)' : 'rgba(247,210,122,0.95)';
+          c.beginPath();
+          c.moveTo(bl.x, bl.y - 3.5);
+          c.lineTo(bl.x + 3, bl.y);
+          c.lineTo(bl.x, bl.y + 3.5);
+          c.lineTo(bl.x - 3, bl.y);
+          c.closePath();
+          c.fill();
+        }
+      }
     }
 
     // prune stale enemy-fire memory
@@ -2690,7 +2776,7 @@ export default class HUD {
           ? humanCallsign(this.game, target.name, targetPlayerId)
           : String(target.name || 'TEAMMATE'))
       : '';
-    const respawnIn = dead && this.game.state && this.game.state.mode === 'tdm'
+    const respawnIn = dead && this.game.state && isRespawnMode(this.game.state.mode)
       ? this.game.rounds?.tdm?.playerRespawnIn?.()
       : null;
     const respawning = Number.isFinite(respawnIn);
@@ -2706,8 +2792,9 @@ export default class HUD {
         if (this._el.deathMain) this._el.deathMain.textContent = 'RESPAWNING IN ' + Math.max(1, Math.ceil(respawnIn));
         if (this._el.deathKiller) {
           const next = this.game.loadouts?.active?.();
+          const recap = this._deathRecap ? ' · ' + this._deathRecap : '';
           this._el.deathKiller.textContent = (this._deathKiller
-            ? 'ELIMINATED BY ' + this._deathKiller.toUpperCase()
+            ? 'ELIMINATED BY ' + this._deathKiller.toUpperCase() + recap
             : 'ELIMINATED') + (next ? '  ·  NEXT CLASS: ' + next.name + ' [1–5]' : '');
         }
       } else if (dead) {
@@ -2962,7 +3049,7 @@ export default class HUD {
     this._lastBuyToggle = now;
     if (!this._buyOpen && !this._canOpenBuy()) {
       const st = (this.game && this.game.state) || {};
-      if (st.mode === 'tdm') this._showMsg('', 'NO BUYING IN TEAM DEATHMATCH', 1.1);
+      if (isRespawnMode(st.mode)) this._showMsg('', 'NO BUYING · YOUR CLASS IS YOUR LOADOUT', 1.1);
       else if (MATCH_PHASES[st.phase]) this._showMsg('', 'BUY PERIOD OVER', 1.1);
       return;
     }
@@ -3351,6 +3438,7 @@ export default class HUD {
       '<div id="hud-scores"><span class="sc-ct">' + FACTIONS.ct.short + '</span> <span class="hud-num" id="hud-score-ct">0</span>' +
       '<span class="sc-colon">:</span><span class="hud-num" id="hud-score-t">0</span> <span class="sc-t">' + FACTIONS.t.short + '</span></div>' +
       '<div id="hud-round">ROUND 1 · FIRST TO 8</div>' +
+      '<div id="hud-objective" hidden></div>' +
       '</div>' +
 
       // top-right: killfeed
@@ -3449,6 +3537,7 @@ export default class HUD {
       '<div class="mn-class-editor" id="hud-class-editor" hidden>' +
       '<label>NAME<input id="hud-class-name" maxlength="16" autocomplete="off" spellcheck="false"></label>' +
       '<label>PRIMARY<select id="hud-class-primary" data-slot="primary"></select></label>' +
+      '<label>ATTACHMENT<select id="hud-class-attachment" data-slot="attachment"></select></label>' +
       '<label>SECONDARY<select id="hud-class-secondary" data-slot="secondary"></select></label>' +
       '<label>TACTICAL<select id="hud-class-tactical" data-slot="tactical"></select></label>' +
       '<label>PERK<select id="hud-class-perk" data-slot="perk"></select></label>' +
@@ -3722,6 +3811,16 @@ export default class HUD {
 .sc-t { color: var(--t); font-weight: 800; letter-spacing: .08em; }
 .sc-colon { color: var(--olive-dim); }
 #hud-round { font-size: 9.5px; letter-spacing: .26em; color: var(--olive-dim); margin-top: 3px; }
+#hud-objective { display:flex; justify-content:center; gap:6px; margin-top:5px; }
+#hud-objective[hidden] { display:none; }
+.obj-flag { position:relative; width:26px; height:22px; display:grid; place-items:center; overflow:hidden;
+  font-size:12px; font-weight:900; color:#eef5e5; background:rgba(216,220,205,.12); border:1px solid rgba(216,220,205,.4); }
+.obj-flag i { position:absolute; left:0; bottom:0; height:3px; width:var(--cap); background:var(--capc); }
+.obj-flag.ct { background:rgba(95,159,224,.35); border-color:#5f9fe0; }
+.obj-flag.t { background:rgba(224,96,60,.35); border-color:#e0603c; }
+.obj-flag.contested { animation:obj-pulse .6s ease-in-out infinite alternate; }
+@keyframes obj-pulse { to { border-color:#f7d27a; box-shadow:0 0 8px rgba(247,210,122,.5); } }
+@media (prefers-reduced-motion: reduce) { .obj-flag.contested { animation:none; border-color:#f7d27a; } }
 
 /* ---------- top-right: killfeed ---------- */
 #hud-killfeed {
@@ -4368,14 +4467,14 @@ export default class HUD {
 .mn-class:hover { border-color:var(--olive); }
 .mn-class:focus-visible { outline:2px solid var(--olive-bright); outline-offset:2px; }
 .mn-class.selected { border-color:var(--olive-bright); background:rgba(154,178,107,.16); box-shadow:inset 0 0 0 1px var(--olive); }
-.mn-class-editor { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; align-items:end; margin-top:8px; padding:9px;
+.mn-class-editor { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:8px; align-items:end; margin-top:8px; padding:9px;
   background:rgba(8,13,8,.72); border:1px solid rgba(154,178,107,.22); }
 .mn-class-editor label { display:flex; flex-direction:column; gap:4px; font-size:9px; font-weight:900; letter-spacing:.18em; color:var(--olive-dim); }
 .mn-class-editor input, .mn-class-editor select { min-width:0; height:30px; padding:0 6px; font:inherit; font-size:12px; font-weight:900;
   letter-spacing:.06em; color:#eef5e5; background:#080d08; border:1px solid rgba(154,178,107,.38); }
 .mn-class-editor input:focus-visible, .mn-class-editor select:focus-visible { outline:2px solid var(--olive-bright); outline-offset:1px; }
-#hud-class-perk-detail { grid-column:1 / span 4; margin:0; font-size:10px; letter-spacing:.08em; color:var(--olive); }
-.mn-mode-row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+#hud-class-perk-detail { grid-column:1 / span 5; margin:0; font-size:10px; letter-spacing:.08em; color:var(--olive); }
+.mn-mode-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:8px; }
 .mn-mode {
   appearance:none; display:flex; align-items:baseline; justify-content:space-between; gap:10px; min-width:0;
   padding:9px 12px; font-family:inherit; text-align:left; cursor:pointer; color:#dfe8d2;

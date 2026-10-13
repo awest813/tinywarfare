@@ -15,11 +15,32 @@
 // ============================================================================
 
 import * as THREE from 'three';
+import { createObjective } from './objectives.js';
 
 export const GAME_MODES = Object.freeze({
   sd: Object.freeze({ id: 'sd', label: 'SEARCH & DESTROY', short: 'S&D', detail: 'ROUNDS · BOMB' }),
   tdm: Object.freeze({ id: 'tdm', label: 'TEAM DEATHMATCH', short: 'TDM', detail: 'RESPAWN · FIRST TO 50' }),
+  kc: Object.freeze({ id: 'kc', label: 'KILL CONFIRMED', short: 'KC', detail: 'COLLECT TAGS · FIRST TO 30' }),
+  dom: Object.freeze({ id: 'dom', label: 'DOMINATION', short: 'DOM', detail: 'HOLD FLAGS · FIRST TO 150' }),
 });
+
+/** Modes driven by the respawn engine in this file. */
+export const RESPAWN_MODES = Object.freeze(new Set(['tdm', 'kc', 'dom']));
+
+export function isRespawnMode(mode) {
+  return RESPAWN_MODES.has(mode);
+}
+
+/** Per-mode rules: score limit, points per kill, and the get-ready brief. */
+export const MODE_RULES = Object.freeze({
+  tdm: Object.freeze({ scoreLimit: 50, killScore: 1, brief: 'FIRST TEAM TO 50 KILLS WINS' }),
+  kc: Object.freeze({ scoreLimit: 30, killScore: 0, brief: 'COLLECT ENEMY TAGS TO SCORE · DENY YOURS' }),
+  dom: Object.freeze({ scoreLimit: 150, killScore: 0, brief: 'CAPTURE AND HOLD A · B · C' }),
+});
+
+export function modeRules(mode) {
+  return MODE_RULES[mode] || MODE_RULES.tdm;
+}
 export const DEFAULT_MODE_ID = 'sd';
 
 export function normalizeModeId(value) {
@@ -111,6 +132,7 @@ export default class TeamDeathmatch {
     this._botRespawns = new Map(); // bot -> respawn time
     this._time = 0;
     this._candidates = null;
+    this.objective = null;
 
     const ev = game.events;
     ev.on('bot:death', (p) => this._onBotDeath(p));
@@ -118,7 +140,17 @@ export default class TeamDeathmatch {
   }
 
   active() {
-    return this.game.state.mode === 'tdm';
+    return isRespawnMode(this.game.state.mode);
+  }
+
+  rules() {
+    return modeRules(this.game.state.mode);
+  }
+
+  /** Remove any objective props (called when any match starts). */
+  stopObjective() {
+    if (this.objective) this.objective.stop();
+    this.objective = null;
   }
 
   /** Seconds until the local player respawns, or null when alive/not TDM. */
@@ -134,6 +166,8 @@ export default class TeamDeathmatch {
     this._playerRespawnAt = null;
     this._botRespawns.clear();
     this._candidates = null;
+    if (this.objective) this.objective.stop();
+    this.objective = createObjective(s.mode, game);
 
     s.round = 1;
     s.phase = 'freeze';
@@ -153,7 +187,7 @@ export default class TeamDeathmatch {
     }
     this._equipPlayer();
 
-    game.events.emit('round:start', { round: s.round, mode: 'tdm' });
+    game.events.emit('round:start', { round: s.round, mode: s.mode });
     game.events.emit('round:phase', { phase: 'freeze' });
   }
 
@@ -177,8 +211,10 @@ export default class TeamDeathmatch {
       this._botRespawns.delete(bot);
       if (!bot.alive) this._respawnBot(bot);
     }
+    if (this.objective) this.objective.update(dt);
 
-    if (s.scores.ct >= TDM.SCORE_LIMIT || s.scores.t >= TDM.SCORE_LIMIT || s.timer <= 0) {
+    const limit = this.rules().scoreLimit;
+    if (s.scores.ct >= limit || s.scores.t >= limit || s.timer <= 0) {
       this._endMatch();
     }
   }
@@ -190,6 +226,7 @@ export default class TeamDeathmatch {
     const bot = p && p.bot;
     if (!bot) return;
     this._score(bot.team);
+    if (this.objective) this.objective.onDeath(bot.team, bot.pos);
     this._botRespawns.set(bot, this._time + TDM.RESPAWN_DELAY);
   }
 
@@ -197,14 +234,17 @@ export default class TeamDeathmatch {
     if (!this.active() || this.game.state.phase !== 'live') return;
     const player = this.game.player;
     this._score(player ? player.team : 'ct');
+    if (this.objective && player) this.objective.onDeath(player.team, player.position);
     this._playerRespawnAt = this._time + TDM.RESPAWN_DELAY;
   }
 
   /** A death scores for the side opposite the victim. */
   _score(victimTeam) {
+    const points = this.rules().killScore;
+    if (!points) return;
     const s = this.game.state;
     const side = victimTeam === 't' ? 'ct' : 't';
-    s.scores[side] = (s.scores[side] || 0) + 1;
+    s.scores[side] = (s.scores[side] || 0) + points;
   }
 
   _respawnPlayer() {
@@ -233,7 +273,10 @@ export default class TeamDeathmatch {
     const loadout = loadouts && typeof loadouts.active === 'function'
       ? loadouts.active()
       : tdmLoadout(player ? player.team : 'ct');
-    if (player) player.perk = loadout.perk || null;
+    if (player) {
+      player.perk = loadout.perk || null;
+      player.attachment = loadout.attachment && loadout.attachment !== 'none' ? loadout.attachment : null;
+    }
     weapons.resetForRound({ died: true });
     weapons.give(loadout.secondary);
     weapons.give(loadout.lethal);
@@ -291,11 +334,15 @@ export default class TeamDeathmatch {
     s.canBuy = false;
     this._playerRespawnAt = null;
     this._botRespawns.clear();
+    if (this.objective) {
+      this.objective.stop();
+      this.objective = null;
+    }
     const winner = s.scores.ct > s.scores.t ? 'ct' : s.scores.t > s.scores.ct ? 't' : null;
     this.game.events.emit('game:end', {
       winner,
       draw: winner === null,
-      mode: 'tdm',
+      mode: s.mode,
       scores: { ct: s.scores.ct, t: s.scores.t },
     });
   }

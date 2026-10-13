@@ -217,24 +217,67 @@ Still to do:
 - Host-authoritative streaks for online TDM.
 
 ### Phase 5: Progression and attachments
-- Per-match XP from kills, assists, objectives, and streaks, with
-  end-of-match XP breakdown. This hooks into the existing
-  `xpForLevel`/`levelFromXp` and career system.
-- Rank unlocks for weapons, perks, and streaks; weapon levels unlock
-  attachments.
-- Attachments as stat modifiers plus mesh parts: red dot, holo,
-  suppressor (hides you from radar when firing), extended magazine, foregrip,
-  and laser.
-- Challenges and calling cards can reuse the achievement catalog and daily
-  contract.
+Shipped: **attachments**, one per class on the primary. The class editor picks
+it. These are stat changes only; the procedural gun models do not mount the
+parts yet.
+- **Extended Mag**: +50% magazine, and reloads fill to it.
+- **Suppressor**: bots hear your primary at 35% range.
+- **Foregrip**: 20% less recoil drift.
+- **Laser**: 25% tighter hip fire.
+
+Still to do:
+- Mount attachment meshes on the procedural guns (`gfx/weapons/parts.js` has
+  optic, foregrip, and muzzle builders).
+- Weapon levels.
+- Rank unlocks for guns, perks, and streaks.
+- **Ranked respawn modes.** `validateLeaderboardResult` in
+  `src/shared/leaderboard-core.mjs` hard-codes round results: scores 0-8,
+  `roundsPlayed == ct + t`, and deaths ≤ rounds. Its point weights are also
+  round-based. TDM, KC, and DOM need their own validation and a scoring
+  design, and the change ships to the Node server and the Cloudflare Worker
+  together. **Owner decision:** how much should a respawn-mode win be worth
+  against an S&D win?
+- Per-match XP breakdown. Challenges and calling cards from the achievement
+  catalog.
 
 ### Phase 6: More modes
-- **Domination:** three flags. Each map's A, B, and mid points become the
-  flags, and bots get capture and hold goals.
-- **Kill Confirmed:** dog-tag pickups.
-- **Free-for-all**, then **Hardpoint**.
-- **Search & Destroy** (the existing bomb mode) keeps its economy, or swaps to
-  classes. That is a design choice for later.
+Shipped for solo (`src/game/objectives.js`, driven by the respawn engine in
+`tdm.js`). Each mode is a rules entry plus an optional objective object with
+`onDeath`, `update`, `botGoal`, `radarMarkers`, `hud`, and `stop`.
+
+**Kill Confirmed** (first to 30):
+- Each death drops a spinning tag in team colour that lasts 30 s.
+- Enemies confirm it for +1 team score and 100 personal points. Teammates deny
+  it for 50 points.
+- Bots detour for tags within 45 m.
+- Tags show as diamonds on the radar.
+
+**Domination** (first to 150):
+- Flags are symmetric because these bomb maps put both sites near the U.S.
+  spawn. A is 45% of the way from the U.S. spawn to mid, B is the mid defence
+  anchor, and C is 45% of the way from the Russian spawn to mid, each snapped
+  to a nav node. The first layout, which used the bomb sites, ended 58-7 on
+  Harbor in simulation. Each flag has a pole, a cloth, and a ground ring in
+  the owner's colour.
+- Capture:
+  - A 4.5 m radius and 6 s solo. Extra cappers speed it up.
+  - Contested flags freeze.
+  - An enemy flag must be neutralised past zero first.
+  - Unattended flags recover toward their owner.
+- Scoring: +1 per held flag every 5 s. Kills do not score. A capture is worth
+  200 personal points.
+- Bots take flags their side does not hold, otherwise defend one.
+- HUD: A/B/C chips under the score with a capture bar and a contested pulse.
+  The radar shows the flags, and bomb-site letters are hidden.
+- Banners: SECURED, LOST, and NEUTRALIZED.
+
+Both modes use classes, streaks, and spawn protection.
+
+Still to do:
+- Free-for-all.
+- Hardpoint.
+- Domination-aware spawns (spawn near owned flags).
+- Online support for every respawn mode.
 
 ### Phase 7: Presentation
 - Factions (text done): U.S. vs Russia. Still to do:

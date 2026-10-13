@@ -38,7 +38,7 @@
 // ============================================================================
 
 import * as THREE from 'three';
-import TeamDeathmatch, { normalizeModeId } from './tdm.js';
+import TeamDeathmatch, { isRespawnMode, normalizeModeId } from './tdm.js';
 
 // --- Tuning local to this module (everything match-critical is in CONFIG) ---
 const MENU_AUTOSTART_DELAY = 0.5; // s, debug (?test) auto-start
@@ -232,7 +232,7 @@ export default class Rounds {
       return;
     }
 
-    if (s.mode === 'tdm' && s.phase !== 'menu') {
+    if (isRespawnMode(s.mode) && s.phase !== 'menu') {
       if (s.phase === 'freeze') {
         s.timer -= dt;
         if (s.timer <= 0) this.tdm.goLive();
@@ -523,8 +523,13 @@ export default class Rounds {
     }
 
     this._resetBombState();
-    if (player) player.perk = null; // perks belong to respawn-mode classes
-    if (s.mode === 'tdm') {
+    if (player) {
+      // perks and attachments belong to respawn-mode classes
+      player.perk = null;
+      player.attachment = null;
+    }
+    this.tdm.stopObjective();
+    if (isRespawnMode(s.mode)) {
       this.tdm.startMatch();
       return;
     }

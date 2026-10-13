@@ -14,6 +14,7 @@
 // ============================================================================
 
 import * as THREE from 'three';
+import { isRespawnMode } from './tdm.js';
 
 export const STREAKS = Object.freeze({
   uav: Object.freeze({ id: 'uav', key: '5', label: 'UAV', cost: 500, duration: 30 }),
@@ -64,7 +65,7 @@ export default class Scorestreaks {
   /** Streaks only run in solo respawn modes. */
   enabled() {
     const g = this.game;
-    return g.state.mode === 'tdm' && !(g.multiplayer && g.multiplayer.active);
+    return isRespawnMode(g.state.mode) && !(g.multiplayer && g.multiplayer.active);
   }
 
   uavActive() {

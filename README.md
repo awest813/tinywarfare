@@ -37,6 +37,10 @@ The two sides are **U.S. Forces** (defenders) and **Russian Forces** (attackers)
 
 - **Search & Destroy** (solo or online): the original round-based bomb mode
   with an economy and buy menu. First side to 8 rounds wins.
+- **Kill Confirmed** (solo vs bots): every death drops a dog tag. Grab enemy
+  tags to score and your own team's to deny them. First to 30.
+- **Domination** (solo vs bots): capture and hold flags A (near the U.S.
+  side), B (mid), and C (near the Russian side). Every held flag scores a point every 5 seconds. First to 150.
 - **Team Deathmatch** (solo vs bots): respawn after 3 seconds with an
   M4/AK starter class. First side to 50 kills, or the higher score after
   10 minutes, wins. Pick it in the menu's MODE row.

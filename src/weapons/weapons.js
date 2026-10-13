@@ -17,7 +17,7 @@
 
 import * as THREE from 'three';
 import { WEAPONS, GEAR, BUY_MENU } from './data.js';
-import { PERK_TUNING, hasPerk } from '../game/loadouts.js';
+import { PERK_TUNING, hasAttachment, hasPerk } from '../game/loadouts.js';
 
 const SWITCH_TIME = 0.6;        // standard raise time
 const FAST_SWITCH_TIME = 0.35;  // post-throw / round-start raise
@@ -142,6 +142,15 @@ export default class Weapons {
     return mult;
   }
 
+  /** Magazine size including an extended-mag attachment on the primary. */
+  magSizeOf(def) {
+    if (!def) return 0;
+    if (def.slot === 1 && hasAttachment(this.game.player, 'extmag')) {
+      return Math.round(def.magSize * PERK_TUNING.EXTMAG_SCALE);
+    }
+    return def.magSize;
+  }
+
   /** 0 (hip) .. 1 (fully aimed down sights). */
   adsFraction() {
     return this.adsT;
@@ -203,6 +212,7 @@ export default class Weapons {
 
     if (p && p.crouching) spread *= 0.8;
     if (this.adsT > 0) spread *= 1 - (1 - ADS_SPREAD_SCALE) * this.adsT;
+    if (def.slot === 1 && this.adsT < 0.5 && hasAttachment(p, 'laser')) spread *= PERK_TUNING.LASER_HIP_SPREAD;
     return spread;
   }
 
@@ -311,7 +321,7 @@ export default class Weapons {
     const old = this.slots[def.slot];
     if (old && old !== id) delete this.ammo[old];
     this.slots[def.slot] = id;
-    this.ammo[id] = { mag: def.magSize, reserve: def.reserve };
+    this.ammo[id] = { mag: this.magSizeOf(def), reserve: def.reserve };
     return true;
   }
 
@@ -487,7 +497,7 @@ export default class Weapons {
         const rdef = this.current();
         const ammo = this.ammo[rdef.id];
         if (ammo && rdef.magSize > 0) {
-          const take = Math.min(rdef.magSize - ammo.mag, ammo.reserve);
+          const take = Math.min(this.magSizeOf(rdef) - ammo.mag, ammo.reserve);
           ammo.mag += take;
           ammo.reserve -= take;
         }
@@ -744,6 +754,10 @@ export default class Weapons {
       kp = pat[idx].p;
       ky = pat[idx].y;
     }
+    if (def.slot === 1 && hasAttachment(player, 'grip')) {
+      kp *= PERK_TUNING.GRIP_RECOIL;
+      ky *= PERK_TUNING.GRIP_RECOIL;
+    }
     this._driftP = Math.min(DRIFT_CLAMP, this._driftP + kp);
     this._driftY = clamp(this._driftY + ky, -DRIFT_CLAMP, DRIFT_CLAMP);
     this._recoilIndexF = Math.min(pat && pat.length ? pat.length : 30, this._recoilIndexF + 1);
@@ -898,7 +912,7 @@ export default class Weapons {
       return;
     }
     const ammo = this.ammo[def.id];
-    if (!ammo || ammo.reserve <= 0 || ammo.mag >= def.magSize) return;
+    if (!ammo || ammo.reserve <= 0 || ammo.mag >= this.magSizeOf(def)) return;
     const player = this.game.player;
     if (player && player.alive === false) return;
 

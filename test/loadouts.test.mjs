@@ -100,3 +100,30 @@ test('perks change reloads, swaps, and explosive damage', () => {
   game.player.takeDamage(10, { weapon: 'ak47' });
   assert.equal(game.player.health, 100 - Math.round(60 * PERK_TUNING.FLAK_SCALE) - 10);
 });
+
+test('attachments: extended mags reload to the larger size and grips cut recoil', () => {
+  const game = makeGame();
+  const w = game.weapons;
+  game.player.attachment = 'extmag';
+  w.give('m4a1');
+  assert.equal(w.ammo.m4a1.mag, Math.round(30 * PERK_TUNING.EXTMAG_SCALE));
+  w.currentId = 'm4a1';
+  w._state = 'idle';
+  w.ammo.m4a1.mag = 2;
+  w._startReload();
+  w.update(5);
+  assert.equal(w.ammo.m4a1.mag, 45);
+
+  const drift = (attachment) => {
+    game.player.attachment = attachment;
+    w._driftP = 0;
+    w._recoilIndexF = 5;
+    w._fireShot(w.current(), { ...game.player, eyePos: () => new THREE.Vector3(0, 1.6, 0), addViewPunch() {} }, false);
+    return w._driftP;
+  };
+  assert.ok(Math.abs(drift('grip') - drift(null) * PERK_TUNING.GRIP_RECOIL) < 1e-9);
+
+  // Stored classes without an attachment get the slot default.
+  const fixed = sanitizeClass({ primary: 'ak47' }, DEFAULT_CLASSES[3]);
+  assert.equal(fixed.attachment, 'extmag');
+});

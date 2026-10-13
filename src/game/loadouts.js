@@ -25,23 +25,43 @@ export const PERKS = Object.freeze({
 });
 export const PERK_IDS = Object.freeze(Object.keys(PERKS));
 
+// One attachment on the primary. Stat changes only for now: the procedural
+// gun models do not yet mount the parts.
+export const ATTACHMENTS = Object.freeze({
+  none: Object.freeze({ id: 'none', label: 'NO ATTACHMENT', short: '—', detail: '' }),
+  extmag: Object.freeze({ id: 'extmag', label: 'EXTENDED MAG', short: 'EXT MAG', detail: '+50% magazine' }),
+  suppressor: Object.freeze({ id: 'suppressor', label: 'SUPPRESSOR', short: 'SUPP', detail: 'Bots hear your shots at a third of the range' }),
+  grip: Object.freeze({ id: 'grip', label: 'FOREGRIP', short: 'GRIP', detail: '20% less recoil' }),
+  laser: Object.freeze({ id: 'laser', label: 'LASER', short: 'LASER', detail: '25% tighter hip fire' }),
+});
+export const ATTACHMENT_IDS = Object.freeze(Object.keys(ATTACHMENTS));
+
 export const PERK_TUNING = Object.freeze({
   LIGHTWEIGHT_SPEED: 1.08,
   QUICKHANDS_RELOAD: 0.65,
   QUICKHANDS_SWAP: 0.6,
   GHOST_FOOTSTEP_RANGE: 0.45,
   FLAK_SCALE: 0.45,
+  EXTMAG_SCALE: 1.5,
+  SUPPRESSOR_HEARING: 0.35,
+  GRIP_RECOIL: 0.8,
+  LASER_HIP_SPREAD: 0.75,
 });
 
 export const EXPLOSIVE_WEAPONS = Object.freeze(new Set(['hegrenade', 'airstrike', 'c4']));
 
 export const DEFAULT_CLASSES = Object.freeze([
-  Object.freeze({ name: 'ASSAULT', primary: 'm4a1', secondary: 'usp', lethal: 'hegrenade', tactical: 'flashbang', perk: 'quickhands' }),
-  Object.freeze({ name: 'CLOSE QUARTERS', primary: 'mp5', secondary: 'deagle', lethal: 'hegrenade', tactical: 'flashbang', perk: 'lightweight' }),
-  Object.freeze({ name: 'RECON SNIPER', primary: 'awp', secondary: 'usp', lethal: 'hegrenade', tactical: 'smokegrenade', perk: 'ghost' }),
-  Object.freeze({ name: 'RIFLEMAN', primary: 'ak47', secondary: 'glock', lethal: 'hegrenade', tactical: 'smokegrenade', perk: 'flakjacket' }),
-  Object.freeze({ name: 'CUSTOM', primary: 'm4a1', secondary: 'deagle', lethal: 'hegrenade', tactical: 'flashbang', perk: 'lightweight' }),
+  Object.freeze({ name: 'ASSAULT', primary: 'm4a1', attachment: 'grip', secondary: 'usp', lethal: 'hegrenade', tactical: 'flashbang', perk: 'quickhands' }),
+  Object.freeze({ name: 'CLOSE QUARTERS', primary: 'mp5', attachment: 'laser', secondary: 'deagle', lethal: 'hegrenade', tactical: 'flashbang', perk: 'lightweight' }),
+  Object.freeze({ name: 'RECON SNIPER', primary: 'awp', attachment: 'suppressor', secondary: 'usp', lethal: 'hegrenade', tactical: 'smokegrenade', perk: 'ghost' }),
+  Object.freeze({ name: 'RIFLEMAN', primary: 'ak47', attachment: 'extmag', secondary: 'glock', lethal: 'hegrenade', tactical: 'smokegrenade', perk: 'flakjacket' }),
+  Object.freeze({ name: 'CUSTOM', primary: 'm4a1', attachment: 'none', secondary: 'deagle', lethal: 'hegrenade', tactical: 'flashbang', perk: 'lightweight' }),
 ]);
+
+/** True when `actor` carries this attachment on its primary. */
+export function hasAttachment(actor, id) {
+  return !!actor && actor.attachment === id;
+}
 
 /** True when `actor` (player or bot) runs the given perk. */
 export function hasPerk(actor, id) {
@@ -63,6 +83,7 @@ export function sanitizeClass(value, fallback) {
   return {
     name,
     primary: pick(src.primary, PRIMARIES, fallback.primary),
+    attachment: pick(src.attachment, ATTACHMENT_IDS, fallback.attachment),
     secondary: pick(src.secondary, SECONDARIES, fallback.secondary),
     lethal: pick(src.lethal, LETHALS, fallback.lethal),
     tactical: pick(src.tactical, TACTICALS, fallback.tactical),
@@ -123,7 +144,7 @@ export default class Loadouts {
   // While dead in a respawn mode, the weapon keys pick the next class.
   _onKey(key) {
     const g = this.game;
-    if (!g || g.state?.mode !== 'tdm' || !g.player || g.player.alive !== false) return;
+    if (!g || !['tdm', 'kc', 'dom'].includes(g.state?.mode) || !g.player || g.player.alive !== false) return;
     if (!/^[1-5]$/.test(String(key))) return;
     this.select(Number(key) - 1);
   }

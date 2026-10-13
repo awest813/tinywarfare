@@ -445,7 +445,7 @@ export class LeaderboardClient {
       });
       return;
     }
-    if (result.mode === 'tdm') {
+    if (['tdm', 'kc', 'dom'].includes(result.mode)) {
       // Server-side validation only understands round-based results so far.
       this.game?.events?.emit('leaderboard:unranked', { matchId: null, reason: 'mode' });
       return;
