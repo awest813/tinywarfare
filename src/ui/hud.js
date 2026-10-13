@@ -2068,6 +2068,19 @@ export default class HUD {
     }
     if (!vis) return;
 
+    // Aimed down sights the gun's own sight is the reticle: fade the lines,
+    // keep the centre dot. Sprinting hides the crosshair (no hip fire).
+    const ads = !!(w && typeof w.adsFraction === 'function' && w.adsFraction() > 0.55);
+    const sprint = !!(p && p.sprinting);
+    const mode = ads ? 'ads' : sprint ? 'sprint' : '';
+    if (mode !== c.crossMode) {
+      c.crossMode = mode;
+      if (this._el.crosshair) {
+        this._el.crosshair.classList.toggle('ads', ads);
+        this._el.crosshair.classList.toggle('sprint', sprint && !ads);
+      }
+    }
+
     const spread = (w && typeof w.currentSpread === 'function') ? w.currentSpread() : 0.012;
     let gap = 2.5 + clamp(spread, 0, 0.085) * 900;
     gap = Math.round(gap * 2) / 2;
@@ -3675,6 +3688,8 @@ export default class HUD {
 .ch-h { width: 8px; height: 2px; left: 0; top: -1px; }
 .ch-v { width: 2px; height: 8px; top: 0; left: -1px; }
 .ch-dot { width: 2px; height: 2px; left: -1px; top: -1px; }
+#hud-crosshair .ch { transition: opacity .12s; }
+#hud-crosshair.ads .ch:not(.ch-dot), #hud-crosshair.sprint .ch { opacity: 0; }
 
 /* ---------- hitmarker ---------- */
 #hud-hitmarker {

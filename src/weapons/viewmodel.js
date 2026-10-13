@@ -49,6 +49,21 @@ import { shapeMasks } from '../gfx/weapons/build.js';
 const PIVOT_X = 0.15;
 const PIVOT_Y = -0.145;
 const PIVOT_Z = -0.24;
+// Aim-down-sights pivot: gun centred under the camera with the sight line
+// close to the view axis. Sway and bob are mostly suppressed while aimed.
+const ADS_PIVOT_X = 0.019;
+const ADS_PIVOT_Y = -0.095;
+const ADS_PIVOT_Z = -0.2;
+const ADS_SWAY_KEEP = 0.25;
+// Per-model nudges so each sight line lands on the screen centre (measured
+// from ADS renders at the default FOV).
+const ADS_TRIM = {
+  ak47: [0, 0.026],
+  mp5: [0.014, 0.02],
+  usp: [0.03, 0.066],
+  glock: [0.026, 0.07],
+  deagle: [0.03, 0.062],
+};
 
 const KICK_RECOVER = 9.5;       // 1/s exponential recovery of fire kick
 const KICK_MAX = 1.6;           // clamp on stacked kick impulses
@@ -647,6 +662,7 @@ export default class ViewModel {
     // landing dip / air float
     this._landK = 0;
     this._airY = 0;
+    this._sprint = 0;
 
     // equip raise
     this._equipT = 1;
@@ -867,28 +883,45 @@ export default class ViewModel {
     if (!show) return; // hidden: skip pose composition + matrix flush
 
     // ---- compose pivot offsets --------------------------------------------
-    let px = PIVOT_X;
-    let py = PIVOT_Y;
-    let pz = PIVOT_Z;
+    const adsRaw = weapons && typeof weapons.adsFraction === 'function' ? weapons.adsFraction() : 0;
+    const ads = adsRaw * adsRaw * (3 - 2 * adsRaw);
+    const sway = 1 - (1 - ADS_SWAY_KEEP) * ads;
+    const sprintTarget = player && player.sprinting ? 1 : 0;
+    this._sprint = (this._sprint || 0) + (sprintTarget - (this._sprint || 0)) * (1 - Math.exp(-10 * dt));
+    const trim = ADS_TRIM[this._currentId];
+    let px = PIVOT_X + (ADS_PIVOT_X + (trim ? trim[0] : 0) - PIVOT_X) * ads;
+    let py = PIVOT_Y + (ADS_PIVOT_Y + (trim ? trim[1] : 0) - PIVOT_Y) * ads;
+    let pz = PIVOT_Z + (ADS_PIVOT_Z - PIVOT_Z) * ads;
     let rx = 0;
     let ry = 0;
     let rz = 0;
 
     // idle breathing (fades out while moving)
     const idle = 1 - this._bobAmp;
-    py += Math.sin(this._t * 1.5) * 0.0014 * idle;
-    px += Math.sin(this._t * 0.9) * 0.0008 * idle;
-    ry += Math.sin(this._t * 0.7) * 0.0022 * idle;
+    py += Math.sin(this._t * 1.5) * 0.0014 * idle * sway;
+    px += Math.sin(this._t * 0.9) * 0.0008 * idle * sway;
+    ry += Math.sin(this._t * 0.7) * 0.0022 * idle * sway;
 
     // look-lag sway
-    px += clamp(this._yawVel * SWAY_POS_X, -SWAY_POS_CLAMP, SWAY_POS_CLAMP);
-    py += clamp(-this._pitchVel * SWAY_POS_Y, -SWAY_POS_CLAMP, SWAY_POS_CLAMP);
-    ry += clamp(-this._yawVel * SWAY_ROT_Y, -SWAY_ROT_CLAMP, SWAY_ROT_CLAMP);
-    rx += clamp(-this._pitchVel * SWAY_ROT_X, -SWAY_ROT_CLAMP, SWAY_ROT_CLAMP);
+    px += clamp(this._yawVel * SWAY_POS_X, -SWAY_POS_CLAMP, SWAY_POS_CLAMP) * sway;
+    py += clamp(-this._pitchVel * SWAY_POS_Y, -SWAY_POS_CLAMP, SWAY_POS_CLAMP) * sway;
+    ry += clamp(-this._yawVel * SWAY_ROT_Y, -SWAY_ROT_CLAMP, SWAY_ROT_CLAMP) * sway;
+    rx += clamp(-this._pitchVel * SWAY_ROT_X, -SWAY_ROT_CLAMP, SWAY_ROT_CLAMP) * sway;
+
+    // sprint carry: gun swings low and across the chest
+    const sp = this._sprint;
+    if (sp > 0.001) {
+      px -= 0.035 * sp;
+      py -= 0.04 * sp;
+      pz += 0.02 * sp;
+      rx -= 0.3 * sp;
+      ry += 0.62 * sp;
+      rz += 0.22 * sp;
+    }
 
     // run/walk bob
     const ph = this._bobPhase;
-    const amp = this._bobAmp;
+    const amp = this._bobAmp * sway * (1 + 0.6 * sp);
     px += Math.sin(ph) * BOB_AMP_X * amp;
     py += -Math.abs(Math.sin(ph)) * BOB_AMP_Y * amp;
     rz += Math.sin(ph) * BOB_AMP_ROLL * amp;

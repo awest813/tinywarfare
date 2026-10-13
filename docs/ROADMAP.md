@@ -133,19 +133,36 @@ Still to do for Phase 1:
   currently plugs in as a delegate.
 
 ### Phase 2: Movement and gunfeel
-- **Sprint** becomes the default on Shift (hold or toggle in settings). Walk
-  moves to a rebindable key. Add a sprint-to-fire delay per weapon class and
-  no firing while sprinting.
-- **ADS on every weapon:** `adsFov`, ADS time, a spread multiplier, a move
-  speed penalty, and an ADS viewmodel pose in `weapons/viewmodel.js`. The
-  AWP keeps its scope levels. Right-click hold or toggle.
-- **Slide** from sprint plus crouch, with a short cooldown. Optional mantle onto
-  waist-high crates, which the maps already have plenty of.
-- Feel: visible recoil that tracks the drift, an 80 ms input buffer for
-  semi-auto and ADS clicks, ramped jump and crouch inaccuracy, and a landing
-  penalty.
-- Hitmarker variants (body, head, kill) with audio, including hits on remote
-  players.
+Shipped:
+- **Sprint** is on Shift: 6.7 m/s, forward only. Firing, aiming, scoping, or a
+  grenade wind-up breaks it. A per-class sprint-out delay comes before the
+  first shot (rifles 0.22 s, pistols 0.13 s, AWP 0.32 s), and a click made
+  during sprint-out fires when the delay ends.
+  - Walk moved to C. Saved layouts with Walk on Shift migrate to Sprint on
+    Shift and Walk on C.
+  - On touch, pushing the stick fully forward sprints.
+- **ADS on every non-sniper gun**: hold right mouse. ADS takes 0.22 s on
+  rifles and SMGs and 0.15 s on pistols. At full ADS:
+  - FOV narrows 20% (pistols 12%), and look sensitivity scales with the FOV.
+  - Spread is ×0.55 and movement speed ×0.72.
+  - The crosshair lines fade, leaving the centre dot.
+  - The viewmodel pose is centred, with a per-gun trim measured from renders
+    so each sight lands on the screen centre. Sway and bob are mostly
+    suppressed.
+  - Hip-fire tuning is unchanged. The AWP keeps its scope.
+- **Slide**: crouch out of a grounded sprint launches an 8.4 m/s committed
+  slide (0.8 s, low friction, no steering). It ends early below 2.6 m/s.
+  Slide-jump keeps the speed. Cooldown is 0.9 s.
+- The viewmodel carries the gun low and across the chest while sprinting.
+  The crosshair hides while sprinting.
+- Fixed-step simulation and exact jump integration (see the audit section).
+
+Still to do:
+- Visible recoil that tracks the drift.
+- An 80 ms input buffer for ADS clicks during weapon raise.
+- Ramped jump and crouch inaccuracy, and a landing penalty.
+- Mantle.
+- Replicate `sprinting` and `sliding` to remote players' animation.
 
 ### Phase 3: Create-a-class
 - Class slots: primary, secondary, lethal, tactical, and three perks. Five

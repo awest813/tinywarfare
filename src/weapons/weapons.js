@@ -28,6 +28,16 @@ const FOV_LERP_RATE = 12;       // per-second exponential fov approach
 const DRIFT_CLAMP = 0.22;       // max accumulated aim drift (rad)
 const SCOPED_MOVE_SCALE = 0.55; // extra move slowdown while scoped (feel)
 
+// Aim down sights (every gun without a scope). Hip fire keeps the original
+// tuning; ADS tightens it, zooms the view, and slows the walk.
+const ADS_SPREAD_SCALE = 0.55;  // spread multiplier at full ADS
+const ADS_MOVE_SCALE = 0.72;    // move speed multiplier at full ADS
+const ADS_ZOOM = { 1: 0.2, 2: 0.12 }; // fov reduction by slot at full ADS
+const ADS_TIME = { 1: 0.22, 2: 0.15 }; // s from hip to full ADS by slot
+// Sprint-out: delay between leaving a sprint and the first shot.
+const SPRINT_OUT = { 1: 0.22, 2: 0.13, 3: 0.08, 4: 0.15 };
+const SPRINT_OUT_SCOPED = 0.32;
+
 function clamp(v, lo, hi) {
   return v < lo ? lo : v > hi ? hi : v;
 }
@@ -51,6 +61,7 @@ export default class Weapons {
     this.currentId = 'knife';
     this.lastWeaponId = null;
     this.scopeLevel = 0;         // 0 / 1 / 2
+    this.adsT = 0;               // 0 hip .. 1 fully aimed down sights
 
     // ---- internal state machine -------------------------------------------
     this._now = 0;
@@ -83,6 +94,8 @@ export default class Weapons {
     this._rescopeLevel = 0;
 
     this._everReset = false;
+    this._wasSprinting = false;
+    this._sprintRecoverAt = 0;
 
     // Scratch vectors (never allocated per frame).
     this._fwd = new THREE.Vector3();
@@ -124,7 +137,39 @@ export default class Weapons {
     const def = this.current();
     let mult = def && typeof def.moveSpeedMult === 'number' ? def.moveSpeedMult : 1;
     if (this.scopeLevel > 0) mult *= SCOPED_MOVE_SCALE;
+    mult *= 1 - (1 - ADS_MOVE_SCALE) * this.adsT;
     return mult;
+  }
+
+  /** 0 (hip) .. 1 (fully aimed down sights). */
+  adsFraction() {
+    return this.adsT;
+  }
+
+  /** Look sensitivity multiplier that keeps ADS tracking speed constant. */
+  adsSensitivityScale() {
+    if (this.scopeLevel > 0) return 1;
+    return clamp(this._fovCurrent / this._baseFov(), 0.5, 1);
+  }
+
+  /** True when the trigger, aim, or a throw should stop the player sprinting. */
+  blocksSprint() {
+    const input = this.game.input;
+    return !!(
+      (input && (input.firing || input.aiming)) ||
+      this.scopeLevel > 0 ||
+      this._state === 'winding' ||
+      this._state === 'throwing'
+    );
+  }
+
+  _sprintOutTime(def) {
+    if (def && def.zoomFov) return SPRINT_OUT_SCOPED;
+    return SPRINT_OUT[def && def.slot] || 0.15;
+  }
+
+  _canAds(def) {
+    return !!(def && !def.melee && def.slot !== 4 && !def.zoomFov && ADS_TIME[def.slot]);
   }
 
   // Total cone half-angle (rad). HUD crosshair gap reads this every frame.
@@ -156,6 +201,7 @@ export default class Weapons {
     spread += this._bloom;
 
     if (p && p.crouching) spread *= 0.8;
+    if (this.adsT > 0) spread *= 1 - (1 - ADS_SPREAD_SCALE) * this.adsT;
     return spread;
   }
 
@@ -420,6 +466,8 @@ export default class Weapons {
       // Dead / menu: no shooting, no scope. Drop any in-progress action.
       if (this.scopeLevel > 0 || this._fovTarget !== this._baseFov()) this._unscope();
       if (this._state === 'winding' || this._state === 'throwing') this._state = 'idle';
+      this.adsT = 0;
+      this._wasSprinting = false;
       this._semiQueued = false;
       this._rmbQueued = false;
       this._releaseQueued = false;
@@ -481,6 +529,17 @@ export default class Weapons {
     const held = !!(input && input.firing && input.locked !== false);
     const isGrenade = def.slot === 4;
 
+    // ---- sprint: no firing while sprinting, then a short sprint-out --------
+    const sprinting = !!(player && player.sprinting);
+    if (this._wasSprinting && !sprinting) {
+      this._sprintRecoverAt = this._now + this._sprintOutTime(def);
+    }
+    this._wasSprinting = sprinting;
+    const sprintLocked = sprinting || this._now < this._sprintRecoverAt;
+
+    // ---- aim down sights ---------------------------------------------------
+    this._updateAds(dt, def, input, buyOpen, sprinting);
+
     // ---- grenade wind-up / release ----------------------------------------
     if (this._state === 'winding') {
       if (!isGrenade || phase === 'freeze' || buyOpen) {
@@ -499,7 +558,8 @@ export default class Weapons {
       this._state === 'equipping' ||
       this._state === 'reloading' ||
       this._state === 'winding' ||
-      this._state === 'throwing';
+      this._state === 'throwing' ||
+      sprintLocked;
 
     // ---- trigger -----------------------------------------------------------
     if (!fireBlocked) {
@@ -514,7 +574,8 @@ export default class Weapons {
         this._tryFire(def, player);
       }
     }
-    this._semiQueued = false;
+    // A click that only lost to the sprint-out fires as soon as it ends.
+    if (!(sprintLocked && !sprinting && this._semiQueued)) this._semiQueued = false;
     this._releaseQueued = false;
 
     // ---- recoil / bloom recovery (trigger discipline pays off) -------------
@@ -819,6 +880,7 @@ export default class Weapons {
     this._stateT = 0;
     this._stateDur = 0;
     this._thrown = false;
+    this.adsT = 0;
     this._unscope();
   }
 
@@ -848,6 +910,26 @@ export default class Weapons {
   // ==========================================================================
   // Scope / FOV
   // ==========================================================================
+  _updateAds(dt, def, input, buyOpen, sprinting) {
+    const can = this._canAds(def);
+    const want = can && !!(input && input.aiming) && !buyOpen && !sprinting &&
+      this._state !== 'reloading' && this._state !== 'equipping';
+    const rate = can ? 1 / ADS_TIME[def.slot] : 8;
+    this.adsT = want ? Math.min(1, this.adsT + dt * rate) : Math.max(0, this.adsT - dt * rate);
+    if (can && this.scopeLevel === 0 && this._rescopeAt < 0) {
+      const e = this.adsT * this.adsT * (3 - 2 * this.adsT);
+      const fov = this._baseFov() * (1 - ADS_ZOOM[def.slot] * e);
+      // ADS already eases; drive the camera directly instead of re-smoothing.
+      this._fovTarget = fov;
+      this._fovCurrent = fov;
+      const cam = this.game.camera;
+      if (cam && Math.abs(cam.fov - fov) > 1e-3) {
+        cam.fov = fov;
+        cam.updateProjectionMatrix();
+      }
+    }
+  }
+
   _baseFov() {
     const cfg = this.game.config;
     return (cfg && cfg.PLAYER && cfg.PLAYER.FOV) || 74;

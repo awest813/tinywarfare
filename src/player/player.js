@@ -32,6 +32,11 @@ const FOOTSTEP_MIN_SPEED = 2;    // m/s: below this no footsteps
 const LAND_MIN_SPEED = 3;        // m/s down: emits 'player:land' + dip
 const JUMP_BUFFER = 0.15;        // s: pressing jump slightly early still hops
 const JUMP_COOLDOWN = 0.25;      // s between jumps (prevents pogo jitter)
+const SLIDE_TIME = 0.8;          // s a sprint-slide lasts at most
+const SLIDE_SPEED = 8.4;         // m/s launch speed (floor, never a slowdown)
+const SLIDE_FRICTION = 1.5;      // 1/s ground friction while sliding
+const SLIDE_END_SPEED = 2.6;     // m/s: slower than this ends the slide
+const SLIDE_COOLDOWN = 0.9;      // s after a slide before the next one
 const DIP_SPRING_K = 130;        // landing-dip spring stiffness
 const DIP_SPRING_C = 13;         // landing-dip damping (slightly underdamped)
 const DIP_PER_MS = 0.028;        // dip impulse per m/s of landing speed
@@ -85,6 +90,11 @@ export default class Player {
     this.onGround = false;
     this.crouching = false;
     this.walking = false;
+    this.sprinting = false;
+    this.sliding = false;
+    this._slideT = 0;
+    this._slideCooldown = 0;
+    this._crouchKeyPrev = false;
     this.moveSpeed2D = 0;
     this.eyeHeight = P.EYE_STAND;
     this.radius = P.RADIUS;
@@ -274,6 +284,10 @@ export default class Player {
     this.onGround = false;
     this.crouching = false;
     this.walking = false;
+    this.sprinting = false;
+    this.sliding = false;
+    this._slideT = 0;
+    this._slideCooldown = 0;
     this.moveSpeed2D = 0;
     this._heightCur = P.HEIGHT_STAND;
     this.eyeHeight = P.EYE_STAND;
@@ -371,7 +385,12 @@ export default class Player {
       : 0;
     // Scoped aim keeps its existing zoom ratios; the device preference is a
     // multiplier on the shipped base feel and updates without rebuilding Player.
-    const sens = lookSensitivityFor(this.game.settings?.lookSensitivity, scopeLevel);
+    let sens = lookSensitivityFor(this.game.settings?.lookSensitivity, scopeLevel);
+    // Aiming down sights zooms the view; scale turn rate with it so the
+    // crosshair tracks at the same on-screen speed.
+    if (!scopeLevel && weapons && typeof weapons.adsSensitivityScale === 'function') {
+      sens *= weapons.adsSensitivityScale();
+    }
 
     this.yaw -= look.dx * sens;
     this.pitch -= look.dy * sens;
@@ -403,8 +422,27 @@ export default class Player {
       : 0;
 
     // -- crouch / walk intent --
-    const wantCrouch = down('control');
-    const walkKey = down('shift');
+    const crouchKey = down('control');
+    // Crouch pressed out of a grounded sprint launches a slide.
+    if (crouchKey && !this._crouchKeyPrev && this.sprinting && this.onGround &&
+        !moveLocked && this._slideCooldown <= 0) {
+      this._slideT = SLIDE_TIME;
+      this._slideCooldown = SLIDE_TIME + SLIDE_COOLDOWN;
+      const along = Math.max(Math.hypot(v.x, v.z), SLIDE_SPEED);
+      v.x = -Math.sin(this.yaw) * along;
+      v.z = -Math.cos(this.yaw) * along;
+      game.events.emit('player:slide', { pos: this.position });
+    }
+    this._crouchKeyPrev = crouchKey;
+    this._slideCooldown = Math.max(0, this._slideCooldown - dt);
+    if (this._slideT > 0) {
+      this._slideT -= dt;
+      if (!this.onGround || Math.hypot(v.x, v.z) < SLIDE_END_SPEED) this._slideT = 0;
+    }
+    this.sliding = this._slideT > 0;
+    const wantCrouch = crouchKey || this.sliding;
+    const walkKey = down('c');
+    const sprintKey = down('shift');
     // A partially deflected stick is the mobile equivalent of Shift-walking:
     // speed remains analog while the replicated walking flag stays accurate.
     const analogWalk = analogMagnitude > 0.04 && analogMagnitude < 0.62;
@@ -442,8 +480,15 @@ export default class Player {
     const hasInput = inputMagnitude > 1e-3;
     if (hasInput) _wish.normalize();
 
-    // -- target speed --
+    // -- sprint: forward only, never crouched/walking, and any trigger,
+    //    aim, or throw input breaks it (weapons owns that veto) --
     const weapons = game.weapons;
+    const analogSprint = analogMagnitude > 0.96 && (Number(analog.y) || 0) > 0.85;
+    const sprintVeto = !!(weapons && typeof weapons.blocksSprint === 'function' && weapons.blocksSprint());
+    this.sprinting = !moveLocked && (sprintKey || analogSprint) && fmove > 0.5 &&
+      !this.crouching && !walkKey && !sprintVeto && !this.sliding;
+
+    // -- target speed --
     let mult = 1;
     if (weapons && typeof weapons.currentMoveMult === 'function') {
       const m = weapons.currentMoveMult();
@@ -453,10 +498,25 @@ export default class Player {
       ? P.CROUCH_SPEED
       : walkKey
         ? P.WALK_SPEED
-        : P.RUN_SPEED;
+        : this.sprinting
+          ? (P.SPRINT_SPEED || P.RUN_SPEED)
+          : P.RUN_SPEED;
     const wishSpeed = baseSpeed * mult * inputMagnitude;
 
-    if (this.onGround) {
+    if (this.onGround && this.sliding) {
+      // committed slide: momentum only, low friction, no steering
+      const drop = Math.exp(-SLIDE_FRICTION * dt);
+      v.x *= drop;
+      v.z *= drop;
+      if (!moveLocked && this._jumpQueued > 0 && this._jumpCooldown <= 0) {
+        this._slideT = 0; // slide-jump keeps the speed
+        v.y = P.JUMP_VELOCITY;
+        this.onGround = false;
+        this._jumpQueued = 0;
+        this._jumpCooldown = JUMP_COOLDOWN;
+        game.events.emit('player:jump');
+      }
+    } else if (this.onGround) {
       // ground friction — exponential, always applied for decisive stops
       const drop = Math.exp(-P.FRICTION_GROUND * dt);
       v.x *= drop;

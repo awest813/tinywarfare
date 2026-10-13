@@ -36,6 +36,7 @@ export const CONFIG = {
     RADIUS: 0.35,
     RUN_SPEED: 5.2,         // scaled by weapon moveSpeedMult
     WALK_SPEED: 2.4,
+    SPRINT_SPEED: 6.7,      // Shift, forward only; no firing while sprinting
     CROUCH_SPEED: 1.7,
     JUMP_VELOCITY: 4.4,   // apex ~0.48 m; + STEP_HEIGHT mantle clears 0.9 m crates
     GRAVITY: 20,

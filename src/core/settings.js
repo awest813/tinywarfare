@@ -14,7 +14,10 @@ export const KEY_BINDING_DEFINITIONS = Object.freeze([
   Object.freeze({ id: 'moveBackward', label: 'Move Backward', canonicalKey: 's', defaultKey: 's' }),
   Object.freeze({ id: 'moveLeft', label: 'Move Left', canonicalKey: 'a', defaultKey: 'a' }),
   Object.freeze({ id: 'moveRight', label: 'Move Right', canonicalKey: 'd', defaultKey: 'd' }),
-  Object.freeze({ id: 'walk', label: 'Walk', canonicalKey: 'shift', defaultKey: 'shift' }),
+  // Sprint precedes Walk so a saved v1 layout (Walk on Shift) migrates to
+  // Sprint on Shift with Walk falling back to its new default.
+  Object.freeze({ id: 'sprint', label: 'Sprint', canonicalKey: 'shift', defaultKey: 'shift' }),
+  Object.freeze({ id: 'walk', label: 'Walk', canonicalKey: 'c', defaultKey: 'c' }),
   Object.freeze({ id: 'crouch', label: 'Crouch', canonicalKey: 'control', defaultKey: 'control' }),
   Object.freeze({ id: 'jump', label: 'Jump / Next View', canonicalKey: ' ', defaultKey: ' ' }),
   Object.freeze({ id: 'use', label: 'Use / Objective', canonicalKey: 'e', defaultKey: 'e' }),
