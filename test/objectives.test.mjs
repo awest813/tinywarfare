@@ -140,3 +140,74 @@ test('the respawn engine drives KC scoring through dropped tags', () => {
   tdm.update(0.05);
   assert.equal(game.state.scores.ct, 1);
 });
+
+test('Hardpoint: one zone scores for a sole holder, freezes when contested, and rotates', async () => {
+  const { Hardpoint, HP, hardpointZones } = await import('../src/game/objectives.js');
+  const zones = hardpointZones(world());
+  assert.ok(zones.length >= 3, 'mid, home flags and sites');
+  assert.ok(zones[0].equals(v(0, 10)), 'mid goes first');
+
+  const game = makeGame('hp');
+  const hp = new Hardpoint(game);
+  let moved = 0;
+  game.events.on('objective:hardpoint', () => moved++);
+  game.player.position.copy(hp.current());
+  hp.update(3.5);
+  assert.equal(hp.owner, 'ct');
+  assert.equal(game.state.scores.ct, 3, 'one point per second held');
+
+  game.bots.all[0].pos.copy(hp.current());
+  hp.update(2);
+  assert.equal(hp.contested, true);
+  assert.equal(game.state.scores.ct, 3, 'contested time scores nothing');
+
+  hp.update(HP.ROTATE);
+  assert.equal(moved, 1);
+  assert.equal(hp.index, 1);
+  assert.equal(hp.hud()[0].name, 'HP');
+  hp.stop();
+  assert.equal(game.scene.children.length, 0);
+});
+
+test('Domination respawns lean toward flags the team holds', () => {
+  const game = makeGame('dom');
+  game.bots.resetForRound = () => {};
+  game.bots.prepareTdm = () => {};
+  game.player.resetForRound = () => {};
+  const tdm = new TeamDeathmatch(game);
+  tdm.startMatch();
+  tdm.objective.flags[0].owner = 'ct';
+  assert.deepEqual(tdm.objective.spawnAnchors('ct').map((p) => p.toArray()), [tdm.objective.flags[0].pos.toArray()]);
+  assert.deepEqual(tdm.objective.spawnAnchors('t'), []);
+});
+
+test('Free-for-all scores per killer, ignores teams for spawns, and ranks the player', () => {
+  const game = makeGame('ffa');
+  const ally = { team: 'ct', alive: true, pos: v(5, -38), slot: 2, name: 'Ally' };
+  game.bots.all.push(ally);
+  game.bots.resetForRound = () => {};
+  game.bots.prepareTdm = () => {};
+  game.player.resetForRound = () => {};
+  const tdm = new TeamDeathmatch(game);
+  tdm.startMatch();
+  tdm.goLive();
+
+  // A U.S. bot killing the U.S. player scores in FFA.
+  game.player.alive = false;
+  game.events.emit('player:death', { killer: ally });
+  assert.equal(game.state.scores.t, 1, 'leader is the ally bot');
+  game.player.alive = true;
+  for (let i = 0; i < 2; i++) game.events.emit('bot:death', { bot: ally, killer: game.player });
+  assert.equal(game.state.scores.ct, 2);
+  assert.equal(tdm.ffaStandings()[0].actor, game.player);
+
+  let ended = null;
+  game.events.on('game:end', (r) => { ended = r; });
+  for (const b of tdm.ffaStandings()) void b;
+  tdm.ffaKills.set(ally, MODE_RULES.ffa.scoreLimit);
+  game.state.scores.t = MODE_RULES.ffa.scoreLimit;
+  tdm.update(0.01);
+  assert.equal(ended.ffa.place, 2);
+  assert.equal(ended.ffa.leader, 'Ally');
+  assert.notEqual(ended.winner, game.player.team);
+});

@@ -15,6 +15,7 @@ import { weaponInstance, hasWeaponModel } from '../gfx/weapons/registry.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { isRespawnMode } from '../game/tdm.js';
+import { hostile, isFfa } from '../game/hostility.js';
 import {
   SSAO_PARS_FRAGMENT,
   ssaoUniforms,
@@ -1997,7 +1998,7 @@ export default class Bots {
     for (let i = 0; i < this.all.length; i++) {
       const b = this.all[i];
       if (!b.alive || b === sourceBot) continue;
-      if (sourceTeam && b.team === sourceTeam) continue; // own team's noise is expected
+      if (sourceTeam && b.team === sourceTeam && !isFfa(this.game)) continue; // own team's noise is expected
       const dx = pos.x - b.pos.x, dz = pos.z - b.pos.z;
       if (dx * dx + dz * dz > range * range) continue;
       b.heardPos.copy(pos);
@@ -2716,7 +2717,7 @@ export default class Bots {
     let nearest = null;
     let best = Infinity;
     const consider = (actor, pos) => {
-      if (!actor || !actor.alive || !pos || actor.team === bot.team) return;
+      if (!actor || !actor.alive || !pos || !hostile(this.game, actor, bot)) return;
       const d2 = pos.distanceToSquared(bot.pos);
       if (d2 < best) { best = d2; nearest = pos; }
     };
@@ -3000,7 +3001,7 @@ export default class Bots {
     const mp = this.game.multiplayer;
     const humans = mp && mp.active ? mp.humans() : [this.game.player];
     for (const human of humans) {
-      if (!human || human.team === bot.team || !human.alive || !human.position) continue;
+      if (!human || !hostile(this.game, human, bot) || !human.alive || !human.position) continue;
       const d2 = bot.pos.distanceToSquared(human.position);
       if (d2 < bestD2 && this._canSee(bot, human, true)) {
         bestD2 = d2;
@@ -3012,7 +3013,7 @@ export default class Bots {
 
     for (let i = 0; i < this.all.length; i++) {
       const o = this.all[i];
-      if (o.team === bot.team || !o.alive) continue;
+      if (!hostile(this.game, o, bot) || !o.alive) continue;
       const d2 = bot.pos.distanceToSquared(o.pos);
       if (d2 >= bestD2) continue;
       if (this._canSee(bot, o, false)) {
@@ -3083,13 +3084,13 @@ export default class Bots {
     const mp = this.game.multiplayer;
     const humans = mp && mp.active ? mp.humans() : [this.game.player];
     for (const human of humans) {
-      if (!human || human.team === bot.team || !human.alive) continue;
+      if (!human || !hostile(this.game, human, bot) || !human.alive) continue;
       if (bot.pos.distanceToSquared(human.position) > 1600) continue;
       if (this._canSee(bot, human, true)) return true;
     }
     for (let i = 0; i < this.all.length; i++) {
       const o = this.all[i];
-      if (o.team === bot.team || !o.alive) continue;
+      if (!hostile(this.game, o, bot) || !o.alive) continue;
       if (bot.pos.distanceToSquared(o.pos) > 1600) continue; // 40 m quick reject
       if (this._canSee(bot, o, false)) return true;
     }

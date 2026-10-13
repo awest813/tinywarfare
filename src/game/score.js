@@ -63,7 +63,7 @@ export default class MatchScore {
 
   _onKill(e) {
     if (!e || !e.killerIsLocal || e.victimIsLocal) return;
-    if (e.killerTeam && e.victimTeam && e.killerTeam === e.victimTeam) return;
+    if (this.game.state?.mode !== 'ffa' && e.killerTeam && e.victimTeam && e.killerTeam === e.victimTeam) return;
     this.streak += 1;
     this._chain = this._time - this._lastKillAt <= SCORE.MULTI_WINDOW ? this._chain + 1 : 1;
     this._lastKillAt = this._time;

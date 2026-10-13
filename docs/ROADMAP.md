@@ -337,11 +337,27 @@ Shipped for solo (`src/game/objectives.js`, driven by the respawn engine in
 
 Both modes use classes, streaks, and spawn protection.
 
-Still to do:
-- Free-for-all.
-- Hardpoint.
-- Domination-aware spawns (spawn near owned flags).
-- Online support for every respawn mode.
+Also shipped:
+- **Hardpoint** (first to 150):
+  - One zone (5 m radius) that rotates every 60 s: mid first, then the home
+    flags and the bomb sites.
+  - A side holding it alone scores 1 per second. Contested time scores
+    nothing. Holding it alone is worth 50 personal points every 5 s.
+  - It shows as a ring and light beam in the holder's colour, an "HP" chip
+    whose bar is the time left on the zone, a radar marker, and a "HARDPOINT
+    MOVED" banner.
+  - Bots converge on it.
+- **Free-for-all** (first to 30 kills):
+  - Hostility goes through `src/game/hostility.js`. In FFA everyone is an
+    enemy; uniforms are unchanged. This covers bot perception, hunting and
+    hearing, and combat friendly fire (bullets, melee, explosives, semtex).
+  - Kills score for their killer. The HUD reads "YOU n : LEAD n".
+  - Spawns treat everyone as hostile.
+  - The end screen shows your placement ("YOU PLACED 2ND OF 10") and the
+    winner.
+- **Domination spawns** lean toward flags the team holds. Objectives can
+  provide `spawnAnchors(team)`.
+- Online support for every respawn mode is covered by the server work.
 
 ### Phase 7: Presentation
 - Factions (text done): U.S. vs Russia. Still to do:

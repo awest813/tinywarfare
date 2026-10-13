@@ -41,6 +41,9 @@ The two sides are **U.S. Forces** (defenders) and **Russian Forces** (attackers)
   tags to score and your own team's to deny them. First to 30.
 - **Domination** (solo vs bots): capture and hold flags A (near the U.S.
   side), B (mid), and C (near the Russian side). Every held flag scores a point every 5 seconds. First to 150.
+- **Hardpoint** (solo vs bots): hold the single zone, which moves every
+  minute. One point per second while your side holds it alone. First to 150.
+- **Free-for-all** (solo vs bots): no teams, first soldier to 30 kills.
 - **Team Deathmatch** (solo vs bots): respawn after 3 seconds with an
   M4/AK starter class. First side to 50 kills, or the higher score after
   10 minutes, wins. Pick it in the menu's MODE row.

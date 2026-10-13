@@ -191,7 +191,7 @@ export default class Progression {
 
   _onKill(e) {
     if (!e || !e.killerIsLocal || e.victimIsLocal) return;
-    if (e.killerTeam && e.victimTeam && e.killerTeam === e.victimTeam) return;
+    if (this.game?.state?.mode !== 'ffa' && e.killerTeam && e.victimTeam && e.killerTeam === e.victimTeam) return;
     const id = String(e.weaponId || '');
     if (!id) return;
     this._matchKills[id] = (this._matchKills[id] || 0) + 1;

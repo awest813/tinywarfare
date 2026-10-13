@@ -22,10 +22,12 @@ export const GAME_MODES = Object.freeze({
   tdm: Object.freeze({ id: 'tdm', label: 'TEAM DEATHMATCH', short: 'TDM', detail: 'RESPAWN · FIRST TO 50' }),
   kc: Object.freeze({ id: 'kc', label: 'KILL CONFIRMED', short: 'KC', detail: 'COLLECT TAGS · FIRST TO 30' }),
   dom: Object.freeze({ id: 'dom', label: 'DOMINATION', short: 'DOM', detail: 'HOLD FLAGS · FIRST TO 150' }),
+  hp: Object.freeze({ id: 'hp', label: 'HARDPOINT', short: 'HP', detail: 'HOLD THE MOVING ZONE · FIRST TO 150' }),
+  ffa: Object.freeze({ id: 'ffa', label: 'FREE-FOR-ALL', short: 'FFA', detail: 'NO TEAMS · FIRST TO 30' }),
 });
 
 /** Modes driven by the respawn engine in this file. */
-export const RESPAWN_MODES = Object.freeze(new Set(['tdm', 'kc', 'dom']));
+export const RESPAWN_MODES = Object.freeze(new Set(['tdm', 'kc', 'dom', 'hp', 'ffa']));
 
 export function isRespawnMode(mode) {
   return RESPAWN_MODES.has(mode);
@@ -36,6 +38,8 @@ export const MODE_RULES = Object.freeze({
   tdm: Object.freeze({ scoreLimit: 50, killScore: 1, brief: 'FIRST TEAM TO 50 KILLS WINS' }),
   kc: Object.freeze({ scoreLimit: 30, killScore: 0, brief: 'COLLECT ENEMY TAGS TO SCORE · DENY YOURS' }),
   dom: Object.freeze({ scoreLimit: 150, killScore: 0, brief: 'CAPTURE AND HOLD A · B · C' }),
+  hp: Object.freeze({ scoreLimit: 150, killScore: 0, brief: 'HOLD THE HARDPOINT · IT MOVES EVERY MINUTE' }),
+  ffa: Object.freeze({ scoreLimit: 30, killScore: 0, brief: 'NO TEAMS · FIRST SOLDIER TO 30 KILLS WINS' }),
 });
 
 export function modeRules(mode) {
@@ -133,10 +137,11 @@ export default class TeamDeathmatch {
     this._time = 0;
     this._candidates = null;
     this.objective = null;
+    this.ffaKills = new Map();      // actor -> kills (free-for-all)
 
     const ev = game.events;
     ev.on('bot:death', (p) => this._onBotDeath(p));
-    ev.on('player:death', () => this._onPlayerDeath());
+    ev.on('player:death', (p) => this._onPlayerDeath(p));
   }
 
   active() {
@@ -168,6 +173,7 @@ export default class TeamDeathmatch {
     this._candidates = null;
     if (this.objective) this.objective.stop();
     this.objective = createObjective(s.mode, game);
+    this.ffaKills = new Map();
 
     s.round = 1;
     s.phase = 'freeze';
@@ -226,16 +232,44 @@ export default class TeamDeathmatch {
     const bot = p && p.bot;
     if (!bot) return;
     this._score(bot.team);
+    this._ffaCredit(p.killer, bot);
     if (this.objective) this.objective.onDeath(bot.team, bot.pos);
     this._botRespawns.set(bot, this._time + TDM.RESPAWN_DELAY);
   }
 
-  _onPlayerDeath() {
+  _onPlayerDeath(p) {
     if (!this.active() || this.game.state.phase !== 'live') return;
     const player = this.game.player;
     this._score(player ? player.team : 'ct');
+    this._ffaCredit(p && p.killer, player);
     if (this.objective && player) this.objective.onDeath(player.team, player.position);
     this._playerRespawnAt = this._time + TDM.RESPAWN_DELAY;
+  }
+
+  /**
+   * Free-for-all: each kill scores for its killer. state.scores mirrors the
+   * HUD: `ct` is the local player's kills, `t` the best of everyone else.
+   */
+  _ffaCredit(killer, victim) {
+    if (this.game.state.mode !== 'ffa' || !killer || killer === victim) return;
+    const player = this.game.player;
+    const actor = killer === 'player' ? player : killer;
+    if (!actor || typeof actor !== 'object') return;
+    this.ffaKills.set(actor, (this.ffaKills.get(actor) || 0) + 1);
+    const s = this.game.state;
+    s.scores.ct = this.ffaKills.get(player) || 0;
+    let lead = 0;
+    for (const [who, n] of this.ffaKills) if (who !== player && n > lead) lead = n;
+    s.scores.t = lead;
+  }
+
+  /** Free-for-all standings, best first: [{ actor, name, kills }]. */
+  ffaStandings() {
+    const player = this.game.player;
+    const everyone = [player, ...((this.game.bots && this.game.bots.all) || [])].filter(Boolean);
+    return everyone
+      .map((actor) => ({ actor, name: actor === player ? 'You' : actor.name, kills: this.ffaKills.get(actor) || 0 }))
+      .sort((a, b) => b.kills - a.kills || (a.actor === player ? -1 : b.actor === player ? 1 : 0));
   }
 
   /** A death scores for the side opposite the victim. */
@@ -312,14 +346,19 @@ export default class TeamDeathmatch {
   _spawnFor(team, self) {
     const enemies = [];
     const friends = [];
+    const ffa = this.game.state.mode === 'ffa';
     const add = (actor, pos) => {
       if (!actor || actor === self || !actor.alive || !pos) return;
-      (actor.team === team ? friends : enemies).push(pos);
+      (!ffa && actor.team === team ? friends : enemies).push(pos);
     };
     const bots = this.game.bots;
     if (bots && Array.isArray(bots.all)) for (const b of bots.all) add(b, b.pos);
     const player = this.game.player;
     if (player) add(player, player.position);
+    // Objectives can pull spawns (Domination: toward flags this team holds).
+    if (this.objective && typeof this.objective.spawnAnchors === 'function') {
+      for (const pos of this.objective.spawnAnchors(team)) friends.push(pos);
+    }
 
     const world = this.game.world;
     const raycast = world && typeof world.raycast === 'function'
@@ -343,6 +382,25 @@ export default class TeamDeathmatch {
     if (this.objective) {
       this.objective.stop();
       this.objective = null;
+    }
+    if (s.mode === 'ffa') {
+      const standings = this.ffaStandings();
+      const player = this.game.player;
+      const place = Math.max(1, standings.findIndex((row) => row.actor === player) + 1);
+      const team = (player && player.team) || 'ct';
+      this.game.events.emit('game:end', {
+        winner: place === 1 ? team : (team === 'ct' ? 't' : 'ct'),
+        draw: false,
+        mode: s.mode,
+        scores: { ct: s.scores.ct, t: s.scores.t },
+        ffa: {
+          place,
+          total: standings.length,
+          leader: standings[0] ? standings[0].name : '',
+          leaderKills: standings[0] ? standings[0].kills : 0,
+        },
+      });
+      return;
     }
     const winner = s.scores.ct > s.scores.t ? 'ct' : s.scores.t > s.scores.ct ? 't' : null;
     this.game.events.emit('game:end', {

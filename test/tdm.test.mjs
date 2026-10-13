@@ -10,7 +10,8 @@ const v = (x, z) => new THREE.Vector3(x, 0, z);
 test('mode ids normalize to Search & Destroy by default', () => {
   assert.equal(normalizeModeId('tdm'), 'tdm');
   assert.equal(normalizeModeId('sd'), 'sd');
-  assert.equal(normalizeModeId('ffa'), 'sd');
+  assert.equal(normalizeModeId('ffa'), 'ffa');
+  assert.equal(normalizeModeId('gungame'), 'sd');
   assert.equal(normalizeModeId(undefined), 'sd');
   assert.equal(normalizeModeId('__proto__'), 'sd');
 });

@@ -306,6 +306,11 @@ export class Domination {
     return held.length ? held[(bot.slot || 0) % held.length].pos : null;
   }
 
+  /** Owned flags pull this team's respawns toward them. */
+  spawnAnchors(team) {
+    return this.flags.filter((flag) => flag.owner === team).map((flag) => flag.pos);
+  }
+
   /** Points where a defender's kill counts as a defence. */
   isNearFlag(pos) {
     return this.flags.some((flag) => horizontalDistance(flag.pos, pos) <= DOM.RADIUS * 1.6);
@@ -368,8 +373,157 @@ export class Domination {
   }
 }
 
+// ----------------------------------------------------------------------------
+// Hardpoint
+// ----------------------------------------------------------------------------
+
+export const HP = Object.freeze({
+  RADIUS: 5,          // m
+  ROTATE: 60,         // s each zone stays live
+  POINTS_EVERY: 5,    // s of solo holding per personal award
+  HOLD_POINTS: 50,
+});
+
+/** Zone rotation: mid first, then the home flags and the bomb sites. */
+export function hardpointZones(world) {
+  const flags = dominationPoints(world);
+  const zones = [];
+  const add = (pos) => {
+    if (pos && !zones.some((z) => z.distanceTo(pos) < 10)) zones.push(pos.clone());
+  };
+  const mid = flags.find((f) => f.name === 'B');
+  if (mid) add(mid.pos);
+  for (const f of flags) add(f.pos);
+  const sites = world && Array.isArray(world.bombSites) ? world.bombSites : [];
+  for (const site of sites) if (site && site.center) add(site.center);
+  return zones;
+}
+
+export class Hardpoint {
+  constructor(game) {
+    this.game = game;
+    this.zones = hardpointZones(game.world);
+    this.index = 0;
+    this.clock = 0;          // s into the current zone
+    this.owner = null;
+    this.contested = false;
+    this._fraction = { ct: 0, t: 0 };
+    this._personal = 0;
+    this._group = this._buildZone();
+    this._placeZone();
+  }
+
+  current() {
+    return this.zones[this.index] || null;
+  }
+
+  onDeath() {}
+
+  update(dt) {
+    const zone = this.current();
+    if (!zone) return;
+    this.clock += dt;
+    if (this.clock >= HP.ROTATE) {
+      this.clock = 0;
+      this.index = (this.index + 1) % this.zones.length;
+      this.owner = null;
+      this._placeZone();
+      this.game.events.emit('objective:hardpoint', { moved: true, index: this.index });
+    }
+
+    let ct = 0;
+    let t = 0;
+    let playerInside = false;
+    for (const a of livingActors(this.game)) {
+      if (horizontalDistance(a.pos, zone) > HP.RADIUS || Math.abs(a.pos.y - zone.y) > 3) continue;
+      if (a.team === 't') t++; else ct++;
+      if (a.isPlayer) playerInside = true;
+    }
+    this.contested = ct > 0 && t > 0;
+    const holder = this.contested ? null : ct > 0 ? 'ct' : t > 0 ? 't' : null;
+    if (holder !== this.owner) {
+      this.owner = holder;
+      this._paint();
+    }
+    if (!holder) return;
+
+    const s = this.game.state;
+    this._fraction[holder] += dt;
+    while (this._fraction[holder] >= 1) {
+      this._fraction[holder] -= 1;
+      s.scores[holder] = (s.scores[holder] || 0) + 1;
+    }
+    const player = this.game.player;
+    if (playerInside && player && player.team === holder) {
+      this._personal += dt;
+      if (this._personal >= HP.POINTS_EVERY) {
+        this._personal -= HP.POINTS_EVERY;
+        this.game.events.emit('objective:score', { points: HP.HOLD_POINTS, label: 'HARDPOINT SECURED' });
+      }
+    }
+    if (this._group) {
+      this._group.userData.beam.material.opacity = 0.16 + 0.06 * Math.sin(this.clock * 3);
+    }
+  }
+
+  botGoal() {
+    return this.current();
+  }
+
+  radarMarkers() {
+    const zone = this.current();
+    return zone ? [{ x: zone.x, z: zone.z, kind: 'flag', name: 'HP', owner: this.owner, contested: this.contested }] : [];
+  }
+
+  hud() {
+    return this.current()
+      ? [{ name: 'HP', owner: this.owner, control: 1 - this.clock / HP.ROTATE, contested: this.contested }]
+      : null;
+  }
+
+  stop() {
+    if (this._group && this._group.parent) this._group.parent.remove(this._group);
+  }
+
+  _buildZone() {
+    const scene = this.game.scene;
+    if (!scene) return null;
+    const group = new THREE.Group();
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: TEAM_COLOR.neutral, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false,
+    });
+    const ring = new THREE.Mesh(new THREE.RingGeometry(HP.RADIUS - 0.2, HP.RADIUS, 56), ringMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.05;
+    const beamMat = new THREE.MeshBasicMaterial({
+      color: TEAM_COLOR.neutral, transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide,
+    });
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 30, 12, 1, true), beamMat);
+    beam.position.y = 15;
+    group.add(ring, beam);
+    group.userData = { ringMat, beam, beamMat };
+    scene.add(group);
+    return group;
+  }
+
+  _placeZone() {
+    const zone = this.current();
+    if (this._group && zone) this._group.position.copy(zone);
+    this._paint();
+  }
+
+  _paint() {
+    const ud = this._group && this._group.userData;
+    if (!ud) return;
+    const color = TEAM_COLOR[this.owner || 'neutral'];
+    ud.ringMat.color.setHex(color);
+    ud.beamMat.color.setHex(color);
+  }
+}
+
 export function createObjective(mode, game) {
   if (mode === 'kc') return new KillConfirmed(game);
   if (mode === 'dom') return new Domination(game);
+  if (mode === 'hp') return new Hardpoint(game);
   return null;
 }

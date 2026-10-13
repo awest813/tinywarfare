@@ -396,6 +396,8 @@ export default class HUD {
       scorePop: $('hud-score-pop'),
       streaks: $('hud-streaks'),
       objective: $('hud-objective'),
+      scoreCtLabel: $('hud-score-ct-label'),
+      scoreTLabel: $('hud-score-t-label'),
       chL: $('hud-ch-l'), chR: $('hud-ch-r'), chT: $('hud-ch-t'), chB: $('hud-ch-b'),
       hitmarker: $('hud-hitmarker'),
       killcue: $('hud-killcue'),
@@ -1666,6 +1668,7 @@ export default class HUD {
     ev.on('streak:package-landed', () => this._showMsg('', 'CARE PACKAGE ON THE GROUND', 1.4));
     ev.on('streak:package', (d) => this._showMsg(String(d?.label || 'SUPPLIES'),
       d?.reward === 'resupply' ? 'AMMO AND GRENADES REFILLED' : 'BONUS STREAK · PRESS ' + this._bindingLabel('streak3'), 2));
+    ev.on('objective:hardpoint', () => this._showMsg('HARDPOINT MOVED', 'NEW ZONE ON THE RADAR', 1.6));
     ev.on('objective:flag', (d) => {
       const mine = (this.game.player && this.game.player.team) || 'ct';
       if (d?.owner === mine) this._showMsg('FLAG ' + d.name + ' SECURED', '', 1.4);
@@ -2239,6 +2242,12 @@ export default class HUD {
     }
     const showMoney = !respawnMode;
     this._updateObjectiveChips(st);
+    const ffa = st.mode === 'ffa';
+    if (ffa !== c.ffaLabels) {
+      c.ffaLabels = ffa;
+      if (this._el.scoreCtLabel) this._el.scoreCtLabel.textContent = ffa ? 'YOU' : FACTIONS.ct.short;
+      if (this._el.scoreTLabel) this._el.scoreTLabel.textContent = ffa ? 'LEAD' : FACTIONS.t.short;
+    }
     if (showMoney !== c.showMoney) {
       c.showMoney = showMoney;
       if (this._el.moneyBox) this._el.moneyBox.style.display = showMoney ? '' : 'none';
@@ -2263,7 +2272,10 @@ export default class HUD {
     root.hidden = !flags;
     if (!flags) { root.innerHTML = ''; return; }
     root.innerHTML = flags.map((f) => {
-      const toward = f.control >= 0 ? '#5f9fe0' : '#e0603c';
+      // Hardpoint's bar is the time left on the zone, in the holder's colour.
+      const toward = f.name === 'HP'
+        ? (f.owner === 'ct' ? '#5f9fe0' : f.owner === 't' ? '#e0603c' : '#d8dccd')
+        : (f.control >= 0 ? '#5f9fe0' : '#e0603c');
       return '<span class="obj-flag ' + (f.owner || '') + (f.contested ? ' contested' : '') + '" ' +
         'style="--cap:' + Math.round(Math.abs(f.control) * 100) + '%;--capc:' + toward + '">' + esc(f.name) + '<i></i></span>';
     }).join('');
@@ -3411,6 +3423,29 @@ export default class HUD {
     const st = (this.game && this.game.state) || {};
     const info = this._endInfo || {};
     const scores = info.scores || st.scores || { ct: 0, t: 0 };
+    if (info.ffa) {
+      const place = info.ffa.place | 0;
+      const won = place === 1;
+      const ord = (n) => n + (['TH', 'ST', 'ND', 'RD'][(n % 100 > 10 && n % 100 < 14) ? 0 : Math.min(n % 10, 4) % 4] || 'TH');
+      if (this._el.endTitle) {
+        this._el.endTitle.textContent = won ? 'VICTORY' : place <= 3 ? 'TOP THREE' : 'DEFEATED';
+        this._el.endTitle.classList.toggle('lost', place > 3);
+      }
+      if (this._el.endSub) this._el.endSub.textContent = 'YOU PLACED ' + ord(place) + ' OF ' + info.ffa.total;
+      if (this._el.endScore) {
+        this._el.endScore.textContent = 'YOU ' + ((info.scores && info.scores.ct) | 0) + '  ·  ' +
+          String(won ? 'NEXT BEST' : 'WINNER ' + String(info.ffa.leader || '').toUpperCase()) + ' ' +
+          (won ? ((info.scores && info.scores.t) | 0) : (info.ffa.leaderKills | 0));
+      }
+      if (this._el.endKd) {
+        const s = this._stat('You');
+        this._el.endKd.textContent = 'YOUR RECORD — ' + s.k + ' KILLS  /  ' + s.d + ' DEATHS';
+      }
+      this._configureEndPrimaryAction();
+      this._renderEndRewards(null);
+      if (this._endUnranked) this._renderUnrankedEndState({ reason: this._unrankedReason });
+      return;
+    }
     const draw = !!info.draw;
     let winner = info.winner;
     if (!winner) winner = (scores.ct >= scores.t) ? 'ct' : 't';
@@ -3553,8 +3588,8 @@ export default class HUD {
       '<div class="hud-panel" id="hud-top">' +
       '<div id="hud-timer"><span id="hud-bomb-ico">C4</span>' +
       '<span class="hud-num" id="hud-timer-num">0:00</span></div>' +
-      '<div id="hud-scores"><span class="sc-ct">' + FACTIONS.ct.short + '</span> <span class="hud-num" id="hud-score-ct">0</span>' +
-      '<span class="sc-colon">:</span><span class="hud-num" id="hud-score-t">0</span> <span class="sc-t">' + FACTIONS.t.short + '</span></div>' +
+      '<div id="hud-scores"><span class="sc-ct" id="hud-score-ct-label">' + FACTIONS.ct.short + '</span> <span class="hud-num" id="hud-score-ct">0</span>' +
+      '<span class="sc-colon">:</span><span class="hud-num" id="hud-score-t">0</span> <span class="sc-t" id="hud-score-t-label">' + FACTIONS.t.short + '</span></div>' +
       '<div id="hud-round">ROUND 1 · FIRST TO 8</div>' +
       '<div id="hud-objective" hidden></div>' +
       '</div>' +

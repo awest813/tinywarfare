@@ -18,6 +18,7 @@
 // itself mandates) and at grenade-throw time (pooled after first use).
 // ---------------------------------------------------------------------------
 
+import { isFfa } from '../game/hostility.js';
 import * as THREE from 'three';
 import { resolveHumanPlayerName } from '../player/profile.js';
 import { WEAPONS } from '../weapons/data.js';
@@ -457,7 +458,8 @@ export default class Combat {
         if (seg === 0) this._sEnd.copy(this._hitPos);
 
         const targetTeam = target.team || (this._hitIsPlayer ? 'ct' : 't');
-        if (targetTeam !== shooterTeam) {
+        const ffa = isFfa(this.game);
+        if (ffa ? target !== shooter : targetTeam !== shooterTeam) {
           const part = this._hitPartBest;
           const headshot = part === 'head';
           const zone = headshot
@@ -552,7 +554,7 @@ export default class Combat {
     if (charT >= 0) {
       const target = this._hitChar;
       const targetTeam = target.team || (this._hitIsPlayer ? 'ct' : 't');
-      if (targetTeam === shooterTeam) return; // no friendly stabs
+      if (!isFfa(this.game) && targetTeam === shooterTeam) return; // no friendly stabs
       this._hitPos.copy(this._sOrigin).addScaledVector(this._sDir, charT);
 
       // Backstab: victim facing points away from the attacker, i.e. roughly
@@ -1103,7 +1105,7 @@ export default class Combat {
     const remotes = this.game.multiplayer && this.game.multiplayer.remotePlayers;
     if (Array.isArray(remotes)) for (const r of remotes) if (r && r.alive && r.position) bodies.push(r);
     for (const body of bodies) {
-      if (body === p.thrower || body.team === p.throwerTeam) continue;
+      if (body === p.thrower || (!isFfa(this.game) && body.team === p.throwerTeam)) continue;
       const at = body.pos || body.position;
       const dy = p.pos.y - at.y;
       if (dy < 0 || dy > 1.9) continue;
@@ -1196,6 +1198,7 @@ export default class Combat {
     const g = this.game;
     const ev = g.events;
     const byPlayer = this._isPlayer(attacker);
+    const ffa = isFfa(g);
 
     // --- player ---
     const pl = g.player;
@@ -1205,7 +1208,7 @@ export default class Combat {
       const d = this._v6.distanceTo(center);
       if (d <= radius) {
         const isSelf = attacker === pl;
-        const friendly = attackerTeam != null && attackerTeam === pl.team && !isSelf;
+        const friendly = !ffa && attackerTeam != null && attackerTeam === pl.team && !isSelf;
         if ((hurtTeammates || !friendly)
           && (!requireLOS || this._losClear(center, this._v6))) {
           const dmg = Math.max(1, Math.round(maxDmg * Math.pow(1 - d / radius, HE_FALLOFF_EXP)));
@@ -1224,7 +1227,7 @@ export default class Combat {
         this._v6.y += (b.height != null ? b.height : 1.83) * 0.5;
         const d = this._v6.distanceTo(center);
         if (d > radius) continue;
-        const friendly = attackerTeam != null && b.team === attackerTeam && attacker !== b;
+        const friendly = !ffa && attackerTeam != null && b.team === attackerTeam && attacker !== b;
         if (friendly && !hurtTeammates) continue;
         if (requireLOS && !this._losClear(center, this._v6)) continue;
         const dmg = Math.max(1, Math.round(maxDmg * Math.pow(1 - d / radius, HE_FALLOFF_EXP)));
@@ -1243,7 +1246,7 @@ export default class Combat {
         this._v6.y += (r.height != null ? r.height : 1.83) * 0.5;
         const d = this._v6.distanceTo(center);
         if (d > radius) continue;
-        const friendly = attackerTeam != null && r.team === attackerTeam && attacker !== r;
+        const friendly = !ffa && attackerTeam != null && r.team === attackerTeam && attacker !== r;
         if (friendly && !hurtTeammates) continue;
         if (requireLOS && !this._losClear(center, this._v6)) continue;
         const dmg = Math.max(1, Math.round(maxDmg * Math.pow(1 - d / radius, HE_FALLOFF_EXP)));

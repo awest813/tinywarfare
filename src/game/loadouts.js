@@ -152,7 +152,7 @@ export default class Loadouts {
   // While dead in a respawn mode, the weapon keys pick the next class.
   _onKey(key) {
     const g = this.game;
-    if (!g || !['tdm', 'kc', 'dom'].includes(g.state?.mode) || !g.player || g.player.alive !== false) return;
+    if (!g || !['tdm', 'kc', 'dom', 'hp', 'ffa'].includes(g.state?.mode) || !g.player || g.player.alive !== false) return;
     if (!/^[1-5]$/.test(String(key))) return;
     this.select(Number(key) - 1);
   }
