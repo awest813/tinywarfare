@@ -256,8 +256,10 @@ Shipped for solo (`src/game/objectives.js`, driven by the respawn engine in
 - Flags are symmetric because these bomb maps put both sites near the U.S.
   spawn. A is 45% of the way from the U.S. spawn to mid, B is the mid defence
   anchor, and C is 45% of the way from the Russian spawn to mid, each snapped
-  to a nav node. The first layout, which used the bomb sites, ended 58-7 on
-  Harbor in simulation. Each flag has a pole, a cloth, and a ground ring in
+  to a nav node. The first layout, which used the bomb sites, ran 58-7 on
+  Harbor in simulation. The symmetric layout ran 55-44 over the same
+  three minutes, with each side holding its home flag and mid changing
+  hands. Each flag has a pole, a cloth, and a ground ring in
   the owner's colour.
 - Capture:
   - A 4.5 m radius and 6 s solo. Extra cappers speed it up.
