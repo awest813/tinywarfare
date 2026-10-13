@@ -2671,8 +2671,12 @@ export default class Bots {
     const player = this.game.player;
     if (player) consider(player, player.position);
 
+    // An enemy UAV over the player's team sharpens the bots' hunt.
+    const streaks = this.game.streaks;
+    const uavUp = !!(streaks && typeof streaks.enemyUavActive === 'function' && streaks.enemyUavActive()) &&
+      bot.team !== ((player && player.team) || 'ct');
     let goal = null;
-    if (nearest && Math.random() < 0.7) {
+    if (nearest && Math.random() < (uavUp ? 0.95 : 0.7)) {
       goal = this._diverseNear(bot, nearest, 12);
     } else {
       const nodes = this.game.world && this.game.world.waypoints && this.game.world.waypoints.nodes;

@@ -40,6 +40,9 @@ The two sides are **U.S. Forces** (defenders) and **Russian Forces** (attackers)
 - **Team Deathmatch** (solo vs bots): respawn after 3 seconds with an
   M4/AK starter class. First side to 50 kills, or the higher score after
   10 minutes, wins. Pick it in the menu's MODE row.
+  Score earned since your last death charges scorestreaks: a **UAV** at 500
+  (every enemy on the radar for 30 s) and a **precision airstrike** at 900
+  (three bombs walking out from where your crosshair meets the ground).
 
 Ways to play:
 
@@ -116,6 +119,7 @@ also provides live look-sensitivity (`0.25×–3.00×`) and brightness
 | 1–4 / wheel | Switch weapons |
 | Q | Last weapon |
 | Tab (hold) | Scoreboard |
+| 5 / 6 | Call in UAV / precision airstrike (Team Deathmatch scorestreaks) |
 
 ## Arsenal
 

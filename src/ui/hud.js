@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import { MAP_CATALOG, normalizeMapId } from '../maps/catalog.js';
 import { FACTIONS, faction, scoreLine } from '../shared/factions.js';
 import { GAME_MODES, TDM, normalizeModeId } from '../game/tdm.js';
+import { STREAKS } from '../game/streaks.js';
 import { resolveHumanPlayerName } from '../player/profile.js';
 import {
   KEY_BINDING_DEFINITIONS,
@@ -297,7 +298,7 @@ export default class HUD {
     this._msgUntil = -1;
 
     // buy data (fallbacks now, real data async)
-    this._names = { ...FALLBACK_NAMES };
+    this._names = { ...FALLBACK_NAMES, airstrike: 'AIRSTRIKE' };
     this._prices = {
       ...FALLBACK_PRICES,
       armor: game?.config?.ECON?.ARMOR_PRICE ?? 650,
@@ -391,6 +392,7 @@ export default class HUD {
       radarCanvas: $('hud-radar-canvas'),
       crosshair: $('hud-crosshair'),
       scorePop: $('hud-score-pop'),
+      streaks: $('hud-streaks'),
       chL: $('hud-ch-l'), chR: $('hud-ch-r'), chT: $('hud-ch-t'), chB: $('hud-ch-b'),
       hitmarker: $('hud-hitmarker'),
       killcue: $('hud-killcue'),
@@ -1501,6 +1503,9 @@ export default class HUD {
 
     ev.on('kill', (d) => this._onKill(d || {}));
     ev.on('score:award', (d) => this._onScoreAward(d || {}));
+    ev.on('streak:ready', (d) => this._showMsg(String(d?.label || '') + ' READY', 'PRESS ' + this._bindingLabel(d?.id === 'uav' ? 'streak1' : 'streak2'), 2));
+    ev.on('streak:activate', (d) => this._showMsg(d?.id === 'airstrike' ? 'AIRSTRIKE INBOUND' : 'UAV ONLINE', d?.id === 'airstrike' ? 'TAKE COVER' : 'ENEMIES MARKED ON RADAR', 1.8));
+    ev.on('streak:enemy', () => this._showMsg('ENEMY UAV OVERHEAD', 'KEEP MOVING', 2.2));
     ev.on('hud:hitmarker', (d) => this._onHitmarker(d || {}));
     ev.on('player:damage', (d) => this._onPlayerDamage(d || {}));
     ev.on('player:death', (d) => this._onPlayerDeath(d || {}));
@@ -1641,6 +1646,7 @@ export default class HUD {
       this._updateAmmo();
       this._updateTop(st, phase);
       this._updateCrosshair(phase);
+      this._updateStreaks();
       this._updateFeed();
       this._updateDefuse(st, phase);
       this._updateScope();
@@ -2055,6 +2061,32 @@ export default class HUD {
   // Crosshair + hitmarker
   // --------------------------------------------------------------------------
 
+  /** Streak rail above the ammo box: progress toward each streak, ready glow. */
+  _updateStreaks() {
+    const root = this._el.streaks;
+    const streaks = this.game.streaks;
+    if (!root) return;
+    const on = !!(streaks && typeof streaks.enabled === 'function' && streaks.enabled() &&
+      this.game.player && this.game.player.alive !== false);
+    if (on !== this._cache.streaksOn) {
+      this._cache.streaksOn = on;
+      root.hidden = !on;
+    }
+    if (!on) return;
+    const rows = streaks.status();
+    const uav = streaks.uavActive() ? Math.ceil(streaks.uavTime) : 0;
+    const key = rows.map((r) => `${r.id}:${r.ready ? 'R' : Math.floor(r.progress * 40)}`).join('|') + ':' + uav;
+    if (key === this._cache.streaksKey) return;
+    this._cache.streaksKey = key;
+    root.innerHTML = rows.map((r) => {
+      const binding = this._bindingLabel(r.id === 'uav' ? 'streak1' : 'streak2');
+      const live = r.id === 'uav' && uav ? ' · ' + uav + 'S' : '';
+      return '<div class="sk-row' + (r.ready ? ' ready' : '') + '">' +
+        '<kbd>' + esc(binding) + '</kbd><span>' + esc(r.label) + live + '</span>' +
+        '<i style="--sk:' + (r.progress * 100).toFixed(1) + '%"></i></div>';
+    }).join('');
+  }
+
   /** "+100 KILL" style popups under the crosshair; newest on top, max four. */
   _onScoreAward(d) {
     const root = this._el.scorePop;
@@ -2312,7 +2344,8 @@ export default class HUD {
     const fires = this._enemyFire;
     while (fires.length && this._time - fires[0].t > ENEMY_FIRE_MEMORY) fires.shift();
 
-    // blips
+    // blips (a friendly UAV reveals every enemy)
+    const uavUp = !!(g.streaks && typeof g.streaks.uavActive === 'function' && g.streaks.uavActive());
     const bots = g.bots;
     const blips = (bots && typeof bots.getRadarBlips === 'function') ? bots.getRadarBlips() : null;
     if (Array.isArray(blips)) {
@@ -2332,7 +2365,7 @@ export default class HUD {
               if (fx * fx + fz * fz <= ENEMY_FIRE_MATCH * ENEMY_FIRE_MATCH) { heard = true; break; }
             }
           }
-          if (!near && !heard) continue;
+          if (!near && !heard && !uavUp) continue;
         }
         const bl = this._clampBlip(dx * RADAR_SCALE, dz * RADAR_SCALE);
         const alpha = bl.cl ? 0.45 : 1;
@@ -3237,6 +3270,7 @@ export default class HUD {
       '<span class="hud-num" id="hud-ammo-reserve"></span></div>' +
       '<div id="hud-weapon-name"></div>' +
       '</div>' +
+      '<div id="hud-streaks" aria-label="Scorestreaks" hidden></div>' +
 
       // top-center: timer / scores / round
       '<div class="hud-panel" id="hud-top">' +
@@ -3555,6 +3589,16 @@ export default class HUD {
 #hud-ammo-mag { font-size: 40px; line-height: 1; color: var(--olive-bright); }
 #hud-ammo-mag.low { color: #e8604e; }
 #hud-ammo-reserve { font-size: 19px; color: var(--olive-dim); }
+#hud-streaks { position:absolute; right:18px; bottom:104px; display:flex; flex-direction:column; gap:4px; min-width:158px; }
+#hud-streaks[hidden] { display:none; }
+.sk-row { position:relative; display:flex; align-items:center; gap:7px; padding:4px 8px 6px; overflow:hidden;
+  background:rgba(7,10,4,.62); border:1px solid rgba(154,178,107,.18); font-size:10px; font-weight:900;
+  letter-spacing:.14em; color:var(--olive-dim); }
+.sk-row kbd { font:inherit; padding:0 4px; border:1px solid rgba(154,178,107,.35); color:var(--olive); }
+.sk-row i { position:absolute; left:0; bottom:0; height:2px; width:var(--sk); background:var(--olive); }
+.sk-row.ready { color:#f3f7ec; border-color:#f7d27a; box-shadow:0 0 12px rgba(247,210,122,.25); }
+.sk-row.ready kbd { color:#101510; background:#f7d27a; border-color:#f7d27a; }
+.sk-row.ready i { background:#f7d27a; }
 #hud-weapon-name {
   font-size: 11px; letter-spacing: .3em; color: var(--olive); text-transform: uppercase;
   margin-top: 3px; text-shadow: 0 1px 2px #000;

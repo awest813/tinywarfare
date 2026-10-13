@@ -179,14 +179,30 @@ Still to do:
   the parts kit in `gfx/weapons/parts.js` and `build.js`.
 
 ### Phase 4: Scorestreaks
-- Streaks are earned by score, not kills, so objective play counts. The player
-  picks three.
-- **UAV** (sweeps the existing `hud.js` radar), **Counter-UAV** (jams the
-  enemy radar), **Precision Airstrike** (map-marker targeting; reuses the bomb
-  blast radial damage plus `effects.js` explosions and a synthesized jet flyby
-  in `audio.js`), and later a **Care Package**.
-- Bots use streaks through a simple trigger.
-- Network: streak activations are host-authoritative events.
+Shipped for solo TDM (`src/game/score.js`, `src/game/streaks.js`):
+- Match score: +100 per kill, +50 headshot, multi-kill bonuses, and +100
+  every fifth kill without dying. "+100 KILL" popups appear under the
+  crosshair.
+- Score since the last death charges the streaks. Each one is earned once per
+  life, and an unused streak survives death.
+  - **UAV**, 500 points, key 5: every enemy shows on the radar for 30 s.
+  - **Precision Airstrike**, 900 points, key 6: three bombs, 2.2 s after the
+    call-in, walk out from the crosshair point along your facing. Each bomb
+    lands on the first surface below it. Damage is 400 over a 9 m radius
+    (lethal within about 5 m). Walls block it, it spares teammates, and kills
+    are credited to you as AIRSTRIKE.
+  - The bot side calls an enemy UAV every 10 team kills. While it is up,
+    their hunt locks onto the nearest target.
+  - HUD: a streak rail above the ammo box with progress and a ready glow, plus
+    READY / ONLINE / INBOUND banners.
+  - Audio: a synthesized jet flyby and radio chirps.
+- S&D and online rooms have no streaks.
+
+Still to do:
+- Let the player pick three streaks.
+- Counter-UAV and Care Package.
+- Touch buttons for streaks.
+- Host-authoritative streaks for online TDM.
 
 ### Phase 5: Progression and attachments
 - Per-match XP from kills, assists, objectives, and streaks, with

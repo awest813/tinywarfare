@@ -150,6 +150,9 @@ export default class AudioSys {
     // World FX
     ev.on('fx:impact', (p) => this._onImpact(p));
     ev.on('fx:explosion', (p) => this._onExplosion(p));
+    ev.on('streak:airstrike', () => this._jetFlyby());
+    ev.on('streak:activate', (p) => { if (p && p.id === 'uav') this._radioChirp(); });
+    ev.on('streak:enemy', () => this._radioChirp(true));
     ev.on('fx:flash', (p) => this._onFlash(p));
     ev.on('fx:smoke', (p) => this._onSmoke(p));
     ev.on('bomb:detonated', (p) => this._onDetonated(p));
@@ -1530,6 +1533,26 @@ export default class AudioSys {
       f: 82, end: 47, slideDur: 0.15, dur: 0.17,
       vol: 0.34, a: 0.003,
     });
+  }
+
+  /** Jet pass for an airstrike: a swelling doppler roar plus low rumble. */
+  _jetFlyby() {
+    const grp = this._direct(0.5);
+    if (!grp) return;
+    const t = this._t();
+    this._noiseHit(grp, t, { type: 'bandpass', f: 1400, fEnd: 320, slideDur: 2.2, q: 0.8, a: 1.1, dur: 1.6, vol: 0.5 });
+    this._noiseHit(grp, t + 0.2, { type: 'lowpass', f: 220, q: 0.7, a: 1.0, dur: 1.9, vol: 0.6 });
+    this._tone(grp, t + 0.5, { f: 520, end: 260, slideDur: 1.4, type: 'sawtooth', vol: 0.05, a: 0.6, dur: 1.2, lp: 900 });
+  }
+
+  /** Radio blip for UAV call-ins (lower and harsher for the enemy's). */
+  _radioChirp(enemy = false) {
+    const grp = this._direct(0.16);
+    if (!grp) return;
+    const t = this._t();
+    const base = enemy ? 620 : 1150;
+    this._tone(grp, t, { f: base, type: 'square', vol: 0.5, a: 0.004, dur: 0.07, lp: 2600 });
+    this._tone(grp, t + 0.11, { f: base * 1.33, type: 'square', vol: 0.5, a: 0.004, dur: 0.09, lp: 2600 });
   }
 
   _uiClick(f, vol) {

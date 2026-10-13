@@ -1366,7 +1366,7 @@ export default class Combat {
   _def(id) {
     const d = WEAPONS && WEAPONS[id];
     if (d) return d;
-    if (id !== 'c4' && id !== 'world' && !this._warned.has(id)) {
+    if (id !== 'c4' && id !== 'world' && id !== 'airstrike' && !this._warned.has(id)) {
       this._warned.add(id);
       console.warn(`[combat] unknown weapon id "${id}" — using fallback stats`);
     }
