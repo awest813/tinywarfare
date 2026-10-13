@@ -30,21 +30,25 @@ npm start
 
 The Node server serves the game and hosts WebSocket rooms. A plain static
 server still works for solo play, but online rooms require `npm start`.
+For production hosting (Docker, Node, or the Cloudflare Worker), see
+[docs/deployment.md](docs/deployment.md).
 
 ## Game modes
 
 The two sides are **U.S. Forces** (defenders) and **Russian Forces** (attackers).
+Every mode plays solo against bots or online; an online room plays the mode
+its host has selected in the menu when the match starts. All modes are ranked.
 
 - **Search & Destroy** (solo or online): the original round-based bomb mode
   with an economy and buy menu. First side to 8 rounds wins.
-- **Kill Confirmed** (solo vs bots): every death drops a dog tag. Grab enemy
+- **Kill Confirmed**: every death drops a dog tag. Grab enemy
   tags to score and your own team's to deny them. First to 30.
-- **Domination** (solo vs bots): capture and hold flags A (near the U.S.
+- **Domination**: capture and hold flags A (near the U.S.
   side), B (mid), and C (near the Russian side). Every held flag scores a point every 5 seconds. First to 150.
-- **Hardpoint** (solo vs bots): hold the single zone, which moves every
+- **Hardpoint**: hold the single zone, which moves every
   minute. One point per second while your side holds it alone. First to 150.
-- **Free-for-all** (solo vs bots): no teams, first soldier to 30 kills.
-- **Team Deathmatch** (solo vs bots): respawn after 3 seconds with an
+- **Free-for-all**: no teams, first soldier to 30 kills.
+- **Team Deathmatch**: respawn after 3 seconds with an
   M4/AK starter class. First side to 50 kills, or the higher score after
   10 minutes, wins. Pick it in the menu's MODE row.
   Pick one of five editable **classes** in the menu's CLASS row (primary,

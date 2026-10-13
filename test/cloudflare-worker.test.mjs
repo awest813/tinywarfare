@@ -301,7 +301,7 @@ test('room player state and hibernation attachments remain bounded by protocol f
 
 test('Wrangler configuration declares only SQLite Durable Object exports', async () => {
   const config = JSON.parse(await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8'));
-  assert.equal(config.vars.ALLOWED_ORIGINS, 'https://guyzyskind.com');
+  assert.equal(config.vars.ALLOWED_ORIGINS, 'https://awest813.github.io');
   assert.equal(config.vars.RECONNECT_GRACE_MS, '120000');
   assert.equal(config.exports.LeaderboardDurableObject.storage, 'sqlite');
   assert.equal(config.exports.RoomDurableObject.storage, 'sqlite');

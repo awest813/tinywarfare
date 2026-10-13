@@ -60,20 +60,20 @@ test('leaderboard HTTP API creates identity, scores facts, deduplicates, and rea
   const preflightResponse = await fetch(`${origin}/api/leaderboard/session`, {
     method: 'OPTIONS',
     headers: {
-      origin: 'https://guyzyskind.com',
+      origin: 'https://awest813.github.io',
       'access-control-request-method': 'POST',
       'access-control-request-headers': 'authorization, content-type',
     },
   });
   assert.equal(preflightResponse.status, 204);
-  assert.equal(preflightResponse.headers.get('access-control-allow-origin'), 'https://guyzyskind.com');
+  assert.equal(preflightResponse.headers.get('access-control-allow-origin'), 'https://awest813.github.io');
   assert.match(preflightResponse.headers.get('access-control-allow-headers'), /Authorization/);
 
   const crossOriginBoard = await fetch(`${origin}/api/leaderboard`, {
-    headers: { origin: 'https://guyzyskind.com' },
+    headers: { origin: 'https://awest813.github.io' },
   });
   assert.equal(crossOriginBoard.status, 200);
-  assert.equal(crossOriginBoard.headers.get('access-control-allow-origin'), 'https://guyzyskind.com');
+  assert.equal(crossOriginBoard.headers.get('access-control-allow-origin'), 'https://awest813.github.io');
 
   const rejectedOrigin = await fetch(`${origin}/api/leaderboard`, {
     headers: { origin: 'https://attacker.example' },
@@ -173,7 +173,7 @@ test('leaderboard HTTP API creates identity, scores facts, deduplicates, and rea
   assert.equal(rejectedUpgrade, 403);
 
   const ws = socket = new WebSocket(origin.replace('http:', 'ws:') + '/ws', {
-    origin: 'https://guyzyskind.com',
+    origin: 'https://awest813.github.io',
   });
   await once(ws, 'open');
   const welcomePromise = nextMessage(ws, 'welcome');
@@ -192,7 +192,7 @@ test('leaderboard HTTP API creates identity, scores facts, deduplicates, and rea
   assert.equal(welcome.ranked, true);
 
   duplicateSocket = new WebSocket(origin.replace('http:', 'ws:') + '/ws', {
-    origin: 'https://guyzyskind.com',
+    origin: 'https://awest813.github.io',
   });
   await once(duplicateSocket, 'open');
   const duplicateError = nextMessage(duplicateSocket, 'error');
@@ -342,10 +342,10 @@ test('leaderboard HTTP API creates identity, scores facts, deduplicates, and rea
   });
   const reconnectSession = await reconnectSessionResponse.json();
   reconnectHostSocket = new WebSocket(origin.replace('http:', 'ws:') + '/ws', {
-    origin: 'https://guyzyskind.com',
+    origin: 'https://awest813.github.io',
   });
   reconnectGuestSocket = new WebSocket(origin.replace('http:', 'ws:') + '/ws', {
-    origin: 'https://guyzyskind.com',
+    origin: 'https://awest813.github.io',
   });
   await Promise.all([once(reconnectHostSocket, 'open'), once(reconnectGuestSocket, 'open')]);
   const reconnectHostWelcomePromise = nextMessage(reconnectHostSocket, 'welcome');
@@ -396,7 +396,7 @@ test('leaderboard HTTP API creates identity, scores facts, deduplicates, and rea
   assert.equal(queuedDelivery.failureNotified, false);
 
   resumedGuestSocket = new WebSocket(origin.replace('http:', 'ws:') + '/ws', {
-    origin: 'https://guyzyskind.com',
+    origin: 'https://awest813.github.io',
   });
   await once(resumedGuestSocket, 'open');
   const reconnectFailurePromise = nextMessage(resumedGuestSocket, 'leaderboard_error');

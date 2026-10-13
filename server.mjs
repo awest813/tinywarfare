@@ -88,9 +88,10 @@ function envLimit(value, fallback) {
   return value !== undefined && value !== '' && Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
+// This fork's static build is served from GitHub Pages; override with
+// TINY_STRIKE_ALLOWED_ORIGINS for any other host. Same-origin is always allowed.
 const DEFAULT_ALLOWED_ORIGINS = Object.freeze([
-  'https://guyzyskind.com',
-  'https://www.guyzyskind.com',
+  'https://awest813.github.io',
 ]);
 const rooms = new Map();
 

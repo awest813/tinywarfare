@@ -105,7 +105,7 @@ Two smaller ones ride along:
 Each phase ships a playable build and keeps `npm test` green.
 
 ### Phase 1: Team Deathmatch (the first MW-feeling build)
-Shipped for solo play (`src/game/tdm.js`):
+Shipped solo and online (`src/game/tdm.js`):
 - Pick TDM in the menu's MODE row. The choice is saved in `tiny-strike-mode`.
 - A 50-kill score limit and a 10-minute clock; a level score when time runs
   out is a stalemate.
@@ -118,16 +118,11 @@ Shipped for solo play (`src/game/tdm.js`):
   enemy, with rifle, SMG, and at most one sniper per side.
 - HUD shows "TEAM DEATHMATCH · FIRST TO 50", a get-ready banner, a
   "RESPAWNING IN N" death screen, and draw handling on the end screen.
-- TDM results are deliberately unranked. Server validation only understands
-  round results.
+- TDM results are ranked (see "Online modes and the server" below).
 - A simulated three-minute match plays through with no console errors: about 50
   kills, all spawns valid, and the match ends at the limit.
 
 Still to do for Phase 1:
-- Online TDM. The room protocol and `rooms-core` need a mode field, the
-  network snapshot needs mode state, and late joiners should spawn instead of
-  spectate. Online rooms are pinned to S&D for now.
-- Ranked TDM: generalise `leaderboard-core.mjs` result validation per mode.
 - Spawn protection, "+100" score popups, and a killcam or death recap.
 - Extract S&D out of `rounds.js` behind the same mode interface. TDM
   currently plugs in as a delegate.
@@ -216,7 +211,7 @@ Also shipped:
 - Unlock gating by rank moved to Phase 5.
 
 ### Phase 4: Scorestreaks
-Shipped for solo TDM (`src/game/score.js`, `src/game/streaks.js`):
+Shipped for every respawn mode, solo and online (`src/game/score.js`, `src/game/streaks.js`):
 - Match score: +100 per kill, +50 headshot, multi-kill bonuses, and +100
   every fifth kill without dying. "+100 KILL" popups appear under the
   crosshair.
@@ -233,7 +228,7 @@ Shipped for solo TDM (`src/game/score.js`, `src/game/streaks.js`):
   - HUD: a streak rail above the ammo box with progress and a ready glow, plus
     READY / ONLINE / INBOUND banners.
   - Audio: a synthesized jet flyby and radio chirps.
-- S&D and online rooms have no streaks.
+- S&D has no streaks.
 
 Also shipped:
 - **Pick two of four** streaks in the menu's CLASS section. The picks are
@@ -250,7 +245,9 @@ Also shipped:
   - It is recovered after 60 s on the ground.
 - **Touch**: a STREAK button appears whenever a streak is ready and fires the
   first ready one.
-- Host-authoritative streaks for online play are covered by the server work.
+- Online: UAV, Counter-UAV and care packages run on the caller's client;
+  an airstrike called by a guest is flown and resolved by the room authority
+  so its damage and kill credit are authoritative.
 
 ### Phase 5: Progression and attachments
 Shipped: **attachments**, one per class on the primary. The class editor picks
@@ -303,7 +300,7 @@ Still to do:
 - Challenges and calling cards.
 
 ### Phase 6: More modes
-Shipped for solo (`src/game/objectives.js`, driven by the respawn engine in
+Shipped solo and online (`src/game/objectives.js`, driven by the respawn engine in
 `tdm.js`). Each mode is a rules entry plus an optional objective object with
 `onDeath`, `update`, `botGoal`, `radarMarkers`, `hud`, and `stop`.
 
@@ -357,7 +354,7 @@ Also shipped:
     winner.
 - **Domination spawns** lean toward flags the team holds. Objectives can
   provide `spawnAnchors(team)`.
-- Online support for every respawn mode is covered by the server work.
+- Online: objectives run on the room authority and replicate (see below).
 
 ### Phase 7: Presentation
 Shipped:
@@ -387,6 +384,52 @@ Still to do:
 - Map authoring pass: landmarks, hero props, asymmetry, the upstream
   backdrop and stain defects, and three-lane TDM variants.
 
+### Online modes and the server
+Shipped (`server.mjs`, `worker/room-do.mjs`, `src/shared/rooms-core.mjs`,
+`src/network/multiplayer.js`):
+- **Rooms carry a game mode** (`sd`, `tdm`, `kc`, `dom`, `hp`, `ffa`). The
+  host's menu pick travels with `hello` and `set_game_mode` (host only,
+  before start) and is mirrored into every client's picker. Lobby, welcome,
+  match start/resume and `/api/rooms` report it; the room list shows it.
+  Clients that send no mode get S&D.
+- **Authority respawns**: the room host's engine scores remote deaths,
+  picks spawn points that account for remote players, and sends
+  `respawn {targetId, pos, yaw}`. The service validates the authority epoch,
+  marks the player alive and relays it. The host announces its own respawns
+  the same way. Fresh remote spawns get 1.5 s of protection.
+- **Late joiners** in respawn modes are not parked until a next round: they
+  enter dead and are deployed within a few seconds.
+- **Replication**: the snapshot carries the mode and its state (Kill
+  Confirmed tags, Domination flags, the hardpoint index, clock and owner, FFA
+  standings). Replicas run the respawn countdown and objective visuals; FFA
+  scores are per viewer (own kills vs the best rival).
+- **Kill credit** events are re-aimed at each seat, so score popups, streak
+  points and stats count for the right player; personal objective points
+  reach remote players as `objective:award`.
+- **Ranked respawn modes**: results carry `gameMode`. A respawn result must
+  reach the score limit or run out the clock, with kill and death rates
+  checked against the duration. The servers rebuild each participant's
+  outcome (`rankedOutcome`), FFA from the final standings. Scoring reuses
+  the S&D weights with one "round" for a win; the exact value is an owner
+  decision.
+- **Deploy config** for this fork: Worker `tiny-warfare-service`, allowed
+  origin `https://awest813.github.io`, a `Dockerfile` for the Node server,
+  and `docs/deployment.md`.
+- Verified with two headless browsers against the Node server in TDM, KC,
+  DOM and FFA: mode sync, kills, respawns, guest airstrikes, late join and
+  match end. The container's software renderer was too slow to hold the
+  authority lease with three pages, so authority migrated mid-match and the
+  match carried on.
+
+Still to do:
+- After an authority migration the new host's engine starts its FFA tally
+  and respawn queue fresh from replicated state; seeding FFA kills from the
+  last standings would keep the leaderboard exact.
+- Perks and attachments of remote players are not known to the host, so
+  Flak Jacket and similar perks only protect the host.
+- The Cloudflare Worker path is covered by unit tests but has not been run
+  against a live deployment from this fork.
+
 ### Ongoing tech debt
 - Done:
   - Desktop `pixelRatio` is capped at 1.5, which shades about 44% fewer
@@ -403,7 +446,10 @@ Still to do:
    move walk to another key?
 2. **Economy:** keep money and the buy menu in Search & Destroy only, or use
    classes everywhere?
-3. **Hosting:** where this fork deploys (GitHub Pages plus Cloudflare Worker
-   like upstream, or elsewhere). This blocks online play outside localhost.
-4. **History rewrite** to drop the trailer MP4s. It needs a force push to
+3. **Hosting:** where this fork deploys. Both paths are ready
+   (`docs/deployment.md`): GitHub Pages plus the Cloudflare Worker (configured
+   for `awest813.github.io`), or the Node server/Docker image anywhere.
+4. **Ranked value of respawn modes:** they currently score with the S&D
+   weights and count a win as one round. Keep, or weight them differently?
+5. **History rewrite** to drop the trailer MP4s. It needs a force push to
    `main`.

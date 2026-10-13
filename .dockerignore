@@ -1,0 +1,12 @@
+node_modules
+.git
+.tiny-strike
+dist
+.wrangler
+test
+docs
+*.mp4
+trailer-frames
+.env
+.env.*
+.dev.vars*

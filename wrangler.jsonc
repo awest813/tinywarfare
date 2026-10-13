@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "tiny-strike-service",
+  "name": "tiny-warfare-service",
   "main": "worker/index.mjs",
   "compatibility_date": "2026-07-20",
   "workers_dev": true,
@@ -9,7 +9,7 @@
     "enabled": true
   },
   "vars": {
-    "ALLOWED_ORIGINS": "https://guyzyskind.com",
+    "ALLOWED_ORIGINS": "https://awest813.github.io",
     "SEASON": "season-1",
     "RECONNECT_GRACE_MS": "120000"
   },

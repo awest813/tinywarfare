@@ -27,7 +27,7 @@ function normalizedOrigin(value) {
 }
 
 export function allowedOrigins(env, requestUrl = '') {
-  const configured = String(env.ALLOWED_ORIGINS || 'https://guyzyskind.com')
+  const configured = String(env.ALLOWED_ORIGINS || '')
     .split(',')
     .map((entry) => entry.trim())
     .filter(Boolean);

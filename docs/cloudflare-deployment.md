@@ -1,4 +1,4 @@
-# Tiny Strike Cloudflare service
+# Tiny Warfare Cloudflare service
 
 The production service runs as one Worker with two SQLite-backed Durable
 Objects:
@@ -7,9 +7,12 @@ Objects:
 - `RoomDurableObject` is a hibernating room hub that preserves the existing
   `/ws` protocol, including create, join, authoritative relays, and reconnects.
 
-Only `https://guyzyskind.com` is allowed by the committed production CORS and
-WebSocket Origin policy. Local requests without an Origin remain available to
-CLI health checks and tests.
+The committed CORS and WebSocket Origin policy allows `https://awest813.github.io`
+(this fork's GitHub Pages origin) and the Worker's own origin; set
+`ALLOWED_ORIGINS` in `wrangler.jsonc` to wherever the client is hosted. Local
+requests without an Origin remain available to CLI health checks and tests.
+See `docs/deployment.md` for the Node/Docker alternative and the game-mode
+protocol.
 
 ## Deploy
 
