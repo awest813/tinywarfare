@@ -80,6 +80,8 @@ export function roomStatus(room) {
   if (room.finished) return { label: 'FINISHED', detail: 'MATCH ENDED' };
   if (!room.joinable) return { label: 'FULL', detail: 'ROOM FULL' };
   if (!room.started) return { label: 'LOBBY', detail: 'JOIN NOW' };
+  // Respawn modes deploy late joiners straight into the fight.
+  if (room.gameMode && room.gameMode !== 'sd') return { label: 'IN MATCH', detail: 'JOIN THE FIGHT' };
   return {
     label: room.currentRound > 0 ? `ROUND ${room.currentRound}` : 'IN MATCH',
     detail: 'JOIN TO SPECTATE',

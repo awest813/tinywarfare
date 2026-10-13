@@ -159,7 +159,9 @@ export default class TouchControls {
     this.root.classList.toggle('score-open', this._scoreOpen);
     this.root.setAttribute('aria-hidden', (active || !this._landscape) ? 'false' : 'true');
 
-    if (this._landscape && inGame && !this.game.input?.locked) this.game.input?.requestLock?.();
+    // Re-take gameplay focus automatically, except while the player paused.
+    if (!inGame) this._paused = false;
+    if (this._landscape && inGame && !this._paused && !this.game.input?.locked) this.game.input?.requestLock?.();
 
     if (!inGame) {
       this._setScore(false);
@@ -210,6 +212,7 @@ export default class TouchControls {
         <b>MOVE</b>
       </div>
       <div class="tc-utilities">
+        <button type="button" class="tc-button tc-pause" aria-label="Pause match">❚❚</button>
         <button type="button" class="tc-button tc-score" aria-label="Toggle scoreboard">SCORE</button>
         <button type="button" class="tc-button tc-buy" aria-label="Open buy menu">$ BUY</button>
         <button type="button" class="tc-button tc-reload" aria-label="Reload weapon">RELOAD</button>
@@ -235,6 +238,7 @@ export default class TouchControls {
       stick: root.querySelector('.tc-stick'),
       knob: root.querySelector('.tc-stick-knob'),
       score: root.querySelector('.tc-score'),
+      pause: root.querySelector('.tc-pause'),
       buy: root.querySelector('.tc-buy'),
       reload: root.querySelector('.tc-reload'),
       streak: root.querySelector('.tc-streak'),
@@ -272,6 +276,13 @@ export default class TouchControls {
     this._bindTap(this._el.jump, () => this.game.input?.pulseVirtualAction?.('jump'));
     this._bindTap(this._el.crouch, () => this._setCrouch(!this._crouched));
     this._bindTap(this._el.score, () => this._setScore(!this._scoreOpen));
+    // Touch has no Escape: this opens the pause overlay (resume or quit).
+    this._bindTap(this._el.pause, () => {
+      this._paused = true;
+      this.game.input?.releaseLock?.();
+    });
+    // Resuming from the pause overlay re-locks; follow it.
+    this.game.events?.on?.('input:lock', () => { this._paused = false; });
     for (const button of this._el.slots) {
       this._bindTap(button, () => this.game.input?.pulseVirtualAction?.('weapon' + button.dataset.slot));
     }
@@ -763,7 +774,7 @@ html.touch-device #hud-end { overflow:auto; padding:max(10px,env(safe-area-inset
   html.touch-device .mn-map-copy { padding-block:5px; }
   html.touch-device .mn-map-copy small { display:none; }
   html.touch-device .mn-actions { width:100%; max-width:820px; gap:7px; }
-  html.touch-device #hud-start,html.touch-device #hud-leaderboard-open,html.touch-device #hud-profile-menu-open { flex:1 1 0; min-width:0; padding:9px 8px; }
+  html.touch-device #hud-start { flex:1 1 0; min-width:0; padding:9px 8px; }
   html.touch-device #hud-start .btn-main,html.touch-device #hud-leaderboard-open .btn-main,html.touch-device #hud-profile-menu-open .btn-main { font-size:14px; letter-spacing:.18em; text-indent:.18em; white-space:nowrap; }
   html.touch-device #hud-start .btn-sub,html.touch-device #hud-leaderboard-open .btn-sub,html.touch-device #hud-profile-menu-open .btn-sub { font-size:9px; letter-spacing:.18em; text-indent:.18em; white-space:nowrap; }
   html.touch-device #hud #mp-panel { padding:10px 12px; }

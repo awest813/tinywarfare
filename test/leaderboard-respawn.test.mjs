@@ -53,7 +53,8 @@ test('respawn results must be complete, plausible, and within the mode limits', 
     (error) => error instanceof LeaderboardError && (status ? error.status === status : true),
   );
   rejects({ gameMode: 'gungame' }, 400);
-  rejects({ scores: { ct: 51, t: 3 } }, 400);                // past the TDM limit
+  rejects({ scores: { ct: 59, t: 3 } }, 400);                // well past the TDM limit
+  assert.equal(validateLeaderboardResult(result({ scores: { ct: 53, t: 3 } }), NOW).result, 'win', 'a final multi-kill');
   rejects({ scores: { ct: 20, t: 10 }, duration: 300 }, 400);  // neither limit nor clock
   rejects({ kills: 150, duration: 420 }, 422);               // kill rate
   rejects({ deaths: 400 }, 400);                              // death rate

@@ -61,8 +61,8 @@ its host has selected in the menu when the match starts. All modes are ranked.
 Ways to play:
 
 - **Solo + bots:** one human on the U.S. side, with bot teams.
-- **Humans only:** create a room, share its six-character code, choose CT or T,
-  and start after at least one human joins each team.
+- **Humans only:** create a room, share its six-character code, choose U.S. or
+  Russian forces, and start after at least one human joins each team.
 - **Humans + bots:** create or join a room; each side is filled to five players
   with bots. This mode may also be started by one human.
 
@@ -134,11 +134,16 @@ also provides live look-sensitivity (`0.25×–3.00×`) and brightness
 | Q | Last weapon |
 | Tab (hold) | Scoreboard |
 | 5 / 6 / 7 | Scorestreak slot 1 / slot 2 / care-package bonus (respawn modes) |
+| 1–5 (while dead) | Pick the class for your next spawn (respawn modes; touch: CLASS button) |
+| Esc | Release the pointer and pause; QUIT TO MAIN MENU from there |
 
 ## Arsenal
 
 Pistols: G-18, USP-S (silenced), Night Hawk .50 — SMG: MP-5 — Rifles: AK-47,
-M4-A1 — Sniper: AWP — plus knife, HE grenade, flashbang, and smoke grenade.
+M4-A1 — Shotgun: M1014 — LMG: M249 SAW — Sniper: AWP — plus knife, HE grenade,
+Semtex, flashbang, stun grenade, and smoke grenade. Higher ranks unlock the
+shotgun, LMG, sniper, Night Hawk, Semtex, stun and the later perks; weapon
+levels unlock attachments.
 Kevlar and defuse kits in the Gear tab of the buy menu.
 
 ## Architecture

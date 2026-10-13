@@ -651,6 +651,19 @@ export default class Input {
   // Pointer lock lifecycle
   // -------------------------------------------------------------------------
 
+  /** Give up gameplay focus (touch pause button; Escape does this on desktop). */
+  releaseLock() {
+    if (!this.locked) return;
+    if (!this._virtualLock && document.pointerLockElement && document.exitPointerLock) {
+      document.exitPointerLock();
+      return; // pointerlockchange finishes the unlock
+    }
+    this._releaseAll(true);
+    this.locked = false;
+    this._virtualLock = false;
+    this.game.events.emit('input:unlock');
+  }
+
   _onPointerLockChange() {
     // Debug mode's lock is simulated and owns `locked` — a real
     // pointerlockchange (there should never be one) must not fight it.

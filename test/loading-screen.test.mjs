@@ -21,7 +21,7 @@ test('loading screen covers boot and yields only after the first rendered frame'
   assert.match(index, /window\.addEventListener\('error', fail, true\)/);
   assert.match(index, /requestAnimationFrame\(\(\) => requestAnimationFrame\(\(\) => \{/);
   assert.match(index, /import\('\.\/src\/main\.js'\)\.catch\(\(error\) => \{/);
-  assert.match(index, /TINY_STRIKE_LOADING\?\.fail\?\.\(\)/);
+  assert.match(index, /TINY_STRIKE_LOADING\?\.fail\?\.\(error\)/);
   assert.match(index, /id="loading-retry"/);
 
   assert.match(main, /await loadingScreen\?\.waitForPaint\?\.\(\)/);

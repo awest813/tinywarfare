@@ -306,6 +306,26 @@ export default class Rounds {
     this._startMatch();
   }
 
+  /**
+   * Leave the current solo match for the main menu (map, mode, class and
+   * settings can change there). Every per-frame system idles in 'menu'.
+   */
+  returnToMenu() {
+    const s = this.game.state;
+    this._removeBombMesh();
+    this._cosmeticArmed = false;
+    this._matchStarted = false;
+    this._matchWinner = null;
+    this._menuT = 0;
+    this.tdm.stopObjective();
+    this.tdm._playerRespawnAt = null;
+    s.phase = 'menu';
+    s.timer = 0;
+    s.canBuy = false;
+    s.buyOpen = false;
+    this.game.events.emit('ui:menu');
+  }
+
   _onUiRestart() {
     // Full match reset from anywhere (primarily the gameEnd screen).
     this._removeBombMesh();

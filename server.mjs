@@ -687,11 +687,17 @@ function joinRoom(ws, client, msg) {
       mode: room.mode,
       gameMode: cleanGameMode(room.gameMode),
       players: [...room.players.values()].map((player) => publicPlayer(player, room.hostId)),
-      lateJoin: true,
-      spectating: true,
-      joinRound: Number(client.joinRound),
-      waitingForRound: true,
-      eligibleRound: Number(client.joinRound),
+      // Respawn rooms have no round to wait for: the authority deploys
+      // late joiners within seconds, so they are not spectators.
+      ...(isRespawnGameMode(room.gameMode)
+        ? { lateJoin: false, spectating: false, joinRound: null, waitingForRound: false, eligibleRound: null }
+        : {
+            lateJoin: true,
+            spectating: true,
+            joinRound: Number(client.joinRound),
+            waitingForRound: true,
+            eligibleRound: Number(client.joinRound),
+          }),
       ...authoritySnapshotEnvelope(room),
       hostId: room.hostId,
     });

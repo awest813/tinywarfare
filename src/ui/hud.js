@@ -422,6 +422,7 @@ export default class HUD {
       death: $('hud-death'),
       deathMain: $('hud-death-main'),
       deathKiller: $('hud-death-killer'),
+      deathClass: $('hud-death-class'),
       scoreboard: $('hud-scoreboard'),
       sbScore: $('hud-sb-score'),
       sbBody: $('hud-sb-body'),
@@ -522,6 +523,8 @@ export default class HUD {
       endUnlocks: $('hud-end-unlocks'),
       endLeaderboard: $('hud-end-leaderboard'),
       restart: $('hud-restart'),
+      endMenu: $('hud-end-menu'),
+      pauseMenu: $('hud-pause-menu'),
       restartMain: $('hud-restart-main'),
       restartSub: $('hud-restart-sub'),
       progressToasts: $('hud-progression-toasts'),
@@ -555,6 +558,40 @@ export default class HUD {
     }
     if (this._el.restart) {
       this._el.restart.addEventListener('click', () => this._handleEndPrimaryAction());
+    }
+    if (this._el.deathClass) {
+      // Touch players have no number keys: tap to cycle the next class.
+      this._el.deathClass.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const loadouts = this.game.loadouts;
+        if (!loadouts || this.game.player?.alive !== false) return;
+        loadouts.select((loadouts.selected + 1) % loadouts.classes.length);
+      });
+    }
+    if (this._el.endMenu) {
+      this._el.endMenu.addEventListener('click', () => this._returnToMenu());
+    }
+    if (this._el.pauseMenu) {
+      this._el.pauseMenu.addEventListener('click', (event) => {
+        // The overlay itself resumes on click; this button must not.
+        event.stopPropagation();
+        // Quitting mid-match is a two-step action so a stray click cannot end it.
+        const btn = this._el.pauseMenu;
+        if (btn.dataset.armed !== '1') {
+          btn.dataset.armed = '1';
+          btn.textContent = 'CLICK AGAIN TO QUIT';
+          clearTimeout(this._pauseMenuTimer);
+          this._pauseMenuTimer = setTimeout(() => {
+            btn.dataset.armed = '';
+            btn.textContent = 'QUIT TO MAIN MENU';
+          }, 3000);
+          return;
+        }
+        clearTimeout(this._pauseMenuTimer);
+        btn.dataset.armed = '';
+        btn.textContent = 'QUIT TO MAIN MENU';
+        this._returnToMenu();
+      });
     }
     if (this._el.pause) {
       this._el.pause.addEventListener('click', () => {
@@ -863,6 +900,8 @@ export default class HUD {
   }
 
   _startSoloMatch() {
+    const mp = this.game.multiplayer;
+    if (mp && (mp._connecting || mp.connected)) return; // in (or joining) a room
     this.game.sessionMode = 'solo';
     // PLAY is allowed to pay the map-build cost, but it must never start the
     // round on the previously loaded arena if it beats the debounce.
@@ -1027,7 +1066,7 @@ export default class HUD {
     const profile = this._profileSnapshot();
 
     if (this._el.careerName) this._el.careerName.textContent = standing.name || profile.callsign;
-    if (this._el.careerTier) this._el.careerTier.textContent = tierName + ' · LEVEL ' + level;
+    if (this._el.careerTier) this._el.careerTier.textContent = tierName + ' · CAREER LEVEL ' + level;
     if (this._el.careerOverall) this._el.careerOverall.textContent = this._rankLabel(standing.ranks.overall);
     if (this._el.careerBots) this._el.careerBots.textContent = this._rankLabel(standing.ranks.bots);
     if (this._el.careerScore) this._el.careerScore.textContent = standing.score.toLocaleString();
@@ -1310,8 +1349,11 @@ export default class HUD {
     const id = normalizeModeId(value);
     const changed = this.game && this.game.selectedMode !== id;
     if (this.game) this.game.selectedMode = id;
-    // A room's mode mirrored from the host is not this player's preference.
-    if (options.persist !== false) {
+    // A room's mode mirrored from the host is not this player's preference,
+    // and neither is a pick a room guest is not allowed to make.
+    const mp = this.game?.multiplayer;
+    const roomGuest = !!(mp && mp.connected && !mp.active && !mp.isHost);
+    if (options.persist !== false && !roomGuest) {
       try { localStorage.setItem('tiny-strike-mode', id); } catch { /* private mode */ }
     }
     if (this._el.modePicker) {
@@ -1371,7 +1413,14 @@ export default class HUD {
     this.game.events.on('progress:local', (d) => {
       this._localProgress = d || null;
       this._renderClasses();
+      // Rank-ups and unlocks join the end screen whichever way it renders.
+      const endRewards = this._el.endRewards;
+      if (this.game.state?.phase === 'gameEnd' && endRewards && !endRewards.classList.contains('unranked')) {
+        this._renderEndRewards();
+      }
     });
+    this.game.events.on('ui:start', () => { this._localProgress = null; });
+    this.game.events.on('ui:restart', () => { this._localProgress = null; });
     this._renderClasses();
     this._bindStreakPicker();
   }
@@ -1386,7 +1435,9 @@ export default class HUD {
       const options = STREAK_IDS.map((id) => {
         const locked = progression && !progression.isUnlocked(id);
         const text = STREAKS[id].label + ' · ' + STREAKS[id].cost + (locked ? ' · RANK ' + progression.unlockRank(id) : '');
-        return '<option value="' + id + '">' + esc(text) + '</option>';
+        // Locked streaks can't be picked (an old pick stays visible until changed).
+        const disabled = locked && !streaks.selected.includes(id) ? ' disabled' : '';
+        return '<option value="' + id + '"' + disabled + '>' + esc(text) + '</option>';
       }).join('');
       a.innerHTML = options;
       b.innerHTML = options;
@@ -1406,26 +1457,29 @@ export default class HUD {
     render();
   }
 
-  _classLocked(c) {
-    const progression = this.game?.progression;
-    if (!progression) return false;
-    return ['primary', 'secondary', 'lethal', 'tactical', 'perk', 'perk2'].some((slot) => !progression.isUnlocked(c[slot])) ||
-      (c.attachment && c.attachment !== 'none' && !progression.attachmentUnlocked(c.primary, c.attachment));
-  }
-
   _renderClasses() {
     const loadouts = this.game?.loadouts;
     const el = this._el;
     if (!loadouts || !el.classRow) return;
     const weaponName = (id) => String(this._names[id] || id).toUpperCase();
-    el.classRow.innerHTML = loadouts.classes.map((c, i) =>
-      '<button type="button" class="mn-class' + (i === loadouts.selected ? ' selected' : '') +
-      '" data-class-index="' + i + '" aria-pressed="' + (i === loadouts.selected) + '">' +
-      '<small>' + (i + 1) + '</small><strong>' + esc(c.name) + '</strong>' +
-      '<span>' + esc(weaponName(c.primary)) + (c.attachment && c.attachment !== 'none' ? ' + ' + esc(ATTACHMENTS[c.attachment].short) : '') +
-      ' · ' + esc(weaponName(c.secondary)) + '</span>' +
-      '<em>' + esc([PERKS[c.perk]?.label, PERKS[c.perk2]?.label].filter(Boolean).join(' + ')) + '</em>' +
-      (this._classLocked(c) ? '<small class="mn-class-lock">LOCKED ITEMS SWAP AT SPAWN</small>' : '') + '</button>').join('');
+    const progressionForCards = this.game?.progression;
+    el.classRow.innerHTML = loadouts.classes.map((c, i) => {
+      // Cards show what you actually deploy with at your rank; picks that
+      // are still locked are counted, not shouted.
+      const shown = progressionForCards && typeof progressionForCards.resolveLoadout === 'function'
+        ? progressionForCards.resolveLoadout(c)
+        : c;
+      const pending = ['primary', 'attachment', 'secondary', 'lethal', 'tactical', 'perk', 'perk2']
+        .filter((slot) => (shown[slot] || 'none') !== (c[slot] || 'none')).length;
+      return '<button type="button" class="mn-class' + (i === loadouts.selected ? ' selected' : '') +
+        '" data-class-index="' + i + '" aria-pressed="' + (i === loadouts.selected) + '">' +
+        '<small>' + (i + 1) + '</small><strong>' + esc(c.name) + '</strong>' +
+        '<span>' + esc(weaponName(shown.primary)) + (shown.attachment && shown.attachment !== 'none' ? ' + ' + esc(ATTACHMENTS[shown.attachment].short) : '') +
+        ' · ' + esc(weaponName(shown.secondary)) + '</span>' +
+        '<em>' + esc([PERKS[shown.perk]?.label, PERKS[shown.perk2]?.label].filter(Boolean).join(' + ')) + '</em>' +
+        (pending ? '<small class="mn-class-lock">' + pending + (pending === 1 ? ' PICK UNLOCKS' : ' PICKS UNLOCK') + ' LATER</small>' : '') +
+        '</button>';
+    }).join('');
     const active = loadouts.active();
     if (el.className && document.activeElement !== el.className) el.className.value = active.name;
     const progression = this.game?.progression;
@@ -1451,7 +1505,7 @@ export default class HUD {
     const chip = document.getElementById('hud-rank-chip');
     if (chip && progression) {
       const r = progression.summary();
-      chip.textContent = 'RANK ' + r.rank + ' · ' + r.title + ' · ' + r.xp.toLocaleString('en-US') +
+      chip.textContent = 'UNLOCK RANK ' + r.rank + ' · ' + r.title + ' · ' + r.xp.toLocaleString('en-US') +
         (r.next > r.floor ? ' / ' + r.next.toLocaleString('en-US') + ' XP' : ' XP');
     }
     if (el.classPerkDetail) {
@@ -2988,14 +3042,21 @@ export default class HUD {
         if (this._el.deathMain) {
           this._el.deathMain.textContent = (killcam ? 'KILLCAM · ' : '') + 'RESPAWNING IN ' + Math.max(1, Math.ceil(respawnIn));
         }
+        const touch = !!this.game.input?.touchMode;
+        const next = this.game.loadouts?.active?.();
         if (this._el.deathKiller) {
-          const next = this.game.loadouts?.active?.();
           const recap = this._deathRecap ? ' · ' + this._deathRecap : '';
           this._el.deathKiller.textContent = (this._deathKiller
             ? 'ELIMINATED BY ' + this._deathKiller.toUpperCase() + recap
-            : 'ELIMINATED') + (next ? '  ·  NEXT CLASS: ' + next.name + ' [1–5]' : '');
+            : 'ELIMINATED') + (next && !touch ? '  ·  NEXT CLASS: ' + next.name + ' [1–5]' : '');
+        }
+        if (this._el.deathClass) {
+          this._el.deathClass.hidden = !(touch && next);
+          const label = next ? 'CLASS: ' + next.name + '  ▸' : '';
+          if (this._el.deathClass.textContent !== label) this._el.deathClass.textContent = label;
         }
       } else if (dead) {
+        if (this._el.deathClass) this._el.deathClass.hidden = true;
         if (this._el.deathMain) {
           this._el.deathMain.textContent = waiting
             ? `SPAWNING ROUND ${joinRound || 'NEXT'}`
@@ -3339,7 +3400,16 @@ export default class HUD {
     const show = !this._locked && !this.game.debug && MATCH_PHASES[phase] === 1 && !this._buyOpen;
     if (show !== this._pauseShown) {
       this._pauseShown = show;
-      if (this._el.pause) this._el.pause.style.display = show ? 'flex' : 'none';
+      if (this._el.pause) {
+        if (show) {
+          const touch = !!this.game.input?.touchMode;
+          const main = this._el.pause.querySelector('.pause-main');
+          const sub = this._el.pause.querySelector('.pause-sub');
+          if (main) main.textContent = touch ? 'TAP TO RESUME' : 'CLICK TO RESUME';
+          if (sub) sub.textContent = touch ? 'PAUSED HERE — THE MATCH CONTINUES' : 'POINTER RELEASED — THE MATCH CONTINUES';
+        }
+        this._el.pause.style.display = show ? 'flex' : 'none';
+      }
     }
   }
 
@@ -3393,6 +3463,25 @@ export default class HUD {
     if (this._el.restartSub) this._el.restartSub.textContent = online ? 'ROOM DIRECTORY' : 'SAME MAP · VS BOTS';
   }
 
+  /** Back to the main menu: solo resets in place, online leaves the room. */
+  _returnToMenu() {
+    const multiplayer = this.game?.multiplayer;
+    if (multiplayer?.active) {
+      if (typeof multiplayer.leaveRoomAndReturn === 'function') multiplayer.leaveRoomAndReturn();
+      return;
+    }
+    if (document.pointerLockElement && document.exitPointerLock) document.exitPointerLock();
+    this._stats.clear();
+    this._networkStatsById.clear();
+    this._sbDirty = true;
+    this._clearFeed();
+    this._endInfo = null;
+    this._endUnranked = false;
+    this._setEndRank('');
+    this.game?.rounds?.returnToMenu?.();
+    this._updateStartSub();
+  }
+
   _handleEndPrimaryAction() {
     const multiplayer = this.game?.multiplayer;
     if (multiplayer?.active) {
@@ -3415,7 +3504,7 @@ export default class HUD {
   _renderUnrankedEndState(d = {}) {
     const modeOnly = d.reason === 'mode';
     this._setEndRank(modeOnly
-      ? 'RESPAWN MODES EARN LOCAL RANK XP · SEARCH & DESTROY ALSO EARNS CAREER XP'
+      ? 'THIS MATCH EARNS RANK XP ON THIS DEVICE ONLY'
       : 'UNRANKED GUEST · NO LEADERBOARD CREDIT', 'unranked');
     if (this._el.endRewards) {
       this._el.endRewards.classList.remove('pending');
@@ -3453,7 +3542,7 @@ export default class HUD {
     if (this._el.endXpLabel) this._el.endXpLabel.textContent = 'THIS MATCH DOES NOT CHANGE YOUR SAVED CAREER';
     if (this._el.endUnlocks) {
       this._el.endUnlocks.innerHTML = modeOnly
-        ? '<span class="steady">RANKED TEAM DEATHMATCH ARRIVES WITH THE XP OVERHAUL</span>'
+        ? '<span class="steady">RANK XP IS SAVED ON THIS DEVICE</span>'
         : '<span class="steady">REJOIN WITH YOUR RANKED IDENTITY TO EARN PROGRESS</span>';
     }
   }
@@ -3503,6 +3592,7 @@ export default class HUD {
       const records = Array.isArray(rewards.newRecords) ? rewards.newRecords : [];
       const achievements = Array.isArray(rewards.newAchievements) ? rewards.newAchievements : [];
       const chips = [
+        ...this._localRewardChips(),
         ...achievements.map((item) => ({ type: 'achievement', text: '✦ ' + (item.title || 'ACHIEVEMENT') })),
         ...records.map((item) => ({ type: 'record', text: '◆ ' + (item.label || 'PERSONAL RECORD') })),
       ];
@@ -3510,6 +3600,28 @@ export default class HUD {
         ? chips.map((item) => '<span class="' + item.type + '">' + esc(item.text) + '</span>').join('')
         : '<span class="steady">' + (hasResult ? 'CAREER PROGRESS SAVED' : 'REWARDS WILL APPEAR HERE') + '</span>';
     }
+  }
+
+  /** Device-local rank results (unlock rank, weapon levels) for the end screen. */
+  _localRewardChips() {
+    const local = this._localProgress;
+    if (!local) return [];
+    const name = (id) => String(this._names[id] || PERKS[id]?.label || STREAKS[id]?.label || id).toUpperCase();
+    const chips = [];
+    if (local.after > local.before) {
+      chips.push({ type: 'achievement', text: '▲ RANK ' + local.after + ' · ' + String(local.summary?.title || '').toUpperCase() });
+    } else if (local.earned > 0) {
+      chips.push({ type: 'record', text: '+' + Number(local.earned).toLocaleString('en-US') + ' RANK XP' });
+    }
+    for (const id of local.unlocks || []) chips.push({ type: 'achievement', text: 'UNLOCKED ' + name(id) });
+    for (const up of local.weaponUps || []) {
+      chips.push({
+        type: 'record',
+        text: name(up.id) + ' LEVEL ' + up.level +
+          (up.attachments && up.attachments.length ? ' · ' + up.attachments.map((a) => ATTACHMENTS[a]?.label || a).join(', ') : ''),
+      });
+    }
+    return chips;
   }
 
   _fillEndScreen() {
@@ -3578,8 +3690,14 @@ export default class HUD {
     const p = this.game.player;
     if (p) teams.set('You', p.team);
     for (const b of (this.game.bots && this.game.bots.all) || []) teams.set(b.name, b.team);
+    // Online, humans are keyed by callsign (the local seat too).
+    const mp = this.game.multiplayer;
+    if (mp && mp.active) {
+      if (p && mp.localId) teams.set(humanCallsign(this.game, mp.localName, mp.localId), p.team);
+      for (const r of mp.remotePlayers || []) teams.set(humanCallsign(this.game, r.name, r.networkId), r.team);
+    }
     const rows = [...this._stats.entries()]
-      .filter(([name]) => teams.has(name) || name === 'You')
+      .filter(([name]) => teams.has(name))
       .sort((a, b) => b[1].k - a[1].k || a[1].d - b[1].d)
       .slice(0, 3);
     const ffa = isFfa(this.game);
@@ -3651,7 +3769,8 @@ export default class HUD {
       '<div id="hud-deathfx"></div>' +
       '<div id="hud-wedges"></div>' +
       '<div id="hud-death"><div class="death-inner"><div class="death-main" id="hud-death-main">YOU ARE DEAD</div>' +
-      '<div class="death-sub" id="hud-death-killer">SPECTATING</div></div></div>' +
+      '<div class="death-sub" id="hud-death-killer">SPECTATING</div>' +
+      '<button id="hud-death-class" class="death-class" type="button" hidden>CHANGE CLASS</button></div></div>' +
 
       // crosshair + hitmarker
       '<div id="hud-score-pop" aria-live="polite"></div>' +
@@ -3757,6 +3876,7 @@ export default class HUD {
       '<div id="hud-pause"><div class="pause-inner">' +
       '<div class="pause-main">CLICK TO RESUME</div>' +
       '<div class="pause-sub">POINTER RELEASED — THE MATCH CONTINUES</div>' +
+      '<button id="hud-pause-menu" class="pause-menu" type="button">QUIT TO MAIN MENU</button>' +
       '</div></div>' +
 
       // ------------------------------------------------ main menu
@@ -3766,13 +3886,13 @@ export default class HUD {
       '<div id="hud-menu">' +
       '<div class="mn-scan"></div>' +
       '<div class="mn-top">' +
-      '<div class="mn-op">' + FACTIONS.ct.short + ' VS ' + FACTIONS.t.short + ' · MODERN CONFLICT</div>' +
+      '<div class="mn-op">MODERN CONFLICT · U.S. VS RUSSIA</div>' +
       '<div class="mn-title" data-title="TINY WARFARE">TINY WARFARE</div>' +
       '</div>' +
       '<section class="mn-career" id="hud-career" aria-label="Your career progress">' +
       '<button class="mn-id" id="hud-career-toggle" type="button" aria-expanded="false" aria-controls="hud-career-body">' +
       '<span class="mn-id-name"><strong id="hud-career-name">OPERATIVE</strong>' +
-      '<span id="hud-career-tier">RECRUIT · LEVEL 1</span></span>' +
+      '<span id="hud-career-tier">RECRUIT · CAREER LEVEL 1</span></span>' +
       '<span class="mn-xp"><span class="mn-xp-track"><span id="hud-career-xp-fill"></span></span>' +
       '<small id="hud-career-xp-label">0 / 500 XP TO LEVEL 2</small></span>' +
       '<span class="mn-id-stats"><span><small>OVERALL</small><b id="hud-career-overall">UNRANKED</b></span>' +
@@ -3937,6 +4057,7 @@ export default class HUD {
       '<span class="btn-sub" id="hud-restart-sub">SAME MAP · VS BOTS</span></button>' +
       '<button id="hud-end-leaderboard"><span class="btn-main">VIEW LEADERBOARD</span>' +
       '<span class="btn-sub">YOUR RANK · GLOBAL RIVALS</span></button></div>' +
+      '<button id="hud-end-menu" class="end-menu-link" type="button">MAIN MENU</button>' +
       '</div></div>' +
 
       // ------------------------------------------------ debug fps
@@ -4354,6 +4475,12 @@ export default class HUD {
   transform: translateX(-50%); align-items: center; justify-content: center;
   width: min(620px, calc(100vw - 30px)); z-index: 7; pointer-events: none;
 }
+.death-class {
+  margin-top: 9px; padding: 8px 16px; min-height: 36px; pointer-events: auto;
+  background: rgba(20, 26, 12, .9); border: 1px solid rgba(154, 178, 107, .55);
+  color: var(--olive-bright); font: inherit; font-size: 12px; font-weight: 800; letter-spacing: .16em;
+}
+.death-class[hidden] { display: none; }
 .death-inner {
   width: 100%; padding: 12px 20px 11px; text-align: center;
   background: linear-gradient(180deg, rgba(14, 17, 10, .90), rgba(5, 7, 4, .94));
@@ -4622,6 +4749,16 @@ export default class HUD {
   animation: hud-blink 1s step-end infinite alternate;
 }
 .pause-sub { font-size: 11px; letter-spacing: .3em; color: var(--olive-dim); margin-top: 12px; }
+.pause-menu, .end-menu-link {
+  margin-top: 26px; padding: 9px 18px; background: rgba(8, 11, 6, 0.7);
+  border: 1px solid rgba(154, 178, 107, 0.35); color: var(--olive-dim);
+  font: inherit; font-size: 11px; font-weight: 700; letter-spacing: .24em; cursor: pointer;
+}
+.end-menu-link { margin-top: 4px; }
+.pause-menu:hover, .end-menu-link:hover, .pause-menu:focus-visible, .end-menu-link:focus-visible {
+  color: var(--olive-bright); border-color: var(--olive-bright); outline: none;
+}
+.pause-menu[data-armed="1"] { color: #f0a070; border-color: #f0a070; }
 
 /* ---------- menu / end screens ---------- */
 #hud-menu, #hud-end {
@@ -4763,7 +4900,7 @@ export default class HUD {
 .mn-class strong { font-size:11.5px; font-weight:900; letter-spacing:.08em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-right:12px; }
 .mn-class span, .mn-class em { font-size:8.5px; font-weight:900; letter-spacing:.08em; font-style:normal; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--olive-dim); }
 .mn-class em { color:var(--olive); }
-.mn-class .mn-class-lock { position:static; font-size:7.5px; letter-spacing:.1em; color:#f7a35c; }
+.mn-class .mn-class-lock { position:static; font-size:7.5px; letter-spacing:.1em; color:var(--olive-dim); }
 .mn-class:hover { border-color:var(--olive); }
 .mn-class:focus-visible { outline:2px solid var(--olive-bright); outline-offset:2px; }
 .mn-class.selected { border-color:var(--olive-bright); background:rgba(154,178,107,.16); box-shadow:inset 0 0 0 1px var(--olive); }
@@ -4821,6 +4958,16 @@ export default class HUD {
   background: linear-gradient(180deg, rgba(154, 178, 107, 0.42), rgba(154, 178, 107, 0.2));
 }
 .mn-quick { position:relative; display:flex; flex-wrap:wrap; align-items:stretch; justify-content:center; gap:8px; }
+/* Short screens (phones in landscape): PLAY stays in reach while the
+   picker rows scroll underneath it. */
+@media (max-height: 560px) {
+  #hud-menu .mn-actions {
+    position:sticky; bottom:0; z-index:4; padding:8px 0 4px;
+    background:linear-gradient(180deg, rgba(5,8,4,0), rgba(5,8,4,.92) 45%);
+  }
+  #hud-menu #hud-start { padding:7px 28px 6px; }
+  #hud-menu #hud-start .btn-main { font-size:15px; }
+}
 .mn-quick > button {
   pointer-events:auto; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:7px;
   min-height:34px; padding:7px 18px; font-family:inherit; font-stretch:condensed;
@@ -5087,6 +5234,9 @@ html.touch-device .mn-id { min-height:52px; }
 .profile-actions button:hover { color:#fff; border-color:var(--olive-bright); filter:brightness(1.12); }
 #hud-profile button:focus-visible,#hud-leaderboard button:focus-visible { outline:2px solid var(--olive-bright); outline-offset:2px; }
 
+/* Short windows: the end card scrolls instead of clipping its buttons. */
+#hud-end { overflow-y: auto; justify-content: flex-start; }
+#hud-end .end-inner { margin: auto 0; flex-shrink: 0; }
 .end-inner {
   position: relative; text-align: center; display: flex; flex-direction: column; align-items: center;
   gap: 18px; padding: 40px 70px 36px;

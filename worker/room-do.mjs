@@ -595,11 +595,17 @@ export class RoomDurableObject {
         mode: room.mode,
         gameMode: cleanGameMode(room.gameMode),
         players: Object.values(room.players).map((entry) => publicPlayer(entry, room.hostId)),
-        lateJoin: true,
-        spectating: true,
-        joinRound: Number(connection.joinRound),
-        waitingForRound: true,
-        eligibleRound: Number(connection.joinRound),
+        // Respawn rooms have no round to wait for: the authority deploys
+        // late joiners within seconds, so they are not spectators.
+        ...(isRespawnGameMode(room.gameMode)
+          ? { lateJoin: false, spectating: false, joinRound: null, waitingForRound: false, eligibleRound: null }
+          : {
+              lateJoin: true,
+              spectating: true,
+              joinRound: Number(connection.joinRound),
+              waitingForRound: true,
+              eligibleRound: Number(connection.joinRound),
+            }),
         ...authoritySnapshotEnvelope(room),
         hostId: room.hostId,
       });

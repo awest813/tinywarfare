@@ -905,6 +905,9 @@ export default class Multiplayer {
       const unavailable = button.classList.contains('unavailable');
       button.disabled = this._connecting || unavailable;
     }
+    // A solo match started mid-handshake would leave an empty room hosted.
+    const start = this.game.hudRoot?.querySelector('#hud-start');
+    if (start) start.disabled = this._connecting;
   }
 
   _refreshRoomsIfVisible() {
@@ -1116,7 +1119,8 @@ export default class Multiplayer {
       if (this.isHost) this.setMap(requested);
       else {
         this._applyRoomMap(this.mapId);
-        this.game.events.emit('hud:notice', { text: 'Only the room host can change the map.' });
+        // hud:notice draws in the in-game layer; the lobby has its own line.
+        this._status('Only the room host can change the map.', true);
       }
     });
     ev.on('ui:mode-select', (data) => {
@@ -1125,7 +1129,7 @@ export default class Multiplayer {
       if (this.isHost) this.setGameMode(requested);
       else {
         this._mirrorRoomMode();
-        this.game.events.emit('hud:notice', { text: 'Only the room host can change the mode.' });
+        this._status('Only the room host can change the mode.', true);
       }
     });
     ev.on('profile:changed', (event) => {
@@ -2529,6 +2533,7 @@ export default class Multiplayer {
       <div id="mp-lobby" style="display:none">
         <div class="mp-title">ROOM <span id="mp-code"></span></div>
         <div id="mp-roster"></div>
+        <div class="mp-row"><select id="mp-lobby-mode" aria-label="Room fill"><option value="mixed">HUMANS + BOTS</option><option value="humans">HUMANS ONLY</option></select></div>
         <div class="mp-actions"><button id="mp-ct">JOIN ${FACTIONS.ct.short}</button><button id="mp-t">JOIN ${FACTIONS.t.short}</button><button id="mp-start">START MATCH</button><button id="mp-leave">LEAVE</button></div>
         <div id="mp-lobby-status"></div>
       </div>`;
@@ -2623,6 +2628,7 @@ export default class Multiplayer {
       lobby: panel.querySelector('#mp-lobby'),
       name: panel.querySelector('#mp-name'),
       mode: panel.querySelector('#mp-mode'),
+      lobbyMode: panel.querySelector('#mp-lobby-mode'),
       room: panel.querySelector('#mp-room'),
       status: panel.querySelector('#mp-status'),
       lobbyStatus: panel.querySelector('#mp-lobby-status'),
@@ -2653,8 +2659,14 @@ export default class Multiplayer {
     const gameMode = GAME_MODES[this.gameMode] || GAME_MODES.sd;
     this._ui.code.textContent = `${this.roomCode} · ${gameMode.short} · ${this.mode === 'humans' ? 'HUMANS ONLY' : 'HUMANS + BOTS'} · ${mapById(this.mapId).name.toUpperCase()}`;
     this._ui.mode.value = this.mode;
-    this._ui.mode.disabled = !this.isHost;
-    this._ui.mode.onchange = () => this._send({ type: 'set_mode', mode: this._ui.mode.value });
+    // The create form's select is hidden in the lobby; the host switches
+    // fill here.
+    if (this._ui.lobbyMode) {
+      this._ui.lobbyMode.value = this.mode;
+      this._ui.lobbyMode.disabled = !this.isHost;
+      this._ui.lobbyMode.title = this.isHost ? '' : 'Only the host can change this';
+      this._ui.lobbyMode.onchange = () => this._send({ type: 'set_mode', mode: this._ui.lobbyMode.value });
+    }
     this._ui.roster.innerHTML = this.roster.map((p) => {
       const unranked = !this.isRankedParticipant() && p.id === this.localId ? ' · UNRANKED' : '';
       const name = this._humanCallsign(p.name, p.id);

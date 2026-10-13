@@ -268,9 +268,17 @@
         requestAnimationFrame(() => requestAnimationFrame(resolve));
       });
 
-      const fail = () => {
+      const errorText = document.getElementById('loading-error');
+      const fail = (detail) => {
         if (finished || failed) return;
         failed = true;
+        // Called with an Error, an error event or a rejection event.
+        const cause = detail && (detail.reason || detail.error || detail);
+        const message = String((cause && cause.message) || '');
+        if (/webgl/i.test(message) && errorText) {
+          errorText.textContent = 'This browser could not start 3D graphics (WebGL). ' +
+            'Turn on hardware acceleration or try another browser, then retry.';
+        }
         root.classList.add('is-error');
         root.setAttribute('role', 'alert');
         root.setAttribute('aria-busy', 'false');
@@ -306,7 +314,7 @@
   <script type="module">
     requestAnimationFrame(() => requestAnimationFrame(() => {
       import('./src/main.js').catch((error) => {
-        globalThis.TINY_STRIKE_LOADING?.fail?.();
+        globalThis.TINY_STRIKE_LOADING?.fail?.(error);
         console.error('[boot] Tiny Warfare failed to initialize:', error);
       });
     }));

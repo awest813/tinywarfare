@@ -128,7 +128,7 @@ test('career card renders saved rank, XP, daily bot incentive, and escaped serve
   ]);
 
   assert.equal(hud._el.careerName.textContent, '<img src=x onerror=alert(1)>');
-  assert.equal(hud._el.careerTier.textContent, '<ELITE & DANGEROUS> · LEVEL 3');
+  assert.equal(hud._el.careerTier.textContent, '<ELITE & DANGEROUS> · CAREER LEVEL 3');
   assert.equal(hud._el.careerOverall.textContent, '#7');
   assert.equal(hud._el.careerBots.textContent, '#4');
   assert.match(hud._el.careerScore.textContent, /1.234|1,234/);
