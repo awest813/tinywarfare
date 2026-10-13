@@ -4474,7 +4474,7 @@ export default class HUD {
   letter-spacing:.06em; color:#eef5e5; background:#080d08; border:1px solid rgba(154,178,107,.38); }
 .mn-class-editor input:focus-visible, .mn-class-editor select:focus-visible { outline:2px solid var(--olive-bright); outline-offset:1px; }
 #hud-class-perk-detail { grid-column:1 / span 5; margin:0; font-size:10px; letter-spacing:.08em; color:var(--olive); }
-.mn-mode-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:8px; }
+.mn-mode-row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px 8px; }
 .mn-mode {
   appearance:none; display:flex; align-items:baseline; justify-content:space-between; gap:10px; min-width:0;
   padding:9px 12px; font-family:inherit; text-align:left; cursor:pointer; color:#dfe8d2;
