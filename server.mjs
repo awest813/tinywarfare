@@ -45,6 +45,18 @@ const RECONNECT_GRACE_MS = Math.max(
   5_000,
   Math.min(120_000, Number(process.env.TINY_STRIKE_RECONNECT_GRACE_MS) || 120_000)
 );
+// Abuse limits for self-hosting (the Cloudflare Worker has its own). Set
+// TINY_STRIKE_MAX_SOCKETS_PER_IP=0 behind a reverse proxy that hides client
+// addresses, where every player would otherwise share one IP.
+const MAX_SOCKETS_PER_IP = envLimit(process.env.TINY_STRIKE_MAX_SOCKETS_PER_IP, 32);
+const MAX_ROOMS = envLimit(process.env.TINY_STRIKE_MAX_ROOMS, 500);
+const socketsByIp = new Map();
+
+function envLimit(value, fallback) {
+  const parsed = Number(value);
+  return value !== undefined && value !== '' && Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
 const DEFAULT_ALLOWED_ORIGINS = Object.freeze([
   'https://guyzyskind.com',
   'https://www.guyzyskind.com',
@@ -572,6 +584,9 @@ function joinRoom(ws, client, msg) {
 
   if (action === 'create') {
     if (room) return send(ws, { type: 'error', message: 'That room code is already in use.' });
+    if (MAX_ROOMS > 0 && rooms.size >= MAX_ROOMS) {
+      return send(ws, { type: 'error', message: 'The server is full. Try again shortly.' });
+    }
     code = code || makeRoomCode();
     room = {
       code,
@@ -1092,11 +1107,22 @@ const wss = new WebSocketServer({
   path: '/ws',
   maxPayload: 64 * 1024,
   verifyClient(info, done) {
-    if (isRequestOriginAllowed(info.req)) done(true);
-    else done(false, 403, 'Origin is not allowed.');
+    if (!isRequestOriginAllowed(info.req)) return done(false, 403, 'Origin is not allowed.');
+    const ip = info.req.socket.remoteAddress || '';
+    if (MAX_SOCKETS_PER_IP > 0 && (socketsByIp.get(ip) || 0) >= MAX_SOCKETS_PER_IP) {
+      return done(false, 429, 'Too many connections.');
+    }
+    done(true);
   },
 });
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  const ip = req?.socket?.remoteAddress || '';
+  socketsByIp.set(ip, (socketsByIp.get(ip) || 0) + 1);
+  ws.once('close', () => {
+    const left = (socketsByIp.get(ip) || 1) - 1;
+    if (left > 0) socketsByIp.set(ip, left);
+    else socketsByIp.delete(ip);
+  });
   let client = {
     id: randomUUID().replace(/-/g, '').slice(0, 12),
     ws,

@@ -498,12 +498,16 @@ export default class Player {
     this._jumpCooldown = Math.max(0, this._jumpCooldown - dt);
 
     // -- gravity, then collide & slide through the world --
+    // Vertical travel uses the average velocity across the step (exact for
+    // constant gravity), so jump apex no longer shrinks at low frame rates.
+    const vyStart = v.y;
     v.y -= P.GRAVITY * dt;
     if (v.y < -TERMINAL_FALL) v.y = -TERMINAL_FALL;
 
     const vyBefore = v.y;
     const wasGround = this.onGround;
     _delta.copy(v).multiplyScalar(dt);
+    _delta.y = (vyStart + v.y) * 0.5 * dt;
 
     const world = game.world;
     if (world && typeof world.resolveMovement === 'function') {

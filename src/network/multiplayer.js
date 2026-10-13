@@ -9,6 +9,7 @@ import {
   resolveHumanPlayerName,
 } from '../player/profile.js';
 import { resolveWebSocketEndpoint } from './endpoints.js';
+import { FACTIONS, faction } from '../shared/factions.js';
 import {
   fetchRoomDirectory,
   roomPresentation,
@@ -2389,7 +2390,7 @@ export default class Multiplayer {
       <div id="mp-lobby" style="display:none">
         <div class="mp-title">ROOM <span id="mp-code"></span></div>
         <div id="mp-roster"></div>
-        <div class="mp-actions"><button id="mp-ct">JOIN CT</button><button id="mp-t">JOIN T</button><button id="mp-start">START MATCH</button><button id="mp-leave">LEAVE</button></div>
+        <div class="mp-actions"><button id="mp-ct">JOIN ${FACTIONS.ct.short}</button><button id="mp-t">JOIN ${FACTIONS.t.short}</button><button id="mp-start">START MATCH</button><button id="mp-leave">LEAVE</button></div>
         <div id="mp-lobby-status"></div>
       </div>`;
     const syncOverlay = document.createElement('div');
@@ -2517,7 +2518,7 @@ export default class Multiplayer {
     this._ui.roster.innerHTML = this.roster.map((p) => {
       const unranked = !this.isRankedParticipant() && p.id === this.localId ? ' · UNRANKED' : '';
       const name = this._humanCallsign(p.name, p.id);
-      return `<div class="mp-player ${p.team}"><span>${String(name).replace(/[<&]/g, '')}${p.host ? ' ★' : ''}${unranked}</span><span>${p.team.toUpperCase()}</span></div>`;
+      return `<div class="mp-player ${p.team}"><span>${String(name).replace(/[<&]/g, '')}${p.host ? ' ★' : ''}${unranked}</span><span>${faction(p.team).short}</span></div>`;
     }).join('');
     this._ui.start.style.display = this.isHost ? 'block' : 'none';
     const roomStatus = this.isHost

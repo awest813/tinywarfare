@@ -125,3 +125,33 @@ test('death handoff uses wall time when rendering is heavily throttled', () => {
   assert.equal(player.deathElapsed, DEATH_SPECTATE_DELAY);
   assert.equal(player._deathBlend, 1, 'camera fall catches up with the wall-clock transition');
 });
+
+test('jump apex matches the tuned height at any frame rate', () => {
+  const apexAt = (dt) => {
+    const game = makeGame();
+    game.world = {
+      resolveMovement(pos, delta) {
+        const next = pos.clone().add(delta);
+        const onGround = next.y <= 0;
+        if (onGround) next.y = 0;
+        return { pos: next, onGround };
+      },
+    };
+    const player = new Player(game);
+    game.player = player;
+    player.position.set(0, 0, 0);
+    player.update(dt); // settle on the ground
+    game.events.emit('input:keydown', { key: ' ' });
+    let apex = 0;
+    for (let t = 0; t < 1; t += dt) {
+      player.update(dt);
+      apex = Math.max(apex, player.position.y);
+    }
+    return apex;
+  };
+  const P = CONFIG.PLAYER;
+  const ideal = (P.JUMP_VELOCITY * P.JUMP_VELOCITY) / (2 * P.GRAVITY);
+  for (const dt of [1 / 144, 1 / 60, 1 / 30, 0.05]) {
+    assert.ok(Math.abs(apexAt(dt) - ideal) < 0.012, `apex at ${Math.round(1 / dt)} fps`);
+  }
+});

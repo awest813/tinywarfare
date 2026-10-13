@@ -34,20 +34,35 @@ passing), and boots cleanly in a headless browser with no console errors.
 - **Branding:** visible strings, package metadata, README and SECURITY now say
   Tiny Warfare. Storage keys and `TINY_STRIKE_*` env/globals are unchanged, so
   saved settings, careers, and tests keep working.
+- **Factions:** the setting is a modern U.S. vs Russia conflict. All
+  player-facing team text comes from `src/shared/factions.js`: **U.S. FORCES**
+  (`ct`, defenders) vs **RUSSIAN FORCES** (`t`, attackers). This covers HUD
+  scores, the scoreboard, round and match banners, spectator text, and the
+  lobby. The team ids `ct`/`t` stay in gameplay, network, storage, and
+  leaderboard code.
+- **Frame rate:** the simulation now sub-steps slow frames, in steps of at most
+  50 ms and up to 150 ms of catch-up, instead of dropping time. Below 20 fps
+  the round clock keeps real time. The FPS counter reports real frames. Jumps
+  use exact constant-gravity integration, so the apex is the tuned 0.484 m at
+  any frame rate (it had been about 0.447 m at 60 fps).
+- **Server limits:** at most 32 sockets per IP and 500 rooms, set with
+  `TINY_STRIKE_MAX_SOCKETS_PER_IP` and `TINY_STRIKE_MAX_ROOMS` (0 disables).
+- **Dustyard:** the floating crate on the CT ramp now sits on a support crate,
+  which restores the intended climb onto A.
+- **UI:** the buy menu is a labelled dialog. The profile inputs show a visible
+  keyboard focus ring.
 
 ### Deferred audit findings
 
 | Finding | Where | Why deferred |
 |---|---|---|
-| Frame time capped at 50 ms: below 20 fps everything runs in slow motion, including a host's round clock, and the FPS counter reports the capped value | `src/main.js:244` | Needs fixed-step sub-stepping; do it with the Phase 2 movement work |
-| Jump peak depends on frame rate (about 23% lower at the cap) | `src/player/player.js:501` | Same as above |
-| Keyboard still drives gameplay after Esc releases the pointer | `src/core/input.js:483` | Touch play uses a virtual lock; needs care |
+| Keyboard still drives gameplay after Esc releases the pointer | `src/core/input.js:483` | Touch play uses a virtual lock, and the buy menu runs unlocked; needs care |
 | Shots follow the camera, so view punch and shake move bullets | `src/weapons/weapons.js:635` | Deliberate CS-style aim punch; revisit when ADS lands |
 | Wall penetration can skip a player standing between two thin walls | `src/combat/combat.js:474` | Rare |
-| No per-IP rate limiting on the Node server (the Worker has it) | `server.mjs` | Matters only for self-hosting |
+| No per-message rate limit on the Node server's sockets | `server.mjs` | Payloads are capped at 64 KB; low impact |
 | About 325 MB of trailer MP4s in git history | repo root | Needs `git filter-repo` and a force push; owner's call |
 | Deploy config still points at the upstream author's domain and Worker | `wrangler.jsonc`, `worker/index.mjs:30`, `server.mjs` origins | Pick a host first |
-| Upstream's open visual defects: floating Dustyard crate, grey backdrop boxes, tiling concrete stains, low-quality dressing LOD | see `HANDOFF.md` | Content pass |
+| Upstream's open visual defects: grey backdrop boxes, tiling concrete stains, low-quality dressing LOD | see `HANDOFF.md` | Content pass |
 
 Not a bug: a ray that touches the head sphere counts as a headshot even if it
 also crosses the body capsule first. The body capsule rises into the head on
@@ -110,8 +125,6 @@ Each phase ships a playable build and keeps `npm test` green.
   AWP keeps its scope levels. Right-click hold or toggle.
 - **Slide** from sprint plus crouch, with a short cooldown. Optional mantle onto
   waist-high crates, which the maps already have plenty of.
-- Fixed-timestep simulation, which fixes the slow-motion and jump-height
-  findings above.
 - Feel: visible recoil that tracks the drift, an 80 ms input buffer for
   semi-auto and ADS clicks, ramped jump and crouch inaccuracy, and a landing
   penalty.
@@ -163,9 +176,14 @@ Each phase ships a playable build and keeps `npm test` green.
   classes. That is a design choice for later.
 
 ### Phase 7: Presentation
-- Factions: replace CT/T with two modern factions (names, colours, HUD copy,
-  and announcer lines; synthesized radio barks fit the WebAudio approach).
-  Character GLBs are CC0 and can be re-tinted.
+- Factions (text done): U.S. vs Russia. Still to do:
+  - Uniform palettes in `player/profile.js`. U.S. multicam or coyote tan, and
+    Russian EMR green, while keeping the two teams easy to tell apart.
+  - Faction weapons: U.S. starts with an M4 and M9/M17; Russia starts with an
+    AK and a Makarov or Grach.
+  - Flags or insignia on the HUD and lobby.
+  - Faction-voiced synthesized radio barks.
+  - Character GLBs are CC0 and can be re-tinted.
 - HUD restyle toward a modern-military look, killcam (a short ring buffer of
   actor poses replayed from the killer's view), play-of-the-game and podium,
   and a match-end scoreboard with K/D/score.
@@ -179,7 +197,7 @@ Each phase ships a playable build and keeps `npm test` green.
   allowed origins, and service names.
 - Cap `pixelRatio` around 1.5 on high-DPI screens. Rebuild a real low-quality
   dressing LOD.
-- Rate-limit room creation and leaderboard sessions on the Node server.
+- Throttle leaderboard session creation on the Node server.
 
 ## Decisions needed from the owner
 
@@ -187,8 +205,7 @@ Each phase ships a playable build and keeps `npm test` green.
    move walk to another key?
 2. **Economy:** keep money and the buy menu in Search & Destroy only, or use
    classes everywhere?
-3. **Faction names and setting**, for the art and HUD copy.
-4. **Hosting:** where this fork deploys (GitHub Pages plus Cloudflare Worker
+3. **Hosting:** where this fork deploys (GitHub Pages plus Cloudflare Worker
    like upstream, or elsewhere). This blocks online play outside localhost.
-5. **History rewrite** to drop the trailer MP4s. It needs a force push to
+4. **History rewrite** to drop the trailer MP4s. It needs a force push to
    `main`.

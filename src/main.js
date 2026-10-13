@@ -235,21 +235,33 @@ let frames = 0;
 let fpsTime = 0;
 game.fps = 60;
 
+// Simulation runs in steps of at most MAX_STEP so physics and collision stay
+// stable, but slow frames are sub-stepped instead of dropped: below 20 fps
+// the round clock (which a multiplayer host shares with everyone) keeps real
+// time. MAX_FRAME bounds catch-up after a stall or a backgrounded tab.
+const MAX_STEP = 0.05;
+const MAX_FRAME = 0.15;
+
 renderer.setAnimationLoop(() => {
-  const dt = Math.min(clock.getDelta(), 0.05);
+  const rawDt = clock.getDelta();
 
   frames++;
-  fpsTime += dt;
+  fpsTime += rawDt;
   if (fpsTime >= 1) {
     game.fps = frames / fpsTime;
     frames = 0;
     fpsTime = 0;
   }
 
-  for (const key of UPDATE_ORDER) {
-    const sys = game[key];
-    if (sys && typeof sys.update === 'function') sys.update(dt);
-  }
+  let remaining = Math.min(rawDt, MAX_FRAME);
+  do {
+    const dt = Math.min(remaining, MAX_STEP);
+    remaining -= dt;
+    for (const key of UPDATE_ORDER) {
+      const sys = game[key];
+      if (sys && typeof sys.update === 'function') sys.update(dt);
+    }
+  } while (remaining > 1e-6);
 
   game.renderFrame();
 });

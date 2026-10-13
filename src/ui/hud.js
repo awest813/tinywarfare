@@ -10,6 +10,7 @@
 
 import * as THREE from 'three';
 import { MAP_CATALOG, normalizeMapId } from '../maps/catalog.js';
+import { FACTIONS, faction, scoreLine } from '../shared/factions.js';
 import { resolveHumanPlayerName } from '../player/profile.js';
 import {
   KEY_BINDING_DEFINITIONS,
@@ -1705,7 +1706,7 @@ export default class HUD {
     const st = (this.game && this.game.state) || {};
     const winRounds = (this.game && this.game.config && this.game.config.MATCH &&
       this.game.config.MATCH.WIN_ROUNDS) || 8;
-    const main = d.winner === 'ct' ? 'COUNTER-TERRORISTS WIN' : 'TERRORISTS WIN';
+    const main = faction(d.winner).name + ' WIN';
     const reasons = {
       elimination: 'ENEMY TEAM ELIMINATED',
       time: 'TIME RAN OUT',
@@ -1987,12 +1988,12 @@ export default class HUD {
     if (ct !== c.scoreCt) {
       c.scoreCt = ct;
       if (this._el.scoreCt) this._el.scoreCt.textContent = String(ct);
-      if (this._el.sbScore) this._el.sbScore.textContent = 'CT ' + ct + '  :  ' + tt + ' T';
+      if (this._el.sbScore) this._el.sbScore.textContent = scoreLine(ct, tt, '  :  ');
     }
     if (tt !== c.scoreT) {
       c.scoreT = tt;
       if (this._el.scoreT) this._el.scoreT.textContent = String(tt);
-      if (this._el.sbScore) this._el.sbScore.textContent = 'CT ' + ct + '  :  ' + tt + ' T';
+      if (this._el.sbScore) this._el.sbScore.textContent = scoreLine(ct, tt, '  :  ');
     }
 
     const round = st.round | 0;
@@ -2531,7 +2532,7 @@ export default class HUD {
         }
         if (this._el.deathKiller) {
           if (target) {
-            const team = target.team === 't' ? 'TERRORIST' : 'COUNTER-TERRORIST';
+            const team = faction(target.team).member;
             const kind = target.kind === 'bot' ? 'BOT' : 'PLAYER';
             const next = this.game.input?.touchMode
               ? 'NEXT — SWITCH PLAYER'
@@ -2641,7 +2642,7 @@ export default class HUD {
     }
     let html = '';
     for (const team of ['ct', 't']) {
-      const label = team === 'ct' ? 'COUNTER-TERRORISTS' : 'TERRORISTS';
+      const label = faction(team).name;
       html += '<div class="sb-team sb-' + team + '"><div class="sb-team-h">' + label + '</div>' +
       '<table><thead><tr><th class="sb-n">OPERATIVE</th><th>K</th><th>D</th><th class="sb-s">STATUS</th></tr></thead><tbody>';
       const teamRows = rows.filter((row) => row.team === team).sort(compareScoreboardRows);
@@ -3020,10 +3021,10 @@ export default class HUD {
       this._el.endTitle.classList.toggle('lost', !won);
     }
     if (this._el.endSub) {
-      this._el.endSub.textContent = (winner === 'ct' ? 'COUNTER-TERRORISTS' : 'TERRORISTS') + ' WIN THE MATCH';
+      this._el.endSub.textContent = faction(winner).name + ' WIN THE MATCH';
     }
     if (this._el.endScore) {
-      this._el.endScore.textContent = 'CT  ' + (scores.ct | 0) + '  :  ' + (scores.t | 0) + '  T';
+      this._el.endScore.textContent = scoreLine(scores.ct, scores.t, '  :  ');
     }
     if (this._el.endKd) {
       const multiplayer = this.game?.multiplayer;
@@ -3148,8 +3149,8 @@ export default class HUD {
       '<div class="hud-panel" id="hud-top">' +
       '<div id="hud-timer"><span id="hud-bomb-ico">C4</span>' +
       '<span class="hud-num" id="hud-timer-num">0:00</span></div>' +
-      '<div id="hud-scores"><span class="sc-ct">CT</span> <span class="hud-num" id="hud-score-ct">0</span>' +
-      '<span class="sc-colon">:</span><span class="hud-num" id="hud-score-t">0</span> <span class="sc-t">T</span></div>' +
+      '<div id="hud-scores"><span class="sc-ct">' + FACTIONS.ct.short + '</span> <span class="hud-num" id="hud-score-ct">0</span>' +
+      '<span class="sc-colon">:</span><span class="hud-num" id="hud-score-t">0</span> <span class="sc-t">' + FACTIONS.t.short + '</span></div>' +
       '<div id="hud-round">ROUND 1 · FIRST TO 8</div>' +
       '</div>' +
 
@@ -3174,14 +3175,14 @@ export default class HUD {
       '<div id="hud-scoreboard"><div class="hud-panel sb-panel">' +
       '<i class="hud-corner tr"></i><i class="hud-corner bl"></i>' +
       '<div class="sb-titlebar"><span class="sb-title">TINY WARFARE — SCOREBOARD</span></div>' +
-      '<div class="sb-sub" id="hud-sb-score">CT 0 : 0 T</div>' +
+      '<div class="sb-sub" id="hud-sb-score">' + scoreLine(0, 0) + '</div>' +
       '<div id="hud-sb-body"></div>' +
       '</div></div>' +
 
       // buy menu
-      '<div id="hud-buy"><div class="hud-panel buy-panel">' +
+      '<div id="hud-buy" role="dialog" aria-modal="false" aria-labelledby="hud-buy-title"><div class="hud-panel buy-panel">' +
       '<i class="hud-corner tr"></i><i class="hud-corner bl"></i>' +
-      '<div class="buy-head"><div class="buy-head-l"><span class="buy-title">BUY EQUIPMENT</span>' +
+      '<div class="buy-head"><div class="buy-head-l"><span class="buy-title" id="hud-buy-title">BUY EQUIPMENT</span>' +
       '<span class="buy-hint" id="hud-buy-timer"></span></div>' +
       '<div class="buy-head-actions"><span class="buy-funds" id="hud-buy-funds">$ 800</span>' +
       '<button id="hud-buy-close" class="buy-close" type="button" aria-label="Close buy menu">×</button></div></div>' +
@@ -3211,7 +3212,7 @@ export default class HUD {
       '<div id="hud-menu">' +
       '<div class="mn-scan"></div>' +
       '<div class="mn-top">' +
-      '<div class="mn-op">TACTICAL BOMB DEFUSAL</div>' +
+      '<div class="mn-op">' + FACTIONS.ct.short + ' VS ' + FACTIONS.t.short + ' · MODERN CONFLICT</div>' +
       '<div class="mn-title" data-title="TINY WARFARE">TINY WARFARE</div>' +
       '</div>' +
       '<section class="mn-career" id="hud-career" aria-label="Your career progress">' +
@@ -3339,7 +3340,7 @@ export default class HUD {
       '<div class="end-inner">' +
       '<div id="hud-end-title">MISSION ACCOMPLISHED</div>' +
       '<div id="hud-end-sub"></div>' +
-      '<div id="hud-end-score" class="hud-num">CT 0 : 0 T</div>' +
+      '<div id="hud-end-score" class="hud-num">' + scoreLine(0, 0) + '</div>' +
       '<div id="hud-end-kd"></div>' +
       '<div id="hud-end-rank"></div>' +
       '<section id="hud-end-rewards" class="end-rewards pending"><div class="end-reward-grid">' +
@@ -4348,6 +4349,7 @@ html.touch-device .mn-id { min-height:52px; }
 .profile-name { display:block; }
 .profile-name > span, #hud-profile-form legend { display:block; margin-bottom:8px; font-size:12px; font-weight:900; letter-spacing:.22em; color:var(--olive); }
 #hud-profile-name { width:100%; height:52px; padding:0 16px; font-family:inherit; font-size:18px; font-weight:900; letter-spacing:.08em; color:#f3f7ec; background:#080d08; border:1px solid rgba(154,178,107,.38); outline:none; }
+#hud-profile-name:focus-visible { outline:2px solid var(--olive, #9ab26b); outline-offset:2px; }
 #hud-profile-name:focus { border-color:var(--olive-bright); box-shadow:0 0 0 3px rgba(154,178,107,.14); }
 .profile-name > small { display:block; margin-top:7px; font-size:12px; letter-spacing:.04em; color:#93a27e; }
 #hud-profile-form fieldset { min-width:0; margin:24px 0 0; padding:0; border:0; }
@@ -4382,6 +4384,7 @@ html.touch-device .mn-id { min-height:52px; }
 .profile-progress-actions button,.profile-progress-actions input { min-height:44px; font-family:inherit; border:1px solid rgba(154,178,107,.38); }
 .profile-progress-actions button { padding:0 13px; cursor:pointer; font-size:9.5px; font-weight:900; letter-spacing:.09em; color:#dce9c9; background:rgba(97,127,56,.27); }
 .profile-progress-actions input { min-width:0; padding:0 12px; font-size:13px; color:#eef5e5; background:rgba(0,0,0,.34); outline:none; }
+.profile-progress-actions input:focus-visible { outline:2px solid var(--olive, #9ab26b); outline-offset:1px; }
 .profile-progress-actions input:focus { border-color:var(--olive-bright); }
 .profile-new-career { display:flex; align-items:center; gap:12px; margin-top:12px; padding-top:11px; border-top:1px solid rgba(154,178,107,.13); }
 .profile-new-career > span { min-width:0; flex:1; }

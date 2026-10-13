@@ -1205,6 +1205,7 @@ export default class World {
 
     // ---- CT ramp area (under bridge) props: climb crates to A -------------
     this.crate(20.6, -20.4, 0.9, 0);
+    this.crate(20.7, -19.0, 0.9, 0, this.mats.crateDark);           // supports the step above
     this.crate(20.7, -19.0, 0.9, 0.9);                               // 0.9 -> 1.8 -> plat 2.0
     this.barrel(12.6, -24.0);
 

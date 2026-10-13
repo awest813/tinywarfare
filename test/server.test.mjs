@@ -87,6 +87,28 @@ test('static serving exposes only the client bundle and survives malformed URLs'
   assert.equal(await status('/index.html'), 200, 'server still up after a malformed URL');
 });
 
+test('one address cannot hold more than its socket allowance', async (t) => {
+  startServer(0);
+  await once(server, 'listening');
+  const { port } = server.address();
+  const url = `ws://127.0.0.1:${port}/ws`;
+  const sockets = [];
+  t.after(async () => {
+    for (const ws of sockets) ws.close();
+    await new Promise((resolve) => server.close(resolve));
+  });
+  for (let i = 0; i < 32; i++) sockets.push(await openClient(url));
+  const refused = new WebSocket(url);
+  refused.on('error', () => {});
+  const [, response] = await once(refused, 'unexpected-response');
+  assert.equal(response.statusCode, 429);
+  refused.terminate();
+  sockets.pop().close();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const again = await openClient(url);
+  sockets.push(again);
+});
+
 test('a resumed mobile tab takes over its live socket and receives canonical state on demand', async (t) => {
   startServer(0);
   await once(server, 'listening');
