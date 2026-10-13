@@ -261,20 +261,46 @@ parts yet.
 - **Foregrip**: 20% less recoil drift.
 - **Laser**: 25% tighter hip fire.
 
+Also shipped (`src/game/progression.js`):
+- **Local rank** (device-local, every solo mode). Match XP is the match score
+  plus a result bonus (win 500, draw 300, loss 150). There are 30 ranks with
+  titles from Private to General, saved in `tiny-strike-progress-v1`.
+- **Rank unlocks**:
+
+  | Rank | Unlocks |
+  |---|---|
+  | 2 | Shotgun, Quick Hands |
+  | 3 | Deagle, Counter-UAV |
+  | 4 | Semtex, Flak Jacket |
+  | 5 | AWP, Scavenger |
+  | 6 | Stun, Care Package |
+  | 7 | LMG |
+  | 8 | Hardline |
+
+  Everything else is available from rank 1. Locked items never block play:
+  at spawn, a class or streak pick holding something locked is swapped for an
+  unlocked alternative.
+- **Weapon levels**: 100 XP per kill with a gun. Levels 2-5 unlock its Laser,
+  Foregrip, Extended Mag, and Suppressor.
+- **Menu**:
+  - Locked options show "RANK N" or "GUN LV N".
+  - Class cards flag classes that hold locked items.
+  - The CLASS header shows rank, title, and XP.
+- **End screen** for respawn modes: XP earned, the score and result-bonus
+  breakdown, a promotion, new unlocks, and weapon level-ups.
+- **Attachment meshes** on first-person procedural guns:
+  - Suppressor can on the muzzle; the tracer and flash origin move to its tip.
+  - Laser box with a lit emitter.
+  - Vertical foregrip.
+  - Longer extended magazine.
+  - In low-light renders only the suppressor reads clearly. The laser and grip
+    are small and need a lighting or size check by eye.
+- New grenades reuse the authored frag and flashbang models (`GLB_SOURCE`).
+
 Still to do:
-- Mount attachment meshes on the procedural guns (`gfx/weapons/parts.js` has
-  optic, foregrip, and muzzle builders).
-- Weapon levels.
-- Rank unlocks for guns, perks, and streaks.
-- **Ranked respawn modes.** `validateLeaderboardResult` in
-  `src/shared/leaderboard-core.mjs` hard-codes round results: scores 0-8,
-  `roundsPlayed == ct + t`, and deaths ≤ rounds. Its point weights are also
-  round-based. TDM, KC, and DOM need their own validation and a scoring
-  design, and the change ships to the Node server and the Cloudflare Worker
-  together. **Owner decision:** how much should a respawn-mode win be worth
-  against an S&D win?
-- Per-match XP breakdown. Challenges and calling cards from the achievement
-  catalog.
+- Ranked respawn modes on the server (covered by the server work below).
+- Attachments on third-person guns.
+- Challenges and calling cards.
 
 ### Phase 6: More modes
 Shipped for solo (`src/game/objectives.js`, driven by the respawn engine in

@@ -14,6 +14,7 @@ import { FACTIONS, faction, scoreLine } from '../shared/factions.js';
 import { GAME_MODES, TDM, isRespawnMode, modeRules, normalizeModeId } from '../game/tdm.js';
 import { STREAKS, STREAK_IDS } from '../game/streaks.js';
 import { ATTACHMENTS, ATTACHMENT_IDS, LETHALS, PRIMARIES, SECONDARIES, TACTICALS, PERKS, PERK1_IDS, PERK2_IDS } from '../game/loadouts.js';
+import { ATTACHMENT_LEVEL } from '../game/progression.js';
 import { resolveHumanPlayerName } from '../player/profile.js';
 import {
   KEY_BINDING_DEFINITIONS,
@@ -1317,6 +1318,7 @@ export default class HUD {
     const fill = (select, ids, label) => {
       if (!select) return;
       select.innerHTML = ids.map((id) => '<option value="' + id + '">' + esc(label(id)) + '</option>').join('');
+      select._labelOf = label;
       select.addEventListener('change', () => {
         loadouts.edit(loadouts.selected, { [select.dataset.slot]: select.value });
         this._renderClasses();
@@ -1351,6 +1353,10 @@ export default class HUD {
       this._renderClasses();
     });
     this.game.events.on('loadout:select', () => this._renderClasses());
+    this.game.events.on('progress:local', (d) => {
+      this._localProgress = d || null;
+      this._renderClasses();
+    });
     this._renderClasses();
     this._bindStreakPicker();
   }
@@ -1360,11 +1366,15 @@ export default class HUD {
     const a = document.getElementById('hud-streak-a');
     const b = document.getElementById('hud-streak-b');
     if (!streaks || !a || !b) return;
-    const options = STREAK_IDS.map((id) =>
-      '<option value="' + id + '">' + esc(STREAKS[id].label + ' · ' + STREAKS[id].cost) + '</option>').join('');
-    a.innerHTML = options;
-    b.innerHTML = options;
     const render = () => {
+      const progression = this.game?.progression;
+      const options = STREAK_IDS.map((id) => {
+        const locked = progression && !progression.isUnlocked(id);
+        const text = STREAKS[id].label + ' · ' + STREAKS[id].cost + (locked ? ' · RANK ' + progression.unlockRank(id) : '');
+        return '<option value="' + id + '">' + esc(text) + '</option>';
+      }).join('');
+      a.innerHTML = options;
+      b.innerHTML = options;
       [a.value, b.value] = streaks.selected;
       const detail = document.getElementById('hud-streak-detail');
       if (detail) detail.textContent = streaks.selected.map((id) => STREAKS[id].detail).join('  ·  ');
@@ -1381,6 +1391,13 @@ export default class HUD {
     render();
   }
 
+  _classLocked(c) {
+    const progression = this.game?.progression;
+    if (!progression) return false;
+    return ['primary', 'secondary', 'lethal', 'tactical', 'perk', 'perk2'].some((slot) => !progression.isUnlocked(c[slot])) ||
+      (c.attachment && c.attachment !== 'none' && !progression.attachmentUnlocked(c.primary, c.attachment));
+  }
+
   _renderClasses() {
     const loadouts = this.game?.loadouts;
     const el = this._el;
@@ -1392,12 +1409,35 @@ export default class HUD {
       '<small>' + (i + 1) + '</small><strong>' + esc(c.name) + '</strong>' +
       '<span>' + esc(weaponName(c.primary)) + (c.attachment && c.attachment !== 'none' ? ' + ' + esc(ATTACHMENTS[c.attachment].short) : '') +
       ' · ' + esc(weaponName(c.secondary)) + '</span>' +
-      '<em>' + esc([PERKS[c.perk]?.label, PERKS[c.perk2]?.label].filter(Boolean).join(' + ')) + '</em></button>').join('');
+      '<em>' + esc([PERKS[c.perk]?.label, PERKS[c.perk2]?.label].filter(Boolean).join(' + ')) + '</em>' +
+      (this._classLocked(c) ? '<small class="mn-class-lock">LOCKED ITEMS SWAP AT SPAWN</small>' : '') + '</button>').join('');
     const active = loadouts.active();
     if (el.className && document.activeElement !== el.className) el.className.value = active.name;
+    const progression = this.game?.progression;
     for (const slot of ['primary', 'attachment', 'secondary', 'lethal', 'tactical', 'perk', 'perk2']) {
       const select = document.getElementById('hud-class-' + slot);
-      if (select) select.value = active[slot];
+      if (!select) continue;
+      // Locked options stay visible with what unlocks them.
+      for (const option of select.options) {
+        const base = select._labelOf ? select._labelOf(option.value) : option.value;
+        let lock = '';
+        if (progression && slot === 'attachment') {
+          if (!progression.attachmentUnlocked(active.primary, option.value)) {
+            lock = ' · ' + weaponName(active.primary) + ' LV ' + (ATTACHMENT_LEVEL[option.value] || 1);
+          }
+        } else if (progression && !progression.isUnlocked(option.value)) {
+          lock = ' · RANK ' + progression.unlockRank(option.value);
+        }
+        option.textContent = base + lock;
+        option.disabled = !!lock && option.value !== active[slot];
+      }
+      select.value = active[slot];
+    }
+    const chip = document.getElementById('hud-rank-chip');
+    if (chip && progression) {
+      const r = progression.summary();
+      chip.textContent = 'RANK ' + r.rank + ' · ' + r.title + ' · ' + r.xp.toLocaleString('en-US') +
+        (r.next > r.floor ? ' / ' + r.next.toLocaleString('en-US') + ' XP' : ' XP');
     }
     if (el.classPerkDetail) {
       const att = ATTACHMENTS[active.attachment];
@@ -3270,11 +3310,36 @@ export default class HUD {
   _renderUnrankedEndState(d = {}) {
     const modeOnly = d.reason === 'mode';
     this._setEndRank(modeOnly
-      ? 'TEAM DEATHMATCH IS UNRANKED FOR NOW · SEARCH & DESTROY EARNS CAREER XP'
+      ? 'RESPAWN MODES EARN LOCAL RANK XP · SEARCH & DESTROY ALSO EARNS CAREER XP'
       : 'UNRANKED GUEST · NO LEADERBOARD CREDIT', 'unranked');
     if (this._el.endRewards) {
       this._el.endRewards.classList.remove('pending');
       this._el.endRewards.classList.add('unranked');
+    }
+    const local = modeOnly ? this._localProgress : null;
+    if (local) {
+      // Respawn modes still pay device-local rank XP.
+      const names = (ids) => ids.map((id) => String(this._names[id] || PERKS[id]?.label || STREAKS[id]?.label || id).toUpperCase());
+      if (this._el.endRewardPoints) this._el.endRewardPoints.textContent = '+' + local.earned.toLocaleString('en-US') + ' XP';
+      if (this._el.endRewardRank) this._el.endRewardRank.textContent = 'RANK ' + local.after;
+      if (this._el.endRewardLevel) {
+        this._el.endRewardLevel.textContent = local.after > local.before ? 'PROMOTED · ' + local.summary.title : local.summary.title;
+      }
+      if (this._el.endXpFill) this._el.endXpFill.style.width = Math.round(local.summary.fraction * 100) + '%';
+      if (this._el.endXpLabel) {
+        this._el.endXpLabel.textContent = 'SCORE ' + local.score.toLocaleString('en-US') + ' + ' +
+          local.result.toUpperCase() + ' ' + local.bonus + ' · ' + local.summary.xp.toLocaleString('en-US') + ' / ' +
+          local.summary.next.toLocaleString('en-US') + ' XP';
+      }
+      if (this._el.endUnlocks) {
+        const items = names(local.unlocks).map((n) => '<span>UNLOCKED ' + esc(n) + '</span>');
+        for (const up of local.weaponUps) {
+          items.push('<span>' + esc(names([up.id])[0]) + ' LEVEL ' + up.level +
+            (up.attachments.length ? ' · ' + esc(up.attachments.map((a) => ATTACHMENTS[a]?.label || a).join(', ')) : '') + '</span>');
+        }
+        this._el.endUnlocks.innerHTML = items.length ? items.join('') : '<span class="steady">KEEP PLAYING TO UNLOCK MORE</span>';
+      }
+      return;
     }
     if (this._el.endRewardPoints) this._el.endRewardPoints.textContent = 'NO CREDIT';
     if (this._el.endRewardRank) this._el.endRewardRank.textContent = modeOnly ? 'TDM' : 'GUEST';
@@ -3585,7 +3650,8 @@ export default class HUD {
         '<strong>' + mode.label + '</strong><span>' + mode.detail + '</span></button>').join('') +
       '</div></section>' +
       '<section class="mn-class-picker" id="hud-class-picker" aria-label="Choose a class" hidden>' +
-      '<div class="mn-section-head">CLASS<button type="button" id="hud-class-edit" aria-expanded="false">EDIT</button></div>' +
+      '<div class="mn-section-head">CLASS<span class="mn-rank" id="hud-rank-chip"></span>' +
+      '<button type="button" id="hud-class-edit" aria-expanded="false">EDIT</button></div>' +
       '<div class="mn-class-row" id="hud-class-row"></div>' +
       '<div class="mn-streak-row"><span>SCORESTREAKS</span>' +
       '<select id="hud-streak-a" aria-label="Scorestreak 1"></select>' +
@@ -4511,6 +4577,7 @@ export default class HUD {
 .mn-mode-picker { position:relative; flex:0 0 auto; width:min(880px,94vw); }
 .mn-class-picker { position:relative; flex:0 0 auto; width:min(880px,94vw); }
 .mn-class-picker[hidden], .mn-class-editor[hidden] { display:none; }
+.mn-rank { flex:1; text-align:center; font-size:9px; letter-spacing:.18em; color:#f7d27a; }
 .mn-streak-row { display:flex; align-items:center; gap:8px; margin-top:8px; flex-wrap:wrap; }
 .mn-streak-row span { font-size:9px; font-weight:900; letter-spacing:.22em; color:var(--olive-dim); }
 .mn-streak-row select { height:28px; padding:0 6px; font:inherit; font-size:11px; font-weight:900; letter-spacing:.06em;
@@ -4530,6 +4597,7 @@ export default class HUD {
 .mn-class strong { font-size:11.5px; font-weight:900; letter-spacing:.08em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-right:12px; }
 .mn-class span, .mn-class em { font-size:8.5px; font-weight:900; letter-spacing:.08em; font-style:normal; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--olive-dim); }
 .mn-class em { color:var(--olive); }
+.mn-class .mn-class-lock { position:static; font-size:7.5px; letter-spacing:.1em; color:#f7a35c; }
 .mn-class:hover { border-color:var(--olive); }
 .mn-class:focus-visible { outline:2px solid var(--olive-bright); outline-offset:2px; }
 .mn-class.selected { border-color:var(--olive-bright); background:rgba(154,178,107,.16); box-shadow:inset 0 0 0 1px var(--olive); }

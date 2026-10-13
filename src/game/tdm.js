@@ -270,9 +270,14 @@ export default class TeamDeathmatch {
     const player = this.game.player;
     if (!weapons || typeof weapons.resetForRound !== 'function') return;
     const loadouts = this.game.loadouts;
-    const loadout = loadouts && typeof loadouts.active === 'function'
+    const progression = this.game.progression;
+    const chosen = loadouts && typeof loadouts.active === 'function'
       ? loadouts.active()
       : tdmLoadout(player ? player.team : 'ct');
+    // Locked items swap for unlocked ones; play is never blocked.
+    const loadout = progression && typeof progression.resolveLoadout === 'function' && loadouts
+      ? progression.resolveLoadout(chosen)
+      : chosen;
     if (player) {
       player.perk = loadout.perk || null;
       player.perk2 = loadout.perk2 || null;

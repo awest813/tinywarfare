@@ -136,9 +136,18 @@ export default class Scorestreaks {
     return Math.round(base * (hasPerk(this.game.player, 'hardline') ? PERK_TUNING.HARDLINE_COST : 1));
   }
 
+  /** The picks in play: locked ones are swapped for unlocked streaks. */
+  effectiveSelected() {
+    const progression = this.game.progression;
+    const picks = progression && typeof progression.resolveStreaks === 'function'
+      ? progression.resolveStreaks(this.selected, STREAK_IDS)
+      : this.selected;
+    return [...picks].sort((x, y) => STREAKS[x].cost - STREAKS[y].cost);
+  }
+
   /** HUD view: the two picked streaks plus any bonus from a care package. */
   status() {
-    const rows = this.selected.map((id, slot) => ({
+    const rows = this.effectiveSelected().map((id, slot) => ({
       id,
       slot,
       key: STREAK_KEYS[slot],
@@ -156,7 +165,7 @@ export default class Scorestreaks {
   /** Activate the streak in a slot (0, 1, or 2 for the bonus). */
   activateSlot(slot) {
     if (slot === 2) return this.bonus ? this.activate(this.bonus, true) : false;
-    const id = this.selected[slot];
+    const id = this.effectiveSelected()[slot];
     return id ? this.activate(id) : false;
   }
 
@@ -224,7 +233,7 @@ export default class Scorestreaks {
   _onAward(a) {
     if (!this.enabled() || !a) return;
     this.points += Math.max(0, Number(a.points) || 0);
-    this.selected.forEach((id, slot) => {
+    this.effectiveSelected().forEach((id, slot) => {
       if (this._earnedThisLife.has(id) || this.points < this.costOf(id)) return;
       this._earnedThisLife.add(id);
       this.ready.add(id);

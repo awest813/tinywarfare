@@ -119,6 +119,8 @@ const POSES = {
 // player's hand size cannot vary with asset authoring scale.
 // ---------------------------------------------------------------------------
 const GLB_PATH = 'assets/models/viewmodels/';
+// Weapons without their own file borrow another's authored model.
+const GLB_SOURCE = { semtex: 'hegrenade', stun: 'flashbang' };
 const NPC_ARMS_PATH = GLB_PATH + 'npc-arms-ct.glb';
 
 /**
@@ -207,6 +209,9 @@ export const GLB_POSES = {
   knife: { pos: [0.15, -0.240, -0.35], rot: [-0.02, 0.50, 0.12], scale: 1.0 },
   hegrenade: { pos: [0.13, -0.240, -0.35], rot: [0.18, -0.12, -0.06], scale: 1.05 },
   flashbang: { pos: [0.13, -0.240, -0.35], rot: [0.18, -0.12, -0.06], scale: 1.05 },
+  // Respawn-mode grenades reuse the authored shells (see GLB_SOURCE).
+  semtex: { pos: [0.13, -0.240, -0.35], rot: [0.18, -0.12, -0.06], scale: 1.05 },
+  stun: { pos: [0.13, -0.240, -0.35], rot: [0.18, -0.12, -0.06], scale: 1.05 },
   smokegrenade: { pos: [0.13, -0.240, -0.35], rot: [0.18, -0.12, -0.06], scale: 1.05 },
 };
 
@@ -1019,6 +1024,7 @@ export default class ViewModel {
 
     this.pivot.position.set(px, py, pz);
     this.pivot.rotation.set(rx, ry, rz);
+    this._syncAttachment(player);
 
     // ---- moving parts on the current model --------------------------------
     const model = this._models[this._currentId];
@@ -1046,6 +1052,62 @@ export default class ViewModel {
     // Flush world matrices so effects (which updates after us) samples the
     // exact on-screen muzzle position this frame.
     this.rig.updateMatrixWorld(true);
+  }
+
+  /**
+   * Show the class attachment on the held primary: a suppressor can past the
+   * crown (the muzzle marker moves to its tip), a laser box with a lit
+   * emitter, a vertical foregrip, or a longer extended magazine. Built from
+   * primitives in the weapon's own space; procedural guns only.
+   */
+  _syncAttachment(player) {
+    const model = this._models[this._currentId];
+    const ud = model && model.userData;
+    if (!ud || ud.weaponSource !== 'procedural' || !ud.procObject) return;
+    const def = WEAPONS[this._currentId];
+    const want = def && def.slot === 1 && player && player.attachment ? player.attachment : null;
+    if (ud.attachmentShown === want) return;
+    ud.attachmentShown = want;
+
+    if (ud.attachmentGroup) {
+      ud.procObject.remove(ud.attachmentGroup);
+      ud.attachmentGroup = null;
+    }
+    if (ud.muzzle && ud.muzzleBase) ud.muzzle.position.copy(ud.muzzleBase);
+    if (ud.mag) ud.mag.scale.y = 1;
+    if (!want || !ud.muzzleBase) return;
+
+    const m = ud.muzzleBase;
+    const mats = this._attachmentMats || (this._attachmentMats = {
+      dark: new THREE.MeshStandardMaterial({ color: 0x1b1d1f, roughness: 0.55, metalness: 0.65 }),
+      laser: new THREE.MeshStandardMaterial({ color: 0x220303, emissive: 0xff2a1a, emissiveIntensity: 3 }),
+    });
+    const group = new THREE.Group();
+    group.name = 'attachment-' + want;
+    if (want === 'suppressor') {
+      const can = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.017, 0.16, 16), mats.dark);
+      can.rotation.x = Math.PI / 2;
+      can.position.set(m.x, m.y, m.z - 0.08);
+      group.add(can);
+      if (ud.muzzle) ud.muzzle.position.z = m.z - 0.16;
+    } else if (want === 'laser') {
+      const box = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.022, 0.06), mats.dark);
+      box.position.set(m.x + 0.021, m.y - 0.006, m.z + 0.13);
+      const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.004, 8), mats.laser);
+      lens.rotation.x = Math.PI / 2;
+      lens.position.set(m.x + 0.021, m.y - 0.006, m.z + 0.099);
+      group.add(box, lens);
+    } else if (want === 'grip') {
+      const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.013, 0.075, 12), mats.dark);
+      grip.position.set(m.x, m.y - 0.065, m.z + 0.2);
+      group.add(grip);
+    } else if (want === 'extmag' && ud.mag) {
+      ud.mag.scale.y = 1.35;
+    }
+    if (group.children.length) {
+      ud.procObject.add(group);
+      ud.attachmentGroup = group;
+    }
   }
 
   // ==========================================================================
@@ -1442,6 +1504,9 @@ export default class ViewModel {
     if (ud.mag) ud.magBaseY = ud.mag.position.y;
     if (ud.bolt) ud.boltBaseZ = ud.bolt.position.z;
     ud.model = model;
+    ud.procObject = object;
+    ud.muzzleBase = muzzleOk ? mz.position.clone() : null;
+    ud.attachmentShown = null;
 
     // Hand last, and it is the CHARACTER's hand.
     //
@@ -1678,7 +1743,7 @@ export default class ViewModel {
        */
       if (PROCEDURAL_WEAPON_IDS.includes(id)) continue;
       loader.load(
-        GLB_PATH + id + '.glb',
+        GLB_PATH + (GLB_SOURCE[id] || id) + '.glb',
         (gltf) => {
           try {
             this._applyGLB(id, gltf);
