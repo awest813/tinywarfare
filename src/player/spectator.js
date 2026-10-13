@@ -4,6 +4,7 @@
 // be covered without constructing Three.js cameras or browser input objects.
 
 import { resolveHumanPlayerName } from './profile.js';
+import { isRespawnMode } from '../game/tdm.js';
 
 const MATCH_PHASES = new Set(['freeze', 'live', 'planted', 'roundEnd']);
 const CAMERA_FORWARD_OFFSET = 0.07;
@@ -155,6 +156,24 @@ export class SpectatorCamera {
       return false;
     }
 
+    // Respawn modes: a killcam on whoever got you, live, until you respawn.
+    const killer = this.localPlayer.lastKiller;
+    const mode = this.game.state && this.game.state.mode;
+    if (isRespawnMode(mode) && killer && typeof killer === 'object' && killer !== this.localPlayer &&
+        killer.alive !== false && finitePosition(killer)) {
+      this._setTarget({
+        id: 'killcam',
+        name: killer.isRemotePlayer
+          ? resolveHumanPlayerName(killer.name, killer.networkId)
+          : String(killer.name || 'ENEMY'),
+        team: killer.team,
+        kind: 'killcam',
+        actor: killer,
+      });
+      if (input && typeof input.consumeLook === 'function') input.consumeLook();
+      return this._applyCamera(killer);
+    }
+
     const cyclePressed = !!(input && typeof input.wasPressed === 'function' && input.wasPressed(' '));
     const candidates = collectSpectatorCandidates(this.game, this.localPlayer);
     const next = selectSpectatorCandidate(candidates, this.targetId, cyclePressed ? 1 : 0);
@@ -200,7 +219,8 @@ export class SpectatorCamera {
     const pos = finitePosition(actor);
     if (!camera || !pos) return false;
 
-    const kind = this._payload && this._payload.kind === 'human' ? 'human' : 'bot';
+    const kind = this._payload && (this._payload.kind === 'human' ||
+      (this._payload.kind === 'killcam' && actor.isRemotePlayer)) ? 'human' : 'bot';
     const hoverHeight = spectatorHoverHeight(actor, kind, this.game.config || {});
     const yaw = Number.isFinite(actor.yaw) ? actor.yaw : 0;
     const rawPitch = kind === 'bot' ? actor.aimPitch : actor.pitch;

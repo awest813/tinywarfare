@@ -18,6 +18,7 @@ import MatchScore from './game/score.js';
 import Scorestreaks from './game/streaks.js';
 import Loadouts from './game/loadouts.js';
 import Progression from './game/progression.js';
+import Announcer from './audio/announcer.js';
 import HUD from './ui/hud.js';
 import AudioSys from './audio/audio.js';
 import Effects from './effects/effects.js';
@@ -76,7 +77,9 @@ function syncViewportCss(layout) {
 
 function targetPixelRatio(width, height) {
   const device = Math.max(1, Number(window.devicePixelRatio) || 1);
-  if (!TOUCH_DEVICE) return Math.min(device, 2);
+  // Desktop: 1.5 keeps Retina sharp while shading ~44% fewer pixels than 2x
+  // (the frame was fill-bound at 2x on high-DPI laptops).
+  if (!TOUCH_DEVICE) return Math.min(device, 1.5);
   // Keep high-density phone output crisp without asking large tablets to
   // shade several million pixels every frame.
   const cap = width * height > 1_000_000 ? 1.25 : 1.5;
@@ -186,6 +189,7 @@ game.score = new MatchScore(game);
 game.progression = new Progression(game);
 game.streaks = new Scorestreaks(game);
 game.loadouts = new Loadouts(game);
+game.announcer = new Announcer(game);
 game.leaderboard = new LeaderboardClient(game);
 game.hud = new HUD(game);
 game.touchControls = new TouchControls(game);

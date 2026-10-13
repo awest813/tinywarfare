@@ -10,11 +10,12 @@
 
 import * as THREE from 'three';
 import { MAP_CATALOG, normalizeMapId } from '../maps/catalog.js';
-import { FACTIONS, faction, scoreLine } from '../shared/factions.js';
+import { FACTIONS, FLAG_SVG, faction, scoreLine } from '../shared/factions.js';
 import { GAME_MODES, TDM, isRespawnMode, modeRules, normalizeModeId } from '../game/tdm.js';
 import { STREAKS, STREAK_IDS } from '../game/streaks.js';
 import { ATTACHMENTS, ATTACHMENT_IDS, LETHALS, PRIMARIES, SECONDARIES, TACTICALS, PERKS, PERK1_IDS, PERK2_IDS } from '../game/loadouts.js';
 import { ATTACHMENT_LEVEL } from '../game/progression.js';
+import { hostile, isFfa } from '../game/hostility.js';
 import { resolveHumanPlayerName } from '../player/profile.js';
 import {
   KEY_BINDING_DEFINITIONS,
@@ -394,6 +395,7 @@ export default class HUD {
       radarCanvas: $('hud-radar-canvas'),
       crosshair: $('hud-crosshair'),
       scorePop: $('hud-score-pop'),
+      tags: $('hud-tags'),
       streaks: $('hud-streaks'),
       objective: $('hud-objective'),
       scoreCtLabel: $('hud-score-ct-label'),
@@ -439,6 +441,7 @@ export default class HUD {
       lookSensitivity: $('hud-look-sensitivity'),
       lookSensitivityOutput: $('hud-look-sensitivity-output'),
       brightness: $('hud-brightness'),
+      announcer: $('hud-announcer'),
       brightnessOutput: $('hud-brightness-output'),
       settingsReset: $('hud-settings-reset'),
       settingsStatus: $('hud-settings-status'),
@@ -725,6 +728,10 @@ export default class HUD {
       settings.setBrightnessEv(event.currentTarget.value);
       this._syncSettingsUi();
     });
+    this._el.announcer?.addEventListener('change', (event) => {
+      settings.setAnnouncer(event.currentTarget.checked);
+      this._syncSettingsUi();
+    });
     this._el.settingsReset?.addEventListener('click', () => {
       this._cancelBindingCapture('reset');
       settings.reset();
@@ -814,6 +821,7 @@ export default class HUD {
         this._el.lookSensitivityOutput.textContent = Number(settings.lookSensitivity).toFixed(2) + '×';
     }
     if (this._el.brightness) this._el.brightness.value = String(settings.brightnessEv);
+    if (this._el.announcer) this._el.announcer.checked = settings.announcer !== false;
     if (this._el.brightnessOutput) {
       const value = Number(settings.brightnessEv);
       const label = (value > 0 ? '+' : '') + value.toFixed(2) + ' EV';
@@ -1815,6 +1823,8 @@ export default class HUD {
       this._updateAmmo();
       this._updateTop(st, phase);
       this._updateCrosshair(phase);
+      this._updateTarget();
+      this._updateTags();
       this._updateStreaks();
       this._updateFeed();
       this._updateDefuse(st, phase);
@@ -2247,6 +2257,10 @@ export default class HUD {
       c.ffaLabels = ffa;
       if (this._el.scoreCtLabel) this._el.scoreCtLabel.textContent = ffa ? 'YOU' : FACTIONS.ct.short;
       if (this._el.scoreTLabel) this._el.scoreTLabel.textContent = ffa ? 'LEAD' : FACTIONS.t.short;
+      for (const id of ['hud-flag-ct', 'hud-flag-t']) {
+        const flag = document.getElementById(id);
+        if (flag) flag.hidden = ffa;
+      }
     }
     if (showMoney !== c.showMoney) {
       c.showMoney = showMoney;
@@ -2279,6 +2293,77 @@ export default class HUD {
       return '<span class="obj-flag ' + (f.owner || '') + (f.contested ? ' contested' : '') + '" ' +
         'style="--cap:' + Math.round(Math.abs(f.control) * 100) + '%;--capc:' + toward + '">' + esc(f.name) + '<i></i></span>';
     }).join('');
+  }
+
+  /**
+   * Crosshair turns red over a visible enemy (team or FFA rules), the classic
+   * identification cue since both factions wear earth tones.
+   */
+  _updateTarget() {
+    const g = this.game;
+    const p = g.player;
+    const combat = g.combat;
+    const cam = g.camera;
+    let enemy = false;
+    if (p && p.alive !== false && combat && typeof combat._testCharacters === 'function' && cam) {
+      this._tOrigin = this._tOrigin || new THREE.Vector3();
+      this._tDir = this._tDir || new THREE.Vector3();
+      cam.getWorldPosition(this._tOrigin);
+      cam.getWorldDirection(this._tDir);
+      const t = combat._testCharacters(this._tOrigin, this._tDir, 90, p);
+      const target = t >= 0 ? combat._hitChar : null;
+      if (target && target !== p && hostile(g, target, p)) {
+        const wall = g.world && typeof g.world.raycast === 'function' ? g.world.raycast(this._tOrigin, this._tDir, t) : null;
+        enemy = !wall;
+      }
+    }
+    if (enemy !== this._cache.crossEnemy) {
+      this._cache.crossEnemy = enemy;
+      if (this._el.crosshair) this._el.crosshair.classList.toggle('enemy', enemy);
+    }
+  }
+
+  /** Blue name tags over visible teammates (none in free-for-all). */
+  _updateTags() {
+    const root = this._el.tags;
+    if (!root) return;
+    const g = this.game;
+    const p = g.player;
+    const cam = g.camera;
+    const st = g.state || {};
+    const live = MATCH_PHASES[st.phase] === 1 && p && p.alive !== false && cam && !isFfa(g);
+    const mates = [];
+    if (live) {
+      const bots = (g.bots && g.bots.all) || [];
+      const remotes = (g.multiplayer && g.multiplayer.active && g.multiplayer.remotePlayers) || [];
+      for (const a of [...bots, ...remotes]) {
+        const pos = a && (a.pos || a.position);
+        if (!a || a.alive === false || !pos || a.team !== p.team) continue;
+        if (pos.distanceTo(p.position) > 60) continue;
+        mates.push(a);
+      }
+    }
+    while (root.children.length < mates.length) {
+      const tag = document.createElement('span');
+      tag.className = 'hud-tag';
+      root.appendChild(tag);
+    }
+    this._tagV = this._tagV || new THREE.Vector3();
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    for (let i = 0; i < root.children.length; i++) {
+      const tag = root.children[i];
+      const a = mates[i];
+      if (!a) { tag.style.display = 'none'; continue; }
+      const pos = a.pos || a.position;
+      this._tagV.set(pos.x, pos.y + (a.height || 1.83) + 0.35, pos.z).project(cam);
+      if (this._tagV.z > 1 || Math.abs(this._tagV.x) > 1.05 || Math.abs(this._tagV.y) > 1.05) { tag.style.display = 'none'; continue; }
+      const name = a.isRemotePlayer ? humanCallsign(g, a.name, a.networkId) : String(a.name || '');
+      if (tag.textContent !== name) tag.textContent = name;
+      tag.style.display = 'block';
+      tag.style.transform = 'translate(' + Math.round((this._tagV.x + 1) * 0.5 * w) + 'px,' +
+        Math.round((1 - this._tagV.y) * 0.5 * h) + 'px) translate(-50%,-100%)';
+    }
   }
 
   /** Streak rail above the ammo box: progress toward each streak, ready glow. */
@@ -2894,7 +2979,10 @@ export default class HUD {
       if (this._el.death) this._el.death.style.display = dead ? 'flex' : 'none';
       if (this._el.death) this._el.death.classList.toggle('transitioning', dying);
       if (dead && respawning) {
-        if (this._el.deathMain) this._el.deathMain.textContent = 'RESPAWNING IN ' + Math.max(1, Math.ceil(respawnIn));
+        const killcam = target && target.kind === 'killcam';
+        if (this._el.deathMain) {
+          this._el.deathMain.textContent = (killcam ? 'KILLCAM · ' : '') + 'RESPAWNING IN ' + Math.max(1, Math.ceil(respawnIn));
+        }
         if (this._el.deathKiller) {
           const next = this.game.loadouts?.active?.();
           const recap = this._deathRecap ? ' · ' + this._deathRecap : '';
@@ -3444,6 +3532,7 @@ export default class HUD {
       this._configureEndPrimaryAction();
       this._renderEndRewards(null);
       if (this._endUnranked) this._renderUnrankedEndState({ reason: this._unrankedReason });
+      this._renderPodium();
       return;
     }
     const draw = !!info.draw;
@@ -3473,6 +3562,25 @@ export default class HUD {
     this._configureEndPrimaryAction();
     this._renderEndRewards(null);
     if (this._endUnranked) this._renderUnrankedEndState({ reason: this._unrankedReason });
+    this._renderPodium();
+  }
+
+  /** Top three by kills (K/D shown), coloured by side outside free-for-all. */
+  _renderPodium() {
+    const root = document.getElementById('hud-end-podium');
+    if (!root) return;
+    const teams = new Map();
+    const p = this.game.player;
+    if (p) teams.set('You', p.team);
+    for (const b of (this.game.bots && this.game.bots.all) || []) teams.set(b.name, b.team);
+    const rows = [...this._stats.entries()]
+      .filter(([name]) => teams.has(name) || name === 'You')
+      .sort((a, b) => b[1].k - a[1].k || a[1].d - b[1].d)
+      .slice(0, 3);
+    const ffa = isFfa(this.game);
+    root.innerHTML = rows.map(([name, s], i) =>
+      '<div class="pod' + (ffa ? '' : ' ' + (teams.get(name) || '')) + '"><b>' + ['1ST', '2ND', '3RD'][i] + '</b>' +
+      '<strong>' + esc(String(name).toUpperCase()) + '</strong><small>' + s.k + ' K · ' + s.d + ' D</small></div>').join('');
   }
 
   // --------------------------------------------------------------------------
@@ -3542,6 +3650,7 @@ export default class HUD {
 
       // crosshair + hitmarker
       '<div id="hud-score-pop" aria-live="polite"></div>' +
+      '<div id="hud-tags" aria-hidden="true"></div>' +
       '<div id="hud-crosshair">' +
       '<div class="ch ch-h" id="hud-ch-l"></div><div class="ch ch-h" id="hud-ch-r"></div>' +
       '<div class="ch ch-v" id="hud-ch-t"></div><div class="ch ch-v" id="hud-ch-b"></div>' +
@@ -3588,8 +3697,8 @@ export default class HUD {
       '<div class="hud-panel" id="hud-top">' +
       '<div id="hud-timer"><span id="hud-bomb-ico">C4</span>' +
       '<span class="hud-num" id="hud-timer-num">0:00</span></div>' +
-      '<div id="hud-scores"><span class="sc-ct" id="hud-score-ct-label">' + FACTIONS.ct.short + '</span> <span class="hud-num" id="hud-score-ct">0</span>' +
-      '<span class="sc-colon">:</span><span class="hud-num" id="hud-score-t">0</span> <span class="sc-t" id="hud-score-t-label">' + FACTIONS.t.short + '</span></div>' +
+      '<div id="hud-scores"><i class="sc-flag" id="hud-flag-ct">' + FLAG_SVG.ct + '</i><span class="sc-ct" id="hud-score-ct-label">' + FACTIONS.ct.short + '</span> <span class="hud-num" id="hud-score-ct">0</span>' +
+      '<span class="sc-colon">:</span><span class="hud-num" id="hud-score-t">0</span> <span class="sc-t" id="hud-score-t-label">' + FACTIONS.t.short + '</span><i class="sc-flag" id="hud-flag-t">' + FLAG_SVG.t + '</i></div>' +
       '<div id="hud-round">ROUND 1 · FIRST TO 8</div>' +
       '<div id="hud-objective" hidden></div>' +
       '</div>' +
@@ -3730,6 +3839,9 @@ export default class HUD {
       '<input id="hud-brightness" type="range" min="' + SETTINGS_LIMITS.brightnessEv.min +
       '" max="' + SETTINGS_LIMITS.brightnessEv.max + '" step="' + SETTINGS_LIMITS.brightnessEv.step +
       '" value="' + brightnessEv + '"></label>' +
+      '<label class="mn-setting mn-setting-toggle" for="hud-announcer"><span><strong>ANNOUNCER VOICE</strong>' +
+      '<output>RADIO CALLOUTS</output></span>' +
+      '<input id="hud-announcer" type="checkbox"' + (settings?.announcer === false ? '' : ' checked') + '></label>' +
       '</div>' +
       '<section class="mn-bindings-section" aria-labelledby="hud-bindings-title">' +
       '<div class="mn-bindings-head"><strong id="hud-bindings-title">KEY BINDINGS</strong>' +
@@ -3808,6 +3920,7 @@ export default class HUD {
       '<div id="hud-end-sub"></div>' +
       '<div id="hud-end-score" class="hud-num">' + scoreLine(0, 0) + '</div>' +
       '<div id="hud-end-kd"></div>' +
+      '<div id="hud-end-podium" aria-label="Top players"></div>' +
       '<div id="hud-end-rank"></div>' +
       '<section id="hud-end-rewards" class="end-rewards pending"><div class="end-reward-grid">' +
       '<span><small>MATCH POINTS</small><strong id="hud-end-reward-points">SYNCING</strong></span>' +
@@ -3968,6 +4081,15 @@ export default class HUD {
 #hud-scores { font-size: 15px; margin-top: 2px; display: flex; justify-content: center; gap: 7px; align-items: baseline; }
 #hud-scores .hud-num { font-size: 17px; color: var(--olive-bright); }
 .sc-ct { color: var(--ct); font-weight: 800; letter-spacing: .08em; }
+.sc-flag { display:inline-flex; vertical-align:-1px; margin:0 5px; opacity:.9; }
+.sc-flag[hidden] { display:none; }
+.sc-flag svg { display:block; border:1px solid rgba(0,0,0,.4); }
+#hud-end-podium { display:flex; justify-content:center; gap:10px; margin:6px 0 2px; }
+.pod { min-width:120px; padding:5px 10px; text-align:center; background:rgba(8,13,8,.6); border:1px solid rgba(154,178,107,.25); }
+.pod b { display:block; font-size:9px; letter-spacing:.2em; color:#f7d27a; }
+.pod strong { display:block; font-size:13px; letter-spacing:.06em; color:#eef5e5; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pod small { font-size:9.5px; letter-spacing:.12em; color:var(--olive); }
+.pod.ct { border-color:rgba(95,159,224,.6); } .pod.t { border-color:rgba(224,96,60,.6); }
 .sc-t { color: var(--t); font-weight: 800; letter-spacing: .08em; }
 .sc-colon { color: var(--olive-dim); }
 #hud-round { font-size: 9.5px; letter-spacing: .26em; color: var(--olive-dim); margin-top: 3px; }
@@ -4090,7 +4212,11 @@ export default class HUD {
 .ch-h { width: 8px; height: 2px; left: 0; top: -1px; }
 .ch-v { width: 2px; height: 8px; top: 0; left: -1px; }
 .ch-dot { width: 2px; height: 2px; left: -1px; top: -1px; }
-#hud-crosshair .ch { transition: opacity .12s; }
+#hud-crosshair .ch { transition: opacity .12s, background-color .08s; }
+#hud-crosshair.enemy .ch { background: #ff4a3a !important; box-shadow: 0 0 3px rgba(255,74,58,.7); }
+#hud-tags { position:absolute; inset:0; pointer-events:none; z-index:3; overflow:hidden; }
+.hud-tag { position:absolute; left:0; top:0; display:none; padding:1px 5px; font-size:10px; font-weight:900; letter-spacing:.08em;
+  color:#bfe0ff; background:rgba(20,40,70,.45); border-bottom:2px solid #5f9fe0; white-space:nowrap; text-shadow:0 1px 2px #000; }
 #hud-score-pop { position:absolute; left:50%; top:calc(50% + 44px); transform:translateX(-50%); z-index:4;
   display:flex; flex-direction:column; align-items:center; gap:2px; pointer-events:none; }
 .sp-row { display:flex; align-items:baseline; gap:7px; font-weight:900; letter-spacing:.12em; white-space:nowrap;

@@ -233,6 +233,7 @@ export default class Player {
     if (this.health <= 0) {
       this.health = 0;
       this.alive = false;
+      this.lastKiller = from && typeof from === 'object' ? from : null;
       this._beginDeathTransition();
       game.events.emit('player:death', {
         killer: from || null,
@@ -316,6 +317,7 @@ export default class Player {
     this.spawnProtection = 0;
     this._mantleT = 0;
     this.stunned = 0;
+    this.lastKiller = null;
     this.moveSpeed2D = 0;
     this._heightCur = P.HEIGHT_STAND;
     this.eyeHeight = P.EYE_STAND;

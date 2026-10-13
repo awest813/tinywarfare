@@ -22,6 +22,18 @@ export const FACTIONS = Object.freeze({
   }),
 });
 
+/** Small inline flag insignia (decorative; aria-hidden at the use site). */
+export const FLAG_SVG = Object.freeze({
+  ct: '<svg viewBox="0 0 19 10" width="17" height="9" aria-hidden="true">' +
+    '<rect width="19" height="10" fill="#b22234"/>' +
+    '<rect y="1.54" width="19" height="0.77" fill="#fff"/><rect y="3.08" width="19" height="0.77" fill="#fff"/>' +
+    '<rect y="4.62" width="19" height="0.77" fill="#fff"/><rect y="6.15" width="19" height="0.77" fill="#fff"/>' +
+    '<rect y="7.69" width="19" height="0.77" fill="#fff"/><rect width="7.6" height="5.4" fill="#3c3b6e"/></svg>',
+  t: '<svg viewBox="0 0 15 10" width="15" height="10" aria-hidden="true">' +
+    '<rect width="15" height="3.34" fill="#fff"/><rect y="3.33" width="15" height="3.34" fill="#0039a6"/>' +
+    '<rect y="6.66" width="15" height="3.34" fill="#d52b1e"/></svg>',
+});
+
 /** Faction record for a team id; anything other than 't' is the defenders. */
 export function faction(team) {
   return team === 't' ? FACTIONS.t : FACTIONS.ct;

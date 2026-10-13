@@ -52,6 +52,23 @@ const MAX_SOCKETS_PER_IP = envLimit(process.env.TINY_STRIKE_MAX_SOCKETS_PER_IP, 
 const MAX_ROOMS = envLimit(process.env.TINY_STRIKE_MAX_ROOMS, 500);
 const socketsByIp = new Map();
 
+const MAX_SESSIONS_PER_MINUTE = envLimit(process.env.TINY_STRIKE_MAX_SESSIONS_PER_MINUTE, 20);
+const sessionWindows = new Map(); // ip -> { start, count }
+
+function allowSessionCreate(ip, now = Date.now()) {
+  if (MAX_SESSIONS_PER_MINUTE <= 0) return true;
+  let w = sessionWindows.get(ip);
+  if (!w || now - w.start >= 60_000) {
+    w = { start: now, count: 0 };
+    sessionWindows.set(ip, w);
+    if (sessionWindows.size > 10_000) {
+      for (const [key, value] of sessionWindows) if (now - value.start >= 60_000) sessionWindows.delete(key);
+    }
+  }
+  w.count += 1;
+  return w.count <= MAX_SESSIONS_PER_MINUTE;
+}
+
 function envLimit(value, fallback) {
   const parsed = Number(value);
   return value !== undefined && value !== '' && Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
@@ -1019,6 +1036,10 @@ async function handleLeaderboardApi(req, res, url) {
       return true;
     }
     if (req.method === 'POST' && url.pathname === '/api/leaderboard/session') {
+      // New identities are cheap to mint; cap them per address.
+      if (!allowSessionCreate(req.socket.remoteAddress || '')) {
+        throw new LeaderboardError(429, 'Too many new sessions from this address. Try again in a minute.');
+      }
       const body = await readJson(req);
       const token = bearerToken(req) || body.token;
       const session = leaderboard.createSession({ playerName: body.playerName, token });

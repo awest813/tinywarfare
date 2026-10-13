@@ -139,6 +139,7 @@ export default class GameSettings {
     this.storage = storage;
     this.lookSensitivity = SETTINGS_LIMITS.lookSensitivity.default;
     this.brightnessEv = SETTINGS_LIMITS.brightnessEv.default;
+    this.announcer = true;
     this.bindings = defaultBindings();
     this._physicalToCanonical = new Map();
     this._load();
@@ -171,6 +172,15 @@ export default class GameSettings {
     if (next === this.brightnessEv) return next;
     this.brightnessEv = next;
     this._commit('brightnessEv');
+    return next;
+  }
+
+  /** Spoken announcer lines (speech synthesis) on/off. */
+  setAnnouncer(on) {
+    const next = !!on;
+    if (next === this.announcer) return next;
+    this.announcer = next;
+    this._commit('announcer');
     return next;
   }
 
@@ -220,6 +230,7 @@ export default class GameSettings {
   reset() {
     this.lookSensitivity = SETTINGS_LIMITS.lookSensitivity.default;
     this.brightnessEv = SETTINGS_LIMITS.brightnessEv.default;
+    this.announcer = true;
     this.bindings = defaultBindings();
     this._rebuildLookup();
     this._commit('reset');
@@ -229,6 +240,7 @@ export default class GameSettings {
     return Object.freeze({
       lookSensitivity: this.lookSensitivity,
       brightnessEv: this.brightnessEv,
+      announcer: this.announcer,
       bindings: Object.freeze({ ...this.bindings }),
     });
   }
@@ -245,6 +257,7 @@ export default class GameSettings {
         SETTINGS_LIMITS.lookSensitivity
       );
       this.brightnessEv = clampStep(parsed.brightnessEv, SETTINGS_LIMITS.brightnessEv);
+      this.announcer = parsed.announcer !== false;
       this.bindings = sanitizeBindings(parsed.bindings);
     } catch {
       // Privacy modes and corrupted JSON both fall back to safe defaults.
@@ -265,6 +278,7 @@ export default class GameSettings {
         this.storage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({
           lookSensitivity: this.lookSensitivity,
           brightnessEv: this.brightnessEv,
+          announcer: this.announcer,
           bindings: this.bindings,
         }));
       } catch {

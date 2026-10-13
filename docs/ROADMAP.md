@@ -360,28 +360,42 @@ Also shipped:
 - Online support for every respawn mode is covered by the server work.
 
 ### Phase 7: Presentation
-- Factions (text done): U.S. vs Russia. Still to do:
-  - Uniform palettes in `player/profile.js`. U.S. multicam or coyote tan, and
-    Russian EMR green, while keeping the two teams easy to tell apart.
-  - Faction weapons: U.S. starts with an M4 and M9/M17; Russia starts with an
-    AK and a Makarov or Grach.
-  - Flags or insignia on the HUD and lobby.
-  - Faction-voiced synthesized radio barks.
-  - Character GLBs are CC0 and can be re-tinted.
-- HUD restyle toward a modern-military look, killcam (a short ring buffer of
-  actor poses replayed from the killer's view), play-of-the-game and podium,
-  and a match-end scoreboard with K/D/score.
-- Map pass: the upstream note "space is generated, not authored" still
-  holds. Add landmarks, hero props, and asymmetry, and fix the known visual
-  defects. Smaller TDM-friendly variants with three lanes help respawn flow.
+Shipped:
+- **Uniforms**: U.S. coyote and multicam tans vs Russian EMR greens, across
+  all four character presets.
+- **Identification**, needed because both sides now wear earth tones:
+  - The crosshair turns red over a visible enemy. It casts against character
+    hitboxes and stops at walls.
+  - Blue name tags appear over teammates within 60 m. FFA has none.
+- **Insignia**: inline U.S. and Russian flags beside the HUD score labels.
+  They are hidden in FFA.
+- **Announcer**: radio callouts through browser speech synthesis for mode
+  briefs, streak ready and inbound, enemy UAV, flags taken or lost, hardpoint
+  moves, and the match result.
+  - It speaks one line at a time with a minimum gap between lines.
+  - A Settings toggle (ANNOUNCER VOICE) controls it, saved with the settings.
+  - It is silent where the browser has no speech synthesis.
+- **Killcam** (respawn modes): after the death collapse, the camera rides
+  your killer's live view until you respawn, labelled "KILLCAM ·
+  RESPAWNING IN N". A real replay would need a pose ring buffer for every
+  actor, and is still to do.
+- **End-screen podium**: the top three by kills with K/D, coloured by side.
+- **Death recap**: the killer's weapon, distance, headshot, and remaining HP.
+
+Still to do:
+- Killcam replay (pose ring buffer).
+- Map authoring pass: landmarks, hero props, asymmetry, the upstream
+  backdrop and stain defects, and three-lane TDM variants.
 
 ### Ongoing tech debt
-- Split `src/ui/hud.js` (4.6k lines, about 1.3k of them CSS-in-JS).
-- Slim the repo (trailer history) and set this fork's own deploy target,
-  allowed origins, and service names.
-- Cap `pixelRatio` around 1.5 on high-DPI screens. Rebuild a real low-quality
-  dressing LOD.
-- Throttle leaderboard session creation on the Node server.
+- Done:
+  - Desktop `pixelRatio` is capped at 1.5, which shades about 44% fewer
+    pixels than 2x on Retina screens.
+  - Leaderboard session creation on the Node server is throttled per IP:
+    `TINY_STRIKE_MAX_SESSIONS_PER_MINUTE`, default 20, 0 disables it.
+- Split `src/ui/hud.js` (about 5k lines, roughly 1.4k of them CSS-in-JS).
+- Slim the repo (trailer history), which needs an owner decision.
+- Rebuild a real low-quality dressing LOD.
 
 ## Decisions needed from the owner
 

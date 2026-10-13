@@ -32,8 +32,10 @@ export const PLAYER_CHARACTERS = Object.freeze([
     skin: '#c98f6d',
     headgear: 'helmet',
     teams: {
-      ct: { uniform: '#365579', dark: '#172b42', sleeve: '#263e5b' },
-      t: { uniform: '#74633b', dark: '#3c3020', sleeve: '#58492d' },
+      // U.S. coyote brown vs Russian EMR green: the faction read. Enemy
+      // identification itself comes from the red crosshair and blue tags.
+      ct: { uniform: '#8a7652', dark: '#3f3524', sleeve: '#6d5d40' },
+      t: { uniform: '#4d5a3a', dark: '#252c1b', sleeve: '#3a452c' },
     },
   }),
   character({
@@ -44,8 +46,8 @@ export const PLAYER_CHARACTERS = Object.freeze([
     skin: '#a96848',
     headgear: 'cap',
     teams: {
-      ct: { uniform: '#496b67', dark: '#243c3b', sleeve: '#38554d' },
-      t: { uniform: '#637047', dark: '#303a25', sleeve: '#4b5937' },
+      ct: { uniform: '#7d7655', dark: '#38351f', sleeve: '#625c40' },
+      t: { uniform: '#556347', dark: '#2a3122', sleeve: '#414c36' },
     },
   }),
   character({
@@ -56,8 +58,8 @@ export const PLAYER_CHARACTERS = Object.freeze([
     skin: '#78452f',
     headgear: 'wrap',
     teams: {
-      ct: { uniform: '#65758a', dark: '#313d4e', sleeve: '#56657a' },
-      t: { uniform: '#9a744a', dark: '#533c29', sleeve: '#765638' },
+      ct: { uniform: '#9a8661', dark: '#4a3d2a', sleeve: '#7b6b4c' },
+      t: { uniform: '#5f6a50', dark: '#2f3527', sleeve: '#4a533e' },
     },
   }),
   character({
@@ -68,8 +70,8 @@ export const PLAYER_CHARACTERS = Object.freeze([
     skin: '#d3a17f',
     headgear: 'balaclava',
     teams: {
-      ct: { uniform: '#3c465b', dark: '#191d29', sleeve: '#303748' },
-      t: { uniform: '#604d53', dark: '#2b2228', sleeve: '#463941' },
+      ct: { uniform: '#5c5444', dark: '#26221a', sleeve: '#463f32' },
+      t: { uniform: '#3f4636', dark: '#1d2119', sleeve: '#30362a' },
     },
   }),
 ]);
