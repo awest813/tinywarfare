@@ -410,8 +410,7 @@ Shipped (`server.mjs`, `worker/room-do.mjs`, `src/shared/rooms-core.mjs`,
   reach the score limit or run out the clock, with kill and death rates
   checked against the duration. The servers rebuild each participant's
   outcome (`rankedOutcome`), FFA from the final standings. Scoring reuses
-  the S&D weights with one "round" for a win; the exact value is an owner
-  decision.
+  the S&D weights with one "round" for a win (confirmed by the owner).
 - **Deploy config** for this fork: Worker `tiny-warfare-service`, allowed
   origin `https://awest813.github.io`, a `Dockerfile` for the Node server,
   and `docs/deployment.md`.
@@ -436,8 +435,10 @@ Still to do:
     pixels than 2x on Retina screens.
   - Leaderboard session creation on the Node server is throttled per IP:
     `TINY_STRIKE_MAX_SESSIONS_PER_MINUTE`, default 20, 0 disables it.
+  - The repo is slimmed: the trailer MP4s (about 310 MB across history) were
+    removed from every commit and `*.mp4` is ignored. Trailers belong in
+    release assets.
 - Split `src/ui/hud.js` (about 5k lines, roughly 1.4k of them CSS-in-JS).
-- Slim the repo (trailer history), which needs an owner decision.
 - Rebuild a real low-quality dressing LOD.
 
 ## Decisions needed from the owner
@@ -449,7 +450,9 @@ Still to do:
 3. **Hosting:** where this fork deploys. Both paths are ready
    (`docs/deployment.md`): GitHub Pages plus the Cloudflare Worker (configured
    for `awest813.github.io`), or the Node server/Docker image anywhere.
-4. **Ranked value of respawn modes:** they currently score with the S&D
-   weights and count a win as one round. Keep, or weight them differently?
-5. **History rewrite** to drop the trailer MP4s. It needs a force push to
-   `main`.
+
+Settled:
+- **Ranked value of respawn modes:** keep the S&D weights, with a win
+  counting as one round.
+- **History rewrite:** done. The trailer MP4s were removed from all history
+  and `main` was force-pushed.

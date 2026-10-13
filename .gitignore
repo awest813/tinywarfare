@@ -15,3 +15,6 @@ dist/
 *.p12
 *.pfx
 trailer-frames/
+
+# Trailer renders are large; publish them as release assets, not in git.
+*.mp4
