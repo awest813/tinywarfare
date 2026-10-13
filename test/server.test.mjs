@@ -251,6 +251,7 @@ test('two clients can create, join, start, and relay authoritative messages', as
     room: 'TEST01',
     mapId: 'frostline',
     mode: 'humans',
+    gameMode: 'sd',
     started: false,
     phase: 'waiting',
     joinable: true,
@@ -697,4 +698,108 @@ test('a legacy peer cannot inherit a fenced authority lease', async (t) => {
   assert.equal(lateInfo.hostId, hostInfo.id, 'legacy late join cannot bypass candidate filtering');
   assert.equal(resumed.hostId, hostInfo.id);
   assert.equal(room.hostId, hostInfo.id);
+});
+
+test('respawn-mode rooms carry the game mode and let the authority revive players', async (t) => {
+  startServer(0);
+  await once(server, 'listening');
+  const { port } = server.address();
+  const url = `ws://127.0.0.1:${port}/ws`;
+  const host = await openClient(url);
+  const guest = await openClient(url);
+  let late = null;
+  t.after(async () => {
+    host.close();
+    guest.close();
+    if (late) late.close();
+    await new Promise((resolve) => server.close(resolve));
+  });
+
+  const hostWelcome = nextMessage(host, 'welcome');
+  host.send(JSON.stringify({
+    type: 'hello', action: 'create', room: 'TDM001', name: 'Alpha', mode: 'humans', mapId: 'dustyard', gameMode: 'kc', authorityProtocol: 1,
+  }));
+  const hostInfo = await hostWelcome;
+  assert.equal(rooms.get('TDM001').gameMode, 'kc');
+
+  const guestWelcome = nextMessage(guest, 'welcome');
+  const joinLobby = nextMessage(host, 'lobby');
+  guest.send(JSON.stringify({ type: 'hello', action: 'join', room: 'TDM001', name: 'Bravo', authorityProtocol: 1 }));
+  const guestInfo = await guestWelcome;
+  assert.equal((await joinLobby).gameMode, 'kc');
+
+  // Only the host may change it, and unknown modes fall back to S&D.
+  const ignored = expectNoMessage(host, 'lobby');
+  guest.send(JSON.stringify({ type: 'set_game_mode', gameMode: 'ffa' }));
+  await ignored;
+  assert.equal(rooms.get('TDM001').gameMode, 'kc');
+  const bogusLobby = nextMessage(guest, 'lobby');
+  host.send(JSON.stringify({ type: 'set_game_mode', gameMode: 'gungame' }));
+  assert.equal((await bogusLobby).gameMode, 'sd');
+  const tdmLobby = nextMessage(guest, 'lobby');
+  host.send(JSON.stringify({ type: 'set_game_mode', gameMode: 'tdm' }));
+  assert.equal((await tdmLobby).gameMode, 'tdm');
+
+  const guestStart = nextMessage(guest, 'match_start');
+  const hostStart = nextMessage(host, 'match_start');
+  host.send(JSON.stringify({ type: 'start_match' }));
+  const [start] = await Promise.all([hostStart, guestStart]);
+  assert.equal(start.gameMode, 'tdm');
+  const epoch = start.authorityEpoch;
+  const listed = await fetch(`http://127.0.0.1:${port}/api/rooms`).then((r) => r.json());
+  assert.equal(listed.rooms[0].gameMode, 'tdm');
+
+  // Mode can no longer change once the match is running.
+  host.send(JSON.stringify({ type: 'set_game_mode', gameMode: 'dom' }));
+  host.send(JSON.stringify({
+    type: 'snapshot', authorityEpoch: epoch,
+    snapshot: { state: { round: 1, phase: 'live', mode: 'tdm', scores: { ct: 0, t: 0 } }, bots: [] },
+  }));
+  await waitFor(() => rooms.get('TDM001')?.currentRound === 1);
+  assert.equal(rooms.get('TDM001').gameMode, 'tdm');
+
+  // The authority kills the guest, then respawns them at a chosen pose.
+  host.send(JSON.stringify({
+    type: 'damage', authorityEpoch: epoch, targetId: guestInfo.id, result: { health: 0, alive: false },
+  }));
+  await waitFor(() => rooms.get('TDM001').players.get(guestInfo.id).alive === false);
+
+  const forged = expectNoMessage(host, 'respawn');
+  guest.send(JSON.stringify({ type: 'respawn', authorityEpoch: epoch, targetId: guestInfo.id }));
+  await forged;
+  assert.equal(rooms.get('TDM001').players.get(guestInfo.id).alive, false);
+
+  const stale = expectNoMessage(guest, 'respawn');
+  host.send(JSON.stringify({ type: 'respawn', authorityEpoch: epoch - 1, targetId: guestInfo.id }));
+  await stale;
+
+  const respawned = nextMessage(guest, 'respawn');
+  host.send(JSON.stringify({
+    type: 'respawn', authorityEpoch: epoch, targetId: guestInfo.id, pos: { x: 3, y: 0, z: -4 }, yaw: 1.5,
+  }));
+  assert.deepEqual(await respawned, { type: 'respawn', targetId: guestInfo.id, pos: { x: 3, y: 0, z: -4 }, yaw: 1.5 });
+  const revived = rooms.get('TDM001').players.get(guestInfo.id);
+  assert.equal(revived.alive, true);
+  assert.equal(revived.state.health, 100);
+
+  // A late joiner is not parked until a next round: the authority spawns them.
+  late = await openClient(url);
+  const lateWelcome = nextMessage(late, 'welcome');
+  late.send(JSON.stringify({ type: 'hello', action: 'join', room: 'TDM001', name: 'Charlie', authorityProtocol: 1 }));
+  const lateInfo = await lateWelcome;
+  assert.equal(lateInfo.waitingForRound, false);
+  assert.equal(rooms.get('TDM001').players.get(lateInfo.id).alive, false);
+  assert.equal(rooms.get('TDM001').players.get(lateInfo.id).joinRound, null);
+  const lateSpawn = nextMessage(late, 'respawn');
+  host.send(JSON.stringify({ type: 'respawn', authorityEpoch: epoch, targetId: lateInfo.id, pos: { x: 0, y: 0, z: 0 } }));
+  assert.equal((await lateSpawn).targetId, lateInfo.id);
+  assert.equal(rooms.get('TDM001').players.get(lateInfo.id).alive, true);
+
+  // Streak calls from a live non-host are relayed to the authority.
+  const relayed = nextMessage(host, 'streak');
+  guest.send(JSON.stringify({ type: 'streak', streakId: 'airstrike', target: { x: 1, y: 0, z: 1 } }));
+  const streak = await relayed;
+  assert.equal(streak.shooterId, guestInfo.id);
+  assert.equal(streak.streakId, 'airstrike');
+  assert.equal(hostInfo.id, rooms.get('TDM001').hostId);
 });

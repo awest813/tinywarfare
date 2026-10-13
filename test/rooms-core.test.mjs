@@ -162,6 +162,7 @@ test('room discovery exposes counts and join state without player identity data'
     room: 'SAFE01',
     mapId: 'harbor',
     mode: 'mixed',
+    gameMode: 'sd',
     started: true,
     phase: 'live',
     joinable: true,

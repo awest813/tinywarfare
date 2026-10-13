@@ -1,4 +1,37 @@
 export const MAX_ROOM_PLAYERS = 10;
+
+// Game types a room can run. 'sd' is the original round-based bomb mode; the
+// rest are respawn modes driven by the authority client's respawn engine.
+export const ROOM_GAME_MODES = Object.freeze(['sd', 'tdm', 'kc', 'dom', 'hp', 'ffa']);
+const RESPAWN_ROOM_MODES = new Set(['tdm', 'kc', 'dom', 'hp', 'ffa']);
+
+export function cleanGameMode(value) {
+  return ROOM_GAME_MODES.includes(value) ? value : 'sd';
+}
+
+export function isRespawnGameMode(value) {
+  return RESPAWN_ROOM_MODES.has(value);
+}
+
+/**
+ * Mid-match respawn ordered by the authority in a respawn mode: the player is
+ * alive again at full health without a round boundary.
+ */
+export function respawnRoomPlayer(player) {
+  if (!player || typeof player !== 'object') return null;
+  const state = {
+    ...(player.state && typeof player.state === 'object' ? player.state : {}),
+    alive: true,
+    health: 100,
+  };
+  for (const field of ['pos', 'crouching', 'walking', 'sprinting', 'sliding', 'moveSpeed2D', 'onGround', 'useDown']) {
+    delete state[field];
+  }
+  player.alive = true;
+  player.joinRound = null;
+  player.state = state;
+  return player.state;
+}
 export const AUTHORITY_LEASE_MS = 1_500;
 export const AUTHORITY_STARTUP_GRACE_MS = 5_000;
 
@@ -418,6 +451,7 @@ export function publicRoomSummary(room, maxPlayers = MAX_ROOM_PLAYERS) {
     room: String(room?.code || ''),
     mapId: String(room?.mapId || 'dustyard'),
     mode: room?.mode === 'humans' ? 'humans' : 'mixed',
+    gameMode: cleanGameMode(room?.gameMode),
     started: !!room?.started,
     phase,
     joinable: players > 0 && reservedPlayers < capacity && phase !== 'gameEnd',

@@ -8,6 +8,9 @@ import {
   isWaitingForRound,
   MAX_ROOM_PLAYERS,
   nextJoinRound,
+  cleanGameMode,
+  isRespawnGameMode,
+  respawnRoomPlayer,
   normalizeRoomAuthority,
   playerStateMatchesRoomRound,
   playerResumeState,
@@ -105,6 +108,7 @@ export function roomPayload(room) {
     type: 'lobby',
     room: room.code,
     mode: room.mode,
+    gameMode: cleanGameMode(room.gameMode),
     mapId: room.mapId,
     started: room.started,
     hostId: room.hostId,
@@ -130,6 +134,7 @@ function welcomePayload(room, client, resumed = false) {
     id: client.id,
     room: room.code,
     mode: room.mode,
+    gameMode: cleanGameMode(room.gameMode),
     mapId: room.mapId,
     ranked: !!client.leaderboardPlayerId,
     reconnectToken: client.reconnectToken,
@@ -160,6 +165,7 @@ function matchResumePayload(room, player) {
     matchId: room.matchId,
     mapId: room.mapId,
     mode: room.mode,
+    gameMode: cleanGameMode(room.gameMode),
     players: Object.values(room.players).map((entry) => ({
       ...publicPlayer(entry, room.hostId),
       stats: statsFor(entry),
@@ -255,6 +261,16 @@ function rankedSubmissionResponse(submission) {
     progression: submission.progression,
     player: submission.standing || { id: submission.player.id, name: submission.player.name },
     entry: submission.standing || undefined,
+  };
+}
+
+function respawnPose(msg) {
+  const pos = msg && msg.pos;
+  const ok = pos && Number.isFinite(pos.x) && Number.isFinite(pos.y) && Number.isFinite(pos.z) &&
+    Math.abs(pos.x) < 1e4 && Math.abs(pos.y) < 1e4 && Math.abs(pos.z) < 1e4;
+  return {
+    pos: ok ? { x: pos.x, y: pos.y, z: pos.z } : null,
+    yaw: Number.isFinite(msg && msg.yaw) ? msg.yaw : 0,
   };
 }
 
@@ -422,6 +438,7 @@ export class RoomDurableObject {
     return {
       code,
       mode: message.mode === 'humans' ? 'humans' : 'mixed',
+      gameMode: cleanGameMode(message.gameMode),
       mapId: cleanMapId(message.mapId),
       hostId: connection.id,
       players: {},
@@ -551,7 +568,8 @@ export class RoomDurableObject {
       roomCode: room.code,
       team: chooseTeam(room),
       alive: !lateJoin,
-      joinRound: lateJoin ? nextJoinRound(room) : null,
+      // Respawn modes: no round to wait for; the authority spawns late joiners.
+      joinRound: lateJoin && !isRespawnGameMode(room.gameMode) ? nextJoinRound(room) : null,
       connected: true,
       lastActivityAt: Date.now(),
       authorityProtocol: Math.max(0, Math.floor(Number(message.authorityProtocol) || 0)),
@@ -575,6 +593,7 @@ export class RoomDurableObject {
         matchId: room.matchId,
         mapId: room.mapId,
         mode: room.mode,
+        gameMode: cleanGameMode(room.gameMode),
         players: Object.values(room.players).map((entry) => publicPlayer(entry, room.hostId)),
         lateJoin: true,
         spectating: true,
@@ -648,6 +667,7 @@ export class RoomDurableObject {
       matchId: room.matchId,
       mapId: room.mapId,
       mode: room.mode,
+      gameMode: cleanGameMode(room.gameMode),
       ...authoritySnapshotEnvelope(room, null),
       hostId: room.hostId,
       players: players.map((entry) => publicPlayer(entry, room.hostId)),
@@ -711,6 +731,7 @@ export class RoomDurableObject {
         playerName: participant.name,
         mapId: room.mapId,
         mode: room.mode,
+        gameMode: cleanGameMode(room.gameMode),
         winner,
         teamWon: winner === 'draw' ? false : participant.team === winner,
         scores: { ct, t },
@@ -838,6 +859,24 @@ export class RoomDurableObject {
           this._broadcastLobby(room);
         }
         break;
+      case 'set_game_mode':
+        if (!room.started && room.hostId === player.id) {
+          room.gameMode = cleanGameMode(message.gameMode);
+          dirty = true;
+          this._broadcastLobby(room);
+        }
+        break;
+      case 'respawn':
+        if (room.started && isRespawnGameMode(room.gameMode) && player.id === room.hostId &&
+          this._authorityEpochMatches(room, message, player) && message.targetId) {
+          const target = room.players[message.targetId];
+          if (!target) break;
+          respawnRoomPlayer(target);
+          dirty = true;
+          const pose = respawnPose(message);
+          this._broadcast(room, { type: 'respawn', targetId: target.id, pos: pose.pos, yaw: pose.yaw });
+        }
+        break;
       case 'start_match':
         dirty = this._startMatch(room, player) || dirty;
         break;
@@ -931,6 +970,7 @@ export class RoomDurableObject {
         break;
       case 'fire':
       case 'grenade':
+      case 'streak':
         if (room.started && player.id !== room.hostId && player.alive !== false && !isWaitingForRound(player)) {
           this._send(this._socket(room.hostId), { ...message, shooterId: player.id });
         }

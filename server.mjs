@@ -19,6 +19,9 @@ import {
   isWaitingForRound,
   MAX_ROOM_PLAYERS,
   nextJoinRound,
+  cleanGameMode,
+  isRespawnGameMode,
+  respawnRoomPlayer,
   normalizeRoomAuthority,
   playerStateMatchesRoomRound,
   playerResumeState,
@@ -67,6 +70,16 @@ function allowSessionCreate(ip, now = Date.now()) {
   }
   w.count += 1;
   return w.count <= MAX_SESSIONS_PER_MINUTE;
+}
+
+function respawnPose(msg) {
+  const pos = msg && msg.pos;
+  const ok = pos && Number.isFinite(pos.x) && Number.isFinite(pos.y) && Number.isFinite(pos.z) &&
+    Math.abs(pos.x) < 1e4 && Math.abs(pos.y) < 1e4 && Math.abs(pos.z) < 1e4;
+  return {
+    pos: ok ? { x: pos.x, y: pos.y, z: pos.z } : null,
+    yaw: Number.isFinite(msg && msg.yaw) ? msg.yaw : 0,
+  };
 }
 
 function envLimit(value, fallback) {
@@ -179,6 +192,7 @@ function roomPayload(room) {
     type: 'lobby',
     room: room.code,
     mode: room.mode,
+    gameMode: cleanGameMode(room.gameMode),
     mapId: room.mapId,
     started: room.started,
     hostId: room.hostId,
@@ -417,6 +431,7 @@ function finalizeRankedRoom(room, state) {
         playerName: participant.name,
         mapId: room.mapId,
         mode: room.mode,
+        gameMode: cleanGameMode(room.gameMode),
         winner,
         teamWon: winner === 'draw' ? false : participant.team === winner,
         scores: { ct, t },
@@ -501,6 +516,7 @@ function welcomePayload(room, client, resumed = false) {
     id: client.id,
     room: room.code,
     mode: room.mode,
+    gameMode: cleanGameMode(room.gameMode),
     mapId: room.mapId,
     ranked: !!client.leaderboardPlayerId,
     reconnectToken: client.reconnectToken,
@@ -531,6 +547,7 @@ function matchResumePayload(room, client) {
     matchId: room.matchId,
     mapId: room.mapId,
     mode: room.mode,
+    gameMode: cleanGameMode(room.gameMode),
     players: [...room.players.values()].map((player) => ({
       ...publicPlayer(player, room.hostId),
       stats: statsFor(player),
@@ -608,6 +625,7 @@ function joinRoom(ws, client, msg) {
     room = {
       code,
       mode: msg.mode === 'humans' ? 'humans' : 'mixed',
+      gameMode: cleanGameMode(msg.gameMode),
       mapId: cleanMapId(msg.mapId),
       hostId: client.id,
       players: new Map(),
@@ -643,7 +661,10 @@ function joinRoom(ws, client, msg) {
   client.characterId = cleanCharacterId(msg.characterId);
   client.roomCode = room.code;
   client.team = chooseTeam(room);
-  client.joinRound = lateJoin ? nextJoinRound(room) : null;
+  // Respawn modes have no round boundary to wait for: a late joiner enters
+  // dead-but-ready and the authority spawns them.
+  const respawnRoom = isRespawnGameMode(room.gameMode);
+  client.joinRound = lateJoin && !respawnRoom ? nextJoinRound(room) : null;
   client.alive = !lateJoin;
   client.connected = true;
   client.lastActivityAt = Date.now();
@@ -666,6 +687,7 @@ function joinRoom(ws, client, msg) {
       matchId: room.matchId,
       mapId: room.mapId,
       mode: room.mode,
+      gameMode: cleanGameMode(room.gameMode),
       players: [...room.players.values()].map((player) => publicPlayer(player, room.hostId)),
       lateJoin: true,
       spectating: true,
@@ -736,6 +758,7 @@ function startMatch(room, client) {
     matchId: room.matchId,
     mapId: room.mapId,
     mode: room.mode,
+    gameMode: cleanGameMode(room.gameMode),
     ...authoritySnapshotEnvelope(room, null),
     hostId: room.hostId,
     players: [...room.players.values()].map((p) => publicPlayer(p, room.hostId)),
@@ -776,6 +799,23 @@ function handleRoomMessage(client, msg) {
       if (!room.started && room.hostId === client.id) {
         room.mapId = cleanMapId(msg.mapId);
         broadcastLobby(room);
+      }
+      break;
+    case 'set_game_mode':
+      if (!room.started && room.hostId === client.id) {
+        room.gameMode = cleanGameMode(msg.gameMode);
+        broadcastLobby(room);
+      }
+      break;
+    case 'respawn':
+      // Respawn modes: the authority revives a player mid-match.
+      if (room.started && isRespawnGameMode(room.gameMode) && client.id === room.hostId &&
+        authorityEpochMatches(room, msg, client) && msg.targetId) {
+        const target = room.players.get(msg.targetId);
+        if (!target) return;
+        respawnRoomPlayer(target);
+        const pose = respawnPose(msg);
+        broadcast(room, { type: 'respawn', targetId: target.id, pos: pose.pos, yaw: pose.yaw });
       }
       break;
     case 'start_match':
@@ -863,7 +903,8 @@ function handleRoomMessage(client, msg) {
       }
       break;
     case 'fire':
-    case 'grenade': {
+    case 'grenade':
+    case 'streak': {
       if (!room.started || client.id === room.hostId || client.alive === false || isWaitingForRound(client)) return;
       const host = room.players.get(room.hostId);
       if (host) send(host.ws, { ...msg, shooterId: client.id });
