@@ -1951,7 +1951,9 @@ export default class Multiplayer {
     remote.hasKit = !!state.hasKit;
     const wasAlive = remote.alive;
     if (typeof state.alive === 'boolean') this._setRemoteAlive(remote, state.alive);
-    remote.crouching = !!state.crouching;
+    remote.sprinting = !!state.sprinting;
+    remote.sliding = !!state.sliding;
+    remote.crouching = !!state.crouching || remote.sliding; // a slide reads as a low crouch
     remote.walking = !!state.walking;
     remote.moveSpeed2D = Number(state.moveSpeed2D) || 0;
     remote.onGround = state.onGround !== false;
@@ -2034,6 +2036,8 @@ export default class Multiplayer {
       alive: p.alive,
       crouching: p.crouching,
       walking: p.walking,
+      sprinting: !!p.sprinting,
+      sliding: !!p.sliding,
       moveSpeed2D: p.moveSpeed2D,
       onGround: p.onGround,
       useDown: !!(input && typeof input.isDown === 'function' && input.isDown('e')),

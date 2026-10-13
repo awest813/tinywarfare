@@ -157,12 +157,22 @@ Shipped:
   The crosshair hides while sprinting.
 - Fixed-step simulation and exact jump integration (see the audit section).
 
-Still to do:
-- Visible recoil that tracks the drift.
-- An 80 ms input buffer for ADS clicks during weapon raise.
-- Ramped jump and crouch inaccuracy, and a landing penalty.
-- Mantle.
-- Replicate `sprinting` and `sliding` to remote players' animation.
+Also shipped:
+- **Visible recoil**: the camera shows 60% of the spray drift, so the view
+  climbs with the spray. Bullets carry the other 40% as an offset, so the
+  total deviation is unchanged. The cosmetic kick is lighter to match.
+- **Input buffer**: semi-auto clicks during the fire cooldown, and AWP scope
+  clicks during a raise, wait up to 80 ms (scope up to 320 ms) instead of
+  being dropped.
+- **Ramped inaccuracy**:
+  - The jump penalty ramps in over 0.15 s.
+  - Landing leaves a 0.3 s tail at half the jump penalty.
+  - Crouch accuracy follows the crouch animation.
+- **Mantle**: jump while moving into a ledge 0.6-1.45 m tall that has room on
+  top. It gives an exact upward boost plus a forward carry, with collision
+  still on.
+- `sprinting` and `sliding` replicate to remote players (via `rooms-core`).
+  A remote slide shows as a crouch.
 
 ### Phase 3: Create-a-class
 Shipped for solo TDM (`src/game/loadouts.js`):

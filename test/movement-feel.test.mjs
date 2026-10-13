@@ -153,3 +153,56 @@ test('a saved layout with Walk on Shift migrates to Sprint on Shift', () => {
   assert.equal(settings.resolveInputKey('shift'), 'shift');
   assert.equal(settings.resolveInputKey('c'), 'c');
 });
+
+function ledgeWorld(height) {
+  // A box spanning z in [-3, -1] (straight ahead at yaw 0), `height` tall.
+  const inBox = (x, z) => Math.abs(x) < 2 && z <= -1 && z >= -3;
+  return {
+    raycast(origin, dir, max) {
+      if (Math.abs(dir.y + 1) < 1e-6) { // straight down
+        if (!inBox(origin.x, origin.z) || origin.y < height) return null;
+        const d = origin.y - height;
+        return d <= max ? { point: new THREE.Vector3(origin.x, height, origin.z), distance: d } : null;
+      }
+      if (origin.y > height || dir.z >= 0) return null; // above the box or facing away
+      const d = (origin.z - -1) / -dir.z;
+      return d >= 0 && d <= max && Math.abs(origin.x + dir.x * d) < 2
+        ? { point: new THREE.Vector3(origin.x + dir.x * d, origin.y, -1), distance: d }
+        : null;
+    },
+    resolveMovement(pos, delta) {
+      const next = pos.clone().add(delta);
+      const floor = inBox(next.x, next.z) ? height : 0;
+      if (inBox(next.x, next.z) && pos.y < height - 0.3 && !inBox(pos.x, pos.z)) {
+        next.z = pos.z; // hit the face from the side: blocked horizontally
+      }
+      const ground = inBox(next.x, next.z) ? floor : 0;
+      const onGround = next.y <= ground;
+      if (onGround) next.y = ground;
+      return { pos: next, onGround };
+    },
+  };
+}
+
+test('jumping into a chest-high ledge mantles on top; a wall stays a jump', () => {
+  for (const [height, expectOnTop] of [[1.2, true], [2.0, false]]) {
+    const { game, held } = makeGame();
+    game.world = ledgeWorld(height);
+    game.player.position.set(0, 0, -0.5);
+    run(game, 0.2);
+    let mantled = false;
+    game.events.on('player:mantle', () => { mantled = true; });
+    held.add('w');
+    game.events.emit('input:keydown', { key: ' ' });
+    run(game, 0.55);
+    held.delete('w'); // stop on the ledge rather than walking off its far side
+    run(game, 0.6);
+    assert.equal(mantled, expectOnTop, `height ${height}`);
+    if (expectOnTop) {
+      assert.ok(Math.abs(game.player.position.y - height) < 0.05, `stands on the ${height} m ledge`);
+      assert.ok(game.player.position.z < -1, 'moved onto the ledge');
+    } else {
+      assert.ok(game.player.position.y < 0.05);
+    }
+  }
+});

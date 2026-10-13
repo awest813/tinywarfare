@@ -38,6 +38,13 @@ const SLIDE_SPEED = 8.4;         // m/s launch speed (floor, never a slowdown)
 const SLIDE_FRICTION = 1.5;      // 1/s ground friction while sliding
 const SLIDE_END_SPEED = 2.6;     // m/s: slower than this ends the slide
 const SLIDE_COOLDOWN = 0.9;      // s after a slide before the next one
+const MANTLE_MIN = 0.6;          // m: lower ledges are a normal jump/step
+const MANTLE_MAX = 1.45;         // m: tallest ledge a mantle climbs
+const MANTLE_REACH = 0.8;        // m: how far ahead a ledge can start
+const MANTLE_TIME = 0.4;         // s of forward carry over the lip
+const MANTLE_SPEED = 2.4;        // m/s forward carry
+const _mOrigin = new THREE.Vector3();
+const _mDir = new THREE.Vector3();
 const DIP_SPRING_K = 130;        // landing-dip spring stiffness
 const DIP_SPRING_C = 13;         // landing-dip damping (slightly underdamped)
 const DIP_PER_MS = 0.028;        // dip impulse per m/s of landing speed
@@ -300,6 +307,7 @@ export default class Player {
     this._slideT = 0;
     this._slideCooldown = 0;
     this.spawnProtection = 0;
+    this._mantleT = 0;
     this.moveSpeed2D = 0;
     this._heightCur = P.HEIGHT_STAND;
     this.eyeHeight = P.EYE_STAND;
@@ -549,14 +557,24 @@ export default class Player {
           v.z += _wish.z * accel;
         }
       }
-      // jump (buffered press; blocked in freeze)
-      if (!moveLocked && this._jumpQueued > 0 && this._jumpCooldown <= 0) {
+      // jump (buffered press; blocked in freeze). Into a waist-to-chest ledge
+      // the jump becomes a mantle.
+      if (!moveLocked && this._jumpQueued > 0 && this._jumpCooldown <= 0 && fmove > 0.3 && this._tryMantle(P)) {
+        this.onGround = false;
+        this._jumpQueued = 0;
+        this._jumpCooldown = JUMP_COOLDOWN;
+        game.events.emit('player:mantle', { height: this._mantleHeight });
+      } else if (!moveLocked && this._jumpQueued > 0 && this._jumpCooldown <= 0) {
         v.y = P.JUMP_VELOCITY;
         this.onGround = false;
         this._jumpQueued = 0;
         this._jumpCooldown = JUMP_COOLDOWN;
         game.events.emit('player:jump');
       }
+    } else if (this._mantleT > 0) {
+      // carry forward over the lip while the mantle boost rises
+      v.x = -Math.sin(this.yaw) * MANTLE_SPEED;
+      v.z = -Math.cos(this.yaw) * MANTLE_SPEED;
     } else if (hasInput) {
       // weak air control (capped projection allows gentle air-strafing)
       const cap = Math.min(wishSpeed, 1.4);
@@ -570,6 +588,7 @@ export default class Player {
     }
     this._jumpQueued = Math.max(0, this._jumpQueued - dt);
     this._jumpCooldown = Math.max(0, this._jumpCooldown - dt);
+    this._mantleT = Math.max(0, (this._mantleT || 0) - dt);
 
     // -- gravity, then collide & slide through the world --
     // Vertical travel uses the average velocity across the step (exact for
@@ -618,6 +637,48 @@ export default class Player {
   }
 
   // True if the standing hitbox would clip world geometry at this position.
+  /**
+   * Probe for a climbable ledge straight ahead: something solid at waist
+   * height within reach, a top surface MANTLE_MIN..MANTLE_MAX above the feet,
+   * and standing room above that top. On success, launch exactly high enough
+   * to clear the lip and carry forward for MANTLE_TIME; collision stays on.
+   */
+  _tryMantle(P) {
+    const world = this.game.world;
+    if (!world || typeof world.raycast !== 'function') return false;
+    const fx = -Math.sin(this.yaw);
+    const fz = -Math.cos(this.yaw);
+    const feet = this.position.y;
+
+    _mOrigin.set(this.position.x, feet + MANTLE_MIN + 0.05, this.position.z);
+    _mDir.set(fx, 0, fz);
+    const wall = world.raycast(_mOrigin, _mDir, MANTLE_REACH);
+    if (!wall) return false;
+
+    // Look down onto the ledge a little past the face.
+    const ahead = wall.distance + 0.3;
+    _mOrigin.set(this.position.x + fx * ahead, feet + MANTLE_MAX + 0.25, this.position.z + fz * ahead);
+    _mDir.set(0, -1, 0);
+    const top = world.raycast(_mOrigin, _mDir, MANTLE_MAX + 0.25);
+    if (!top || !top.point) return false;
+    const height = top.point.y - feet;
+    if (height < MANTLE_MIN || height > MANTLE_MAX) return false;
+
+    // Room to stand on top: nothing between the ledge and head height.
+    _mOrigin.set(this.position.x, top.point.y + 0.15, this.position.z);
+    _mDir.set(fx, 0, fz);
+    if (world.raycast(_mOrigin, _mDir, ahead + 0.35)) return false;
+    _mOrigin.set(this.position.x, top.point.y + P.HEIGHT_STAND - 0.1, this.position.z);
+    if (world.raycast(_mOrigin, _mDir, ahead + 0.35)) return false;
+
+    this._mantleHeight = height;
+    this._mantleT = MANTLE_TIME;
+    this.velocity.y = Math.sqrt(2 * P.GRAVITY * (height + 0.2));
+    this.velocity.x = fx * MANTLE_SPEED;
+    this.velocity.z = fz * MANTLE_SPEED;
+    return true;
+  }
+
   _standUpBlocked() {
     const world = this.game.world;
     const colliders = world && world.colliders;
@@ -717,8 +778,12 @@ export default class Player {
       this.position.y + this.eyeHeight + bobV + this._dipY + breathe + shY,
       this.position.z + _right.z * bobL
     );
-    cam.rotation.y = this.yaw + this._punchYaw + shYaw;
-    cam.rotation.x = this.pitch + this._punchPitch + shPitch;
+    // Visible spray climb (weapons keeps the matching share out of the shot).
+    const gun = this.game.weapons;
+    const recoilP = gun && typeof gun.viewRecoilPitch === 'function' ? gun.viewRecoilPitch() : 0;
+    const recoilY = gun && typeof gun.viewRecoilYaw === 'function' ? gun.viewRecoilYaw() : 0;
+    cam.rotation.y = this.yaw + this._punchYaw + shYaw + recoilY;
+    cam.rotation.x = this.pitch + this._punchPitch + shPitch + recoilP;
     cam.rotation.z = bobRoll + lean + shRoll;
   }
 

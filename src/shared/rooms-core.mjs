@@ -25,6 +25,8 @@ const PLAYER_STATE_BOOLEAN_FIELDS = Object.freeze([
   'alive',
   'crouching',
   'walking',
+  'sprinting',
+  'sliding',
   'onGround',
   'useDown',
 ]);
@@ -167,7 +169,7 @@ export function resetPlayerForRound(player, round = null) {
     health: 100,
     roundReset: died ? 'died' : 'survived',
   };
-  for (const field of ['pos', 'yaw', 'pitch', 'crouching', 'walking', 'moveSpeed2D', 'onGround', 'useDown']) {
+  for (const field of ['pos', 'yaw', 'pitch', 'crouching', 'walking', 'sprinting', 'sliding', 'moveSpeed2D', 'onGround', 'useDown']) {
     delete state[field];
   }
   const canonicalRound = round === null || round === undefined ? NaN : Math.floor(Number(round));

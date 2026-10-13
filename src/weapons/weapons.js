@@ -28,6 +28,13 @@ const RESCOPE_DELAY = 1.05;     // AWP: bolt time before auto re-scope
 const FOV_LERP_RATE = 12;       // per-second exponential fov approach
 const DRIFT_CLAMP = 0.22;       // max accumulated aim drift (rad)
 const SCOPED_MOVE_SCALE = 0.55; // extra move slowdown while scoped (feel)
+// Share of the spray drift shown by the camera; the rest stays a bullet
+// offset from the crosshair. Total deviation is unchanged.
+const VIEW_RECOIL_SHARE = 0.6;
+const INPUT_BUFFER = 0.08;      // s a click waits for a cooldown / raise to end
+const AIR_RAMP = 0.15;          // s for the jump penalty to reach full
+const LAND_PENALTY = 0.5;       // share of the jump penalty right after landing
+const LAND_RECOVER = 0.3;       // s for the landing penalty to fade
 
 // Aim down sights (every gun without a scope). Hip fire keeps the original
 // tuning; ADS tightens it, zooms the view, and slows the walk.
@@ -97,6 +104,10 @@ export default class Weapons {
     this._everReset = false;
     this._wasSprinting = false;
     this._sprintRecoverAt = 0;
+    this._airT = 0;              // time airborne (jump penalty ramp)
+    this._landT = 9;             // time since landing (landing penalty)
+    this._semiQueuedAt = -1;
+    this._rmbQueuedAt = -1;
 
     // Scratch vectors (never allocated per frame).
     this._fwd = new THREE.Vector3();
@@ -149,6 +160,15 @@ export default class Weapons {
       return Math.round(def.magSize * PERK_TUNING.EXTMAG_SCALE);
     }
     return def.magSize;
+  }
+
+  /** Camera recoil (rad) the player adds to its view: the visible spray climb. */
+  viewRecoilPitch() {
+    return this._driftP * VIEW_RECOIL_SHARE;
+  }
+
+  viewRecoilYaw() {
+    return this._driftY * VIEW_RECOIL_SHARE;
   }
 
   /** 0 (hip) .. 1 (fully aimed down sights). */
@@ -206,11 +226,21 @@ export default class Weapons {
       if (scoped) movePen *= 0.5; // scoped halves the move penalty
       spread += movePen;
     }
-    if (p && p.onGround === false) spread += def.spreadJump;
+    // Jump inaccuracy ramps in over AIR_RAMP and leaves a short landing tail.
+    if (p && p.onGround === false) spread += def.spreadJump * Math.min(1, this._airT / AIR_RAMP);
+    else if (this._landT < LAND_RECOVER) spread += def.spreadJump * LAND_PENALTY * (1 - this._landT / LAND_RECOVER);
 
     spread += this._bloom;
 
-    if (p && p.crouching) spread *= 0.8;
+    // Crouch accuracy follows the crouch animation instead of snapping.
+    if (p) {
+      const P = g.config && g.config.PLAYER;
+      const cur = Number.isFinite(p._heightCur) ? p._heightCur : null;
+      const f = P && cur !== null
+        ? clamp((P.HEIGHT_STAND - cur) / (P.HEIGHT_STAND - P.HEIGHT_CROUCH), 0, 1)
+        : (p.crouching ? 1 : 0);
+      spread *= 1 - 0.2 * f;
+    }
     if (this.adsT > 0) spread *= 1 - (1 - ADS_SPREAD_SCALE) * this.adsT;
     if (def.slot === 1 && this.adsT < 0.5 && hasAttachment(p, 'laser')) spread *= PERK_TUNING.LASER_HIP_SPREAD;
     return spread;
@@ -464,6 +494,14 @@ export default class Weapons {
     const player = g.player;   // lazy sibling lookup every frame (rule 9)
     const input = g.input;
 
+    if (player && player.onGround === false) {
+      this._airT += dt;
+    } else {
+      if (this._airT > 0.12) this._landT = 0; // a real jump/fall, not a step
+      this._airT = 0;
+      this._landT += dt;
+    }
+
     this._updateFov(dt);
 
     const def = this.current();
@@ -531,10 +569,12 @@ export default class Weapons {
       }
     }
 
-    // ---- RMB: scope toggle -------------------------------------------------
+    // ---- RMB: scope toggle (buffered briefly through a raise) ---------------
     if (this._rmbQueued) {
-      this._rmbQueued = false;
-      this._toggleScope();
+      if (this._state === 'idle' || this._now - this._rmbQueuedAt > INPUT_BUFFER * 4) {
+        this._rmbQueued = false;
+        this._toggleScope();
+      }
     }
 
     const buyOpen = !!(state && state.buyOpen);
@@ -586,8 +626,10 @@ export default class Weapons {
         this._tryFire(def, player);
       }
     }
-    // A click that only lost to the sprint-out fires as soon as it ends.
-    if (!(sprintLocked && !sprinting && this._semiQueued)) this._semiQueued = false;
+    // A click that only lost to the sprint-out fires as soon as it ends; any
+    // other click waits INPUT_BUFFER for a cooldown or raise to finish.
+    const buffered = this._semiQueued && !isGrenade && this._now - this._semiQueuedAt <= INPUT_BUFFER;
+    if (!(sprintLocked && !sprinting && this._semiQueued) && !buffered) this._semiQueued = false;
     this._releaseQueued = false;
 
     // ---- recoil / bloom recovery (trigger discipline pays off) -------------
@@ -599,8 +641,13 @@ export default class Weapons {
   // ==========================================================================
   _onMouseDown(e) {
     if (!e) return;
-    if (e.button === 0) this._semiQueued = true;
-    else if (e.button === 2) this._rmbQueued = true;
+    if (e.button === 0) {
+      this._semiQueued = true;
+      this._semiQueuedAt = this._now;
+    } else if (e.button === 2) {
+      this._rmbQueued = true;
+      this._rmbQueuedAt = this._now;
+    }
   }
 
   _onMouseUp(e) {
@@ -665,6 +712,7 @@ export default class Weapons {
 
   _tryFire(def, player) {
     if (this._now < this._nextFireAt) return;
+    this._semiQueued = false; // this click is spent, whatever happens next
 
     if (def.melee) {
       this._nextFireAt = this._now + 60 / def.rpm;
@@ -721,8 +769,10 @@ export default class Weapons {
       // applied after firing, while unscoped shots and automatic weapons keep
       // the accumulated ballistic drift. Movement/jump spread still applies.
       const scopedBolt = !!(def.zoomFov && this.scopeLevel > 0);
-      const driftP = scopedBolt ? 0 : this._driftP;
-      const driftY = scopedBolt ? 0 : this._driftY;
+      // The camera already shows VIEW_RECOIL_SHARE of the drift.
+      const hidden = 1 - VIEW_RECOIL_SHARE;
+      const driftP = scopedBolt ? 0 : this._driftP * hidden;
+      const driftY = scopedBolt ? 0 : this._driftY * hidden;
       pitch += driftP + clamp(gauss() * sigma, -spread, spread);
       yaw += driftY + clamp(gauss() * sigma, -spread, spread);
     }
@@ -767,7 +817,7 @@ export default class Weapons {
     // the aim drift above is what actually steers bullets.
     if (player.addViewPunch) {
       player.addViewPunch(
-        kp * 0.45,
+        kp * 0.25,
         ky * 0.5 + (Math.random() - 0.5) * rec.yawJitter
       );
     }

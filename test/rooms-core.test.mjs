@@ -234,3 +234,11 @@ test('authority handoff increments its fence and advances the shared wall clock'
   assert.equal(room.hostId, 'guest');
   assert.equal(room.lastAuthoritySnapshotAt, 2_250);
 });
+
+test('movement flags for sprint and slide survive state sanitising', async () => {
+  const { sanitizePlayerState } = await import('../src/shared/rooms-core.mjs');
+  const state = sanitizePlayerState({ sprinting: true, sliding: true, walking: false, bogus: 'x' });
+  assert.equal(state.sprinting, true);
+  assert.equal(state.sliding, true);
+  assert.equal(state.bogus, undefined);
+});
