@@ -42,6 +42,8 @@ const GUN_PROFILES = {
   mp5:    { vol: 0.55, crack: 0.40, bpFrom: 1950, bpTo: 545, nDur: 0.068, thF: 158, thVol: 0.62, thDur: 0.080 },
   ak47:   { vol: 0.92, crack: 0.60, bpFrom: 1060, bpTo: 215, nDur: 0.150, thF: 115, thVol: 0.95, thDur: 0.165 },
   m4a1:   { vol: 0.82, crack: 0.55, bpFrom: 1350, bpTo: 300, nDur: 0.118, thF: 133, thVol: 0.85, thDur: 0.135 },
+  shotgun:{ vol: 1.20, crack: 0.70, bpFrom: 820,  bpTo: 160, nDur: 0.240, thF: 90,  thVol: 1.10, thDur: 0.260, sub: 60 },
+  lmg:    { vol: 0.95, crack: 0.62, bpFrom: 1150, bpTo: 240, nDur: 0.140, thF: 112, thVol: 0.95, thDur: 0.160 },
   awp:    { vol: 1.30, crack: 0.78, bpFrom: 720,  bpTo: 130, nDur: 0.300, thF: 84,  thVol: 1.15, thDur: 0.340, sub: 52, echo: true },
 };
 
@@ -52,7 +54,7 @@ const FOOT_PROFILES = {
   metal:    { f: 1400, q: 3.0, dur: 0.090, vol: 0.90, ring: 1750 },
 };
 
-const GRENADE_IDS = { hegrenade: 1, flashbang: 1, smokegrenade: 1 };
+const GRENADE_IDS = { hegrenade: 1, flashbang: 1, smokegrenade: 1, semtex: 1, stun: 1 };
 
 const REWARD_HAPTICS = Object.freeze({
   achievement: Object.freeze([18]),

@@ -42,10 +42,10 @@ import { bakeMasks, setMask } from '../src/gfx/materials/masks.js';
  * which third-person class the new surface belongs to, add it to the table, and
  * only then update the pin.
  */
-const TP_MESHES = { m4a1: 7, ak47: 6, mp5: 6, awp: 7, deagle: 6, usp: 5, glock: 5 };
+const TP_MESHES = { m4a1: 7, ak47: 6, mp5: 6, awp: 7, deagle: 6, usp: 5, glock: 5, shotgun: 7, lmg: 7 };
 
 /** Full-detail counts, for the ratio assertion. */
-const VM_MESHES = { m4a1: 21, ak47: 16, mp5: 16, awp: 21, deagle: 16, usp: 16, glock: 15 };
+const VM_MESHES = { m4a1: 21, ak47: 16, mp5: 16, awp: 21, deagle: 16, usp: 16, glock: 15, shotgun: 16, lmg: 21 };
 
 /**
  * A material library that behaves like the real `MaterialSystem` in the ways the
@@ -325,6 +325,6 @@ test('the collapse is worth its complexity on every weapon', () => {
   }
   const total = PROCEDURAL_WEAPON_IDS.reduce((n, id) => n + TP_MESHES[id], 0);
   const wasTotal = PROCEDURAL_WEAPON_IDS.reduce((n, id) => n + VM_MESHES[id], 0);
-  assert.equal(wasTotal, 121);
-  assert.equal(total, 42);
+  assert.equal(wasTotal, 158); // seven originals (121) + shotgun 16 + lmg 21
+  assert.equal(total, 56); // seven originals (42) + shotgun 7 + lmg 7
 });

@@ -51,7 +51,11 @@ const GRENADE_FRICTION = 0.7;      // tangential velocity kept on bounce
 const GRENADE_ROLL_DRAG = 4;       // 1/s horizontal decel while rolling
 const FUSE_HE = 1.6;
 const FUSE_FLASH = 1.6;
-const FUSE_SMOKE = 3.0;            // smoke pops on rest OR after this
+const FUSE_SMOKE = 3.0;
+const FUSE_SEMTEX = 2.0;           // from the throw; semtex sticks on contact
+const FUSE_STUN = 1.4;
+const STUN_RANGE = 11;
+const SEMTEX_STICK_RADIUS = 0.6;   // m from a body's centre line            // smoke pops on rest OR after this
 
 const HE_RADIUS = 9;
 const HE_MAX_DMG = 98;
@@ -200,7 +204,10 @@ export default class Combat {
     if (this._sDir.lengthSq() < 1e-10) return;
     this._sDir.normalize();
     if (e.melee) this._resolveMelee(shooter, shooter.team, false, weaponId, def);
-    else this._fireBullet(weaponId, def, shooter, shooter.team, false, null);
+    else {
+      this._fireBullet(weaponId, def, shooter, shooter.team, false, null);
+      this._firePellets(e, weaponId, def, shooter, shooter.team, false);
+    }
   }
 
   /** Spawn a non-host human's grenade in the authoritative simulation. */
@@ -329,6 +336,23 @@ export default class Combat {
       this._resolveMelee(shooter, team, true, weaponId, def);
     } else {
       this._fireBullet(weaponId, def, shooter, team, true, null);
+      this._firePellets(e, weaponId, def, shooter, team, true);
+    }
+  }
+
+  /** Shotgun pellets beyond the first: each is its own hitscan. */
+  _firePellets(e, weaponId, def, shooter, team, byPlayer) {
+    const pellets = Array.isArray(e.pellets) ? e.pellets : null;
+    if (!pellets) return;
+    const max = Math.min(pellets.length, Math.max(0, (def.pellets || 1) - 1), 15);
+    for (let i = 0; i < max; i++) {
+      const d = pellets[i];
+      if (!d || !Number.isFinite(d.x) || !Number.isFinite(d.y) || !Number.isFinite(d.z)) continue;
+      this._sOrigin.set(e.origin.x, e.origin.y, e.origin.z);
+      this._sDir.set(d.x, d.y, d.z);
+      if (this._sDir.lengthSq() < 1e-10) continue;
+      this._sDir.normalize();
+      this._fireBullet(weaponId, def, shooter, team, byPlayer, null);
     }
   }
 
@@ -349,6 +373,7 @@ export default class Combat {
     // gun tip provided in the event, else eye pos (spec F)
     const muzzle = (e.muzzle && e.muzzle.isVector3) ? e.muzzle : null;
     this._fireBullet(weaponId, def, shooter, team, false, muzzle);
+    this._firePellets(e, weaponId, def, shooter, team, false);
   }
 
   // =========================================================================
@@ -826,7 +851,12 @@ export default class Combat {
     }
     p.thrower = thrower;
     p.throwerTeam = (thrower && thrower.team) || 'ct';
-    p.fuse = type === 'smokegrenade' ? FUSE_SMOKE : (type === 'flashbang' ? FUSE_FLASH : FUSE_HE);
+    p.fuse = type === 'smokegrenade' ? FUSE_SMOKE
+      : type === 'flashbang' ? FUSE_FLASH
+        : type === 'semtex' ? FUSE_SEMTEX
+          : type === 'stun' ? FUSE_STUN
+            : FUSE_HE;
+    p.stuckTo = null;
     p.spin.set(
       (Math.random() * 2 - 1) * 9,
       (Math.random() * 2 - 1) * 9,
@@ -854,11 +884,15 @@ export default class Combat {
         hegrenade: new THREE.SphereGeometry(GRENADE_RADIUS, 12, 10),
         flashbang: new THREE.CylinderGeometry(0.045, 0.045, 0.14, 10),
         smokegrenade: new THREE.CylinderGeometry(0.055, 0.055, 0.15, 10),
+        semtex: new THREE.BoxGeometry(0.09, 0.05, 0.12),
+        stun: new THREE.CylinderGeometry(0.042, 0.042, 0.13, 10),
       },
       mat: {
         hegrenade: new THREE.MeshStandardMaterial({ color: 0x35452c, roughness: 0.55, metalness: 0.45 }),
         flashbang: new THREE.MeshStandardMaterial({ color: 0x9aa4ad, roughness: 0.35, metalness: 0.7 }),
         smokegrenade: new THREE.MeshStandardMaterial({ color: 0x4c5a52, roughness: 0.6, metalness: 0.5 }),
+        semtex: new THREE.MeshStandardMaterial({ color: 0x7a6a3a, roughness: 0.8, metalness: 0.1, emissive: 0x3a0000, emissiveIntensity: 0.4 }),
+        stun: new THREE.MeshStandardMaterial({ color: 0x6b7e8c, roughness: 0.35, metalness: 0.7 }),
       },
     };
   }
@@ -917,9 +951,32 @@ export default class Combat {
         }
       } else if (p.fuse <= 0) {
         if (p.type === 'flashbang') this._detonateFlash(p);
+        else if (p.type === 'stun') this._detonateStun(p);
         else this._detonateHE(p);
         this._release(p);
         continue;
+      }
+
+      if (p.type === 'semtex') {
+        if (p.stuckTo) {
+          const host = p.stuckTo;
+          const at = host.pos || host.position;
+          if (at && host.alive !== false) {
+            p.pos.set(at.x, at.y + 1.1, at.z);
+            p.mesh.position.copy(p.pos);
+          }
+          continue;
+        }
+        if (!p.resting) {
+          const victim = this._semtexVictim(p);
+          if (victim) {
+            p.stuckTo = victim;
+            p.resting = true;
+            p.vel.set(0, 0, 0);
+            this.game.events.emit('grenade:stuck', { victim, thrower: p.thrower });
+            continue;
+          }
+        }
       }
 
       if (p.resting) continue;
@@ -937,6 +994,13 @@ export default class Combat {
           this._nrm.copy(hit.normal);
           const move = Math.max(hit.distance - GRENADE_RADIUS - 0.005, 0);
           p.pos.addScaledVector(this._v2, move);
+          if (p.type === 'semtex') {
+            // sticks where it lands, walls and ceilings included
+            p.vel.set(0, 0, 0);
+            p.resting = true;
+            p.mesh.position.copy(p.pos);
+            continue;
+          }
 
           const vn = p.vel.dot(this._nrm);
           if (vn < 0) {
@@ -1017,9 +1081,54 @@ export default class Combat {
   // =========================================================================
 
   _detonateHE(p) {
+    const weaponId = p.type === 'semtex' ? 'semtex' : 'hegrenade';
     this.game.events.emit('fx:explosion', { pos: p.pos.clone(), radius: HE_RADIUS });
-    this._radialDamage(p.pos, HE_RADIUS, HE_MAX_DMG, p.thrower, p.throwerTeam, 'hegrenade', true, false);
+    // A semtex stuck to someone is lethal to its host.
+    const host = p.type === 'semtex' ? p.stuckTo : null;
+    if (host && host.alive !== false && typeof host.takeDamage === 'function') {
+      host.takeDamage(250, { from: p.thrower, weapon: weaponId, headshot: false, part: 'body' });
+      if (this._isPlayer(p.thrower)) this.game.events.emit('hud:hitmarker', { headshot: false, kill: host.alive === false });
+    }
+    this._radialDamage(p.pos, HE_RADIUS, HE_MAX_DMG, p.thrower, p.throwerTeam, weaponId, true, false);
     this._shakePlayer(p.pos, HE_RADIUS * 1.8, 0.9);
+  }
+
+  /** First enemy body a flying semtex passes through, if any. */
+  _semtexVictim(p) {
+    const bodies = [];
+    const pl = this.game.player;
+    if (pl && pl.alive && pl.position) bodies.push(pl);
+    const bots = this.game.bots && this.game.bots.all;
+    if (bots) for (const b of bots) if (b && b.alive && b.pos) bodies.push(b);
+    const remotes = this.game.multiplayer && this.game.multiplayer.remotePlayers;
+    if (Array.isArray(remotes)) for (const r of remotes) if (r && r.alive && r.position) bodies.push(r);
+    for (const body of bodies) {
+      if (body === p.thrower || body.team === p.throwerTeam) continue;
+      const at = body.pos || body.position;
+      const dy = p.pos.y - at.y;
+      if (dy < 0 || dy > 1.9) continue;
+      if (Math.hypot(p.pos.x - at.x, p.pos.z - at.z) <= SEMTEX_STICK_RADIUS) return body;
+    }
+    return null;
+  }
+
+  /** Stun: slows movement and aim of everyone caught in the burst. */
+  _detonateStun(p) {
+    const ev = this.game.events;
+    ev.emit('fx:flash', { pos: p.pos.clone(), stun: true });
+    const bots = this.game.bots;
+    if (bots && typeof bots.applyStun === 'function') bots.applyStun(p.pos, STUN_RANGE);
+    const pl = this.game.player;
+    if (pl && pl.alive && pl.position && typeof pl.stun === 'function') {
+      this._v6.copy(pl.position);
+      this._v6.y += 1.4;
+      const d = this._v6.distanceTo(p.pos);
+      if (d <= STUN_RANGE && this._losClear(p.pos, this._v6)) {
+        const seconds = 1.2 + 2.6 * (1 - d / STUN_RANGE);
+        pl.stun(seconds);
+        ev.emit('hud:stun', { duration: seconds });
+      }
+    }
   }
 
   _detonateFlash(p) {

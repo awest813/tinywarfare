@@ -275,6 +275,7 @@ export default class TeamDeathmatch {
       : tdmLoadout(player ? player.team : 'ct');
     if (player) {
       player.perk = loadout.perk || null;
+      player.perk2 = loadout.perk2 || null;
       player.attachment = loadout.attachment && loadout.attachment !== 'none' ? loadout.attachment : null;
     }
     weapons.resetForRound({ died: true });

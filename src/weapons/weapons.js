@@ -31,6 +31,7 @@ const SCOPED_MOVE_SCALE = 0.55; // extra move slowdown while scoped (feel)
 // Share of the spray drift shown by the camera; the rest stays a bullet
 // offset from the crosshair. Total deviation is unchanged.
 const VIEW_RECOIL_SHARE = 0.6;
+const GRENADE_ORDER = ['hegrenade', 'semtex', 'flashbang', 'stun', 'smokegrenade'];
 const INPUT_BUFFER = 0.08;      // s a click waits for a cooldown / raise to end
 const AIR_RAMP = 0.15;          // s for the jump penalty to reach full
 const LAND_PENALTY = 0.5;       // share of the jump penalty right after landing
@@ -121,6 +122,7 @@ export default class Weapons {
     ev.on('input:mouseup', this._onMouseUp);
     ev.on('input:wheel', this._onWheel);
     ev.on('input:keydown', this._onKey);
+    ev.on('kill', (e) => this._onKillScavenge(e));
     ev.on('ui:restart', () => {
       // Full match reset: next resetForRound() deals a fresh loadout.
       this._everReset = false;
@@ -151,6 +153,18 @@ export default class Weapons {
     if (this.scopeLevel > 0) mult *= SCOPED_MOVE_SCALE;
     mult *= 1 - (1 - ADS_MOVE_SCALE) * this.adsT;
     return mult;
+  }
+
+  /** Scavenger: each local kill tops up a magazine of reserve for both guns. */
+  _onKillScavenge(e) {
+    if (!e || !e.killerIsLocal || !hasPerk(this.game.player, 'scavenger')) return;
+    for (const slot of [1, 2]) {
+      const id = this.slots[slot];
+      const def = id && WEAPONS[id];
+      const ammo = id && this.ammo[id];
+      if (!def || !ammo) continue;
+      ammo.reserve = Math.min(def.reserve * 2, ammo.reserve + this.magSizeOf(def));
+    }
   }
 
   /** Magazine size including an extended-mag attachment on the primary. */
@@ -448,9 +462,7 @@ export default class Weapons {
       if (s2 && WEAPONS[s2]) {
         this.ammo[s2] = { mag: WEAPONS[s2].magSize, reserve: WEAPONS[s2].reserve };
       }
-      this._syncGrenadeAmmo('hegrenade');
-      this._syncGrenadeAmmo('flashbang');
-      this._syncGrenadeAmmo('smokegrenade');
+      for (const id of GRENADE_ORDER) this._syncGrenadeAmmo(id);
     }
 
     // Wipe transient combat state.
@@ -784,6 +796,19 @@ export default class Weapons {
 
     const payload = { weaponId: def.id, origin: origin, dir: dir, byPlayer: true };
     if (melee) payload.melee = true;
+    if (!melee && def.pellets > 1) {
+      // Extra pellets fan out around the aimed direction (uniform in a disc).
+      payload.pellets = [];
+      const cone = def.pelletSpread || 0.05;
+      for (let i = 1; i < def.pellets; i++) {
+        const r = cone * Math.sqrt(Math.random());
+        const a = Math.random() * Math.PI * 2;
+        const pp = pitch + Math.sin(a) * r;
+        const py = yaw + Math.cos(a) * r;
+        const c = Math.cos(pp);
+        payload.pellets.push(new THREE.Vector3(Math.sin(py) * c, Math.sin(pp), Math.cos(py) * c));
+      }
+    }
     this.game.events.emit('weapon:fire', payload);
     this._lastShotAt = this._now;
 
@@ -894,7 +919,7 @@ export default class Weapons {
   }
 
   _cycleGrenade() {
-    const order = ['hegrenade', 'flashbang', 'smokegrenade'];
+    const order = GRENADE_ORDER;
     const owned = [];
     for (let i = 0; i < order.length; i++) {
       if (this._grenadeCount(order[i]) > 0) owned.push(order[i]);

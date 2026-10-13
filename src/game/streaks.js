@@ -15,6 +15,7 @@
 
 import * as THREE from 'three';
 import { isRespawnMode } from './tdm.js';
+import { PERK_TUNING, hasPerk } from './loadouts.js';
 
 export const STREAKS = Object.freeze({
   uav: Object.freeze({ id: 'uav', key: '5', label: 'UAV', cost: 500, duration: 30 }),
@@ -77,6 +78,12 @@ export default class Scorestreaks {
     return this.enabled() && this.enemyUavTime > 0;
   }
 
+  /** Cost of a streak for the local player (Hardline discounts it). */
+  costOf(id) {
+    const base = STREAKS[id] ? STREAKS[id].cost : Infinity;
+    return Math.round(base * (hasPerk(this.game.player, 'hardline') ? PERK_TUNING.HARDLINE_COST : 1));
+  }
+
   /** HUD view: each streak with progress (0..1) and ready flag. */
   status() {
     return STREAK_ORDER.map((id) => {
@@ -85,8 +92,8 @@ export default class Scorestreaks {
         id,
         key: s.key,
         label: s.label,
-        cost: s.cost,
-        progress: Math.min(1, this.points / s.cost),
+        cost: this.costOf(id),
+        progress: Math.min(1, this.points / this.costOf(id)),
         ready: this.ready.has(id),
       };
     });
@@ -129,7 +136,7 @@ export default class Scorestreaks {
     if (!this.enabled() || !a) return;
     this.points += Math.max(0, Number(a.points) || 0);
     for (const id of STREAK_ORDER) {
-      if (this._earnedThisLife.has(id) || this.points < STREAKS[id].cost) continue;
+      if (this._earnedThisLife.has(id) || this.points < this.costOf(id)) continue;
       this._earnedThisLife.add(id);
       this.ready.add(id);
       this.game.events.emit('streak:ready', { id, label: STREAKS[id].label, key: STREAKS[id].key });

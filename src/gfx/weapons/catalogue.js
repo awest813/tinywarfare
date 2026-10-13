@@ -54,6 +54,43 @@ export const WEAPON_MODELS = {
       suppressorLen: 0.148,
     }),
 
+  // Respawn-mode long guns, derived from the AR receiver like the M4.
+  // Semi-auto 12-gauge: long polymer furniture, no optic, a stubby tube-length
+  // magazine standing in for the loading gate, plain crown.
+  shotgun: () =>
+    buildRifle({
+      id: 'shotgun',
+      label: 'M1014',
+      fxClass: 'shotgun',
+      furniture: 'polymer',
+      barrelEnd: -0.53,
+      handguardRadius: 0.027,
+      optic: false,
+      gasBlock: false,
+      muzzle: 'a2',
+      magLen: 0.045,
+      magD: 0.05,
+      magW: 0.03,
+      magCurve: 0,
+    }),
+
+  // Belt-fed squad gun: heavy barrel, fat handguard, a box mag hanging low.
+  // (Polymer only: each extra material is a draw call on every bot carrying it.)
+  lmg: () =>
+    buildRifle({
+      id: 'lmg',
+      label: 'M249 SAW',
+      fxClass: 'lmg',
+      furniture: 'polymer',
+      barrelEnd: -0.6,
+      handguardRadius: 0.031,
+      muzzle: 'brake',
+      magLen: 0.1,
+      magD: 0.11,
+      magW: 0.07,
+      magCurve: 0,
+    }),
+
   // Striker-fired polymer 9 mm.
   glock: () =>
     buildPistol({ id: 'glock', label: 'Glock-18', slideLen: 0.186, slideMat: 'steel_black' }),

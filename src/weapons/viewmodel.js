@@ -99,6 +99,10 @@ const POSES = {
   hegrenade: { pos: [0.13, -0.240, -0.35], rot: [0.18, -0.12, -0.06], kick: 0, equip: 0.24 },
   flashbang: { pos: [0.13, -0.240, -0.35], rot: [0.18, -0.12, -0.06], kick: 0, equip: 0.24 },
   smokegrenade: { pos: [0.13, -0.240, -0.35], rot: [0.18, -0.12, -0.06], kick: 0, equip: 0.24 },
+  shotgun: { pos: [0.15, -0.270, -0.48], rot: [0.0, 0.04, -0.01], kick: 1.4 },
+  lmg: { pos: [0.15, -0.275, -0.50], rot: [0.0, 0.04, -0.01], kick: 0.75 },
+  semtex: { pos: [0.13, -0.240, -0.35], rot: [0.18, -0.12, -0.06], kick: 0, equip: 0.24 },
+  stun: { pos: [0.13, -0.240, -0.35], rot: [0.18, -0.12, -0.06], kick: 0, equip: 0.24 },
 };
 
 // ---------------------------------------------------------------------------
@@ -240,6 +244,8 @@ export const PROC_POSES = {
   // The bolt gun is 1.2 m long: it sits further out and flatter, or the scope
   // eats the middle of the screen and the muzzle is off the top-left corner.
   awp: { pos: [0.122, -0.172, -0.415], rot: [-0.022, 0.050, 0.020], scale: 0.80 },
+  shotgun: { pos: [0.126, -0.176, -0.385], rot: [-0.030, 0.060, 0.028], scale: 0.84 },
+  lmg: { pos: [0.124, -0.178, -0.405], rot: [-0.026, 0.054, 0.024], scale: 0.82 },
   // The pistols sit LOW — the fist and the sleeve leave through the bottom
   // frame edge, and only the knuckle row stays in view under the slide.
   //
@@ -429,6 +435,10 @@ export const NPC_ARM_FAMILY = {
   hegrenade: 'grenade',
   flashbang: 'grenade',
   smokegrenade: 'grenade',
+  shotgun: 'rifle',
+  lmg: 'rifle',
+  semtex: 'grenade',
+  stun: 'grenade',
 };
 
 // ---------------------------------------------------------------------------
@@ -1247,6 +1257,11 @@ export default class ViewModel {
       hegrenade: () => this._buildHE(),
       flashbang: () => this._buildFlashbang(),
       smokegrenade: () => this._buildSmoke(),
+      // Placeholders until the procedural build lands (one frame later).
+      shotgun: () => this._buildAK47(),
+      lmg: () => this._buildAK47(),
+      semtex: () => this._buildHE(),
+      stun: () => this._buildFlashbang(),
     };
 
     for (const id in WEAPONS) {

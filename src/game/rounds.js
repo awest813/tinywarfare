@@ -526,6 +526,7 @@ export default class Rounds {
     if (player) {
       // perks and attachments belong to respawn-mode classes
       player.perk = null;
+      player.perk2 = null;
       player.attachment = null;
     }
     this.tdm.stopObjective();

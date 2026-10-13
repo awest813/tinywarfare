@@ -48,6 +48,8 @@ const GUN = {
   ak47: { rpm: 600, mag: 30, reload: 2.5, auto: true, burst: [3, 7], pause: [0.2, 0.4], spread: 0.011, prefer: 34 },
   m4a1: { rpm: 666, mag: 30, reload: 3.0, auto: true, burst: [3, 7], pause: [0.2, 0.4], spread: 0.010, prefer: 34 },
   awp: { rpm: 41, mag: 10, reload: 3.6, auto: false, burst: [1, 1], pause: [1.45, 1.7], spread: 0.004, prefer: 55, bolt: 1.4 },
+  shotgun: { rpm: 75, mag: 7, reload: 3.0, auto: false, burst: [1, 2], pause: [0.75, 1.0], spread: 0.03, prefer: 9, pellets: 8 },
+  lmg: { rpm: 750, mag: 100, reload: 5.2, auto: true, burst: [6, 12], pause: [0.25, 0.45], spread: 0.013, prefer: 34 },
 };
 const GUN_FALLBACK = GUN.usp;
 
@@ -61,7 +63,7 @@ const CHAR_MODELS = {
 const CHAR_TARGET_HEIGHT = 1.83;
 const CHAR_GUN_MESH_NAMES = new Set(['AK', 'SMG', 'Sniper', 'Pistol']);
 const CHAR_GUN_MESH = {
-  ak47: 'AK', m4a1: 'AK', mp5: 'SMG', awp: 'Sniper',
+  ak47: 'AK', m4a1: 'AK', mp5: 'SMG', awp: 'Sniper', shotgun: 'AK', lmg: 'AK',
   glock: 'Pistol', usp: 'Pistol', deagle: 'Pistol',
 };
 
@@ -216,7 +218,9 @@ const T_HOLD_MIN = 3.0;
 const T_HOLD_MAX = 5.5;
 const TDM_HOLD_MAX = 1.6;        // respawn modes keep everyone moving
 const GHOST_FOOTSTEP_RANGE = 0.45; // Ghost perk: bots hear the player's steps at this fraction
-const SUPPRESSED_HEARING = 0.35;  // suppressor: bots hear the player's primary at this fraction
+const SUPPRESSED_HEARING = 0.35;
+const STUN_SPEED_SCALE = 0.4;      // stunned bots crawl and track slowly
+const BOT_EXPLOSIVES = new Set(['hegrenade', 'semtex', 'airstrike', 'c4']);  // suppressor: bots hear the player's primary at this fraction
 const INVESTIGATE_HOLD_MIN = 2.0;
 const INVESTIGATE_HOLD_MAX = 3.8;
 
@@ -549,6 +553,29 @@ export default class Bots {
         bot.holdTimer = 0.05 + (bot.slot % 3) * 0.03;
       }
       if (bot.mesh) bot.mesh.position.copy(bot.pos);
+    }
+  }
+
+  /** Stun burst: bots in range with line of sight move and turn slowly. */
+  applyStun(pos, range = 11) {
+    const world = this.game.world;
+    for (const b of this.all) {
+      if (!b.alive) continue;
+      const d = _v1.set(pos.x - b.pos.x, 0, pos.z - b.pos.z).length();
+      if (d > range) continue;
+      if (world && typeof world.raycast === 'function') {
+        _eyeA.set(pos.x, pos.y + 0.2, pos.z);
+        this._botEye(b, _eyeB);
+        _v2.copy(_eyeB).sub(_eyeA);
+        const dist = _v2.length();
+        if (dist > 0.001) {
+          _v2.multiplyScalar(1 / dist);
+          const hit = world.raycast(_eyeA, _v2, dist);
+          if (hit && hit.distance < dist - 0.25) continue;
+        }
+      }
+      b.stunUntil = Math.max(b.stunUntil || 0, this.time + 1.2 + 2.6 * (1 - d / range));
+      b.reactionTimer = Math.max(b.reactionTimer || 0, 0.6);
     }
   }
 
@@ -1728,6 +1755,8 @@ export default class Bots {
   _respawnBot(bot, spawn, round) {
     bot.health = this._cfg.HEALTH;
     bot.spawnProtection = 0;
+    bot.perk = null;
+    bot.stunUntil = 0;
     bot.alive = true;
     bot.velY = 0;
     bot.onGround = true;
@@ -1833,6 +1862,8 @@ export default class Bots {
 
   _damageBot(bot, amount, info) {
     if (!bot.alive || bot.spawnProtection > 0) return;
+    const weaponId = typeof info.weapon === 'string' ? info.weapon : info.weapon && info.weapon.id;
+    if (bot.perk === 'flakjacket' && BOT_EXPLOSIVES.has(weaponId)) amount *= 0.45;
     let dmg = amount;
     if (bot.armor > 0) {
       // Headshots punch through helmets (0.85) so AK/M4 one-taps stay lethal.
@@ -2132,6 +2163,8 @@ export default class Bots {
       } else if (d2 > 0.0001) {
         _v1.normalize();
         wantSpeed = bot.sneak ? WALK_SPEED : this._cfg.RUN_SPEED;
+        if (bot.stunUntil > this.time) wantSpeed *= STUN_SPEED_SCALE;
+        if (bot.perk === 'lightweight') wantSpeed *= 1.08;
         _delta.copy(_v1);
       } else if (yGap >= 0.9) {
         // A node directly above/below the capsule cannot be reached by walking
@@ -2436,7 +2469,8 @@ export default class Bots {
     // Smoothed turn toward the target (TURN_SPEED rad/s exponential chase).
     const wantYaw = yawFromDir(_v1.x, _v1.z);
     const wantPitch = Math.asin(Math.max(-1, Math.min(1, _v1.y)));
-    const k = 1 - Math.exp(-this._cfg.TURN_SPEED * dt);
+    const turn = this._cfg.TURN_SPEED * (bot.stunUntil > this.time ? STUN_SPEED_SCALE : 1);
+    const k = 1 - Math.exp(-turn * dt);
     bot.yaw += angleDiff(wantYaw, bot.yaw) * k;
     bot.aimPitch += (wantPitch - bot.aimPitch) * k;
 
@@ -2494,7 +2528,17 @@ export default class Bots {
     const dir = new THREE.Vector3(-Math.sin(yaw) * cp, Math.sin(pitch), -Math.cos(yaw) * cp);
     const origin = this._botEye(bot, _eyeA).clone();
 
-    this.game.events.emit('bot:fire', { bot, weaponId: bot.weaponId, origin, dir });
+    const payload = { bot, weaponId: bot.weaponId, origin, dir };
+    if (stats.pellets > 1) {
+      payload.pellets = [];
+      for (let i = 1; i < stats.pellets; i++) {
+        const py = yaw + gauss() * 0.035;
+        const pp = pitch + gauss() * 0.03;
+        const c = Math.cos(pp);
+        payload.pellets.push(new THREE.Vector3(-Math.sin(py) * c, Math.sin(pp), -Math.cos(py) * c));
+      }
+    }
+    this.game.events.emit('bot:fire', payload);
     bot.fireAnim = 1; // viewkick for the body pose
   }
 
@@ -2730,7 +2774,12 @@ export default class Bots {
     const r = Math.random();
     let id = bot.team === 't' ? 'ak47' : 'm4a1';
     if (r < 0.1 && !sniperTaken) id = 'awp';
-    else if (r < 0.32) id = 'mp5';
+    else if (r < 0.28) id = 'mp5';
+    else if (r < 0.38) id = 'shotgun';
+    else if (r < 0.46) id = 'lmg';
+    // Bots run one of the simple perks (or none).
+    const pr = Math.random();
+    bot.perk = pr < 0.3 ? 'lightweight' : pr < 0.55 ? 'flakjacket' : null;
     bot.weaponId = id;
     bot.mag = (GUN[id] || GUN_FALLBACK).mag;
     bot.armor = 0;

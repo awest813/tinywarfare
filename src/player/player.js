@@ -33,6 +33,8 @@ const FOOTSTEP_MIN_SPEED = 2;    // m/s: below this no footsteps
 const LAND_MIN_SPEED = 3;        // m/s down: emits 'player:land' + dip
 const JUMP_BUFFER = 0.15;        // s: pressing jump slightly early still hops
 const JUMP_COOLDOWN = 0.25;      // s between jumps (prevents pogo jitter)
+const STUN_MOVE_SCALE = 0.5;     // stunned: half speed
+const STUN_LOOK_SCALE = 0.35;    // and sluggish aim
 const SLIDE_TIME = 0.8;          // s a sprint-slide lasts at most
 const SLIDE_SPEED = 8.4;         // m/s launch speed (floor, never a slowdown)
 const SLIDE_FRICTION = 1.5;      // 1/s ground friction while sliding
@@ -180,6 +182,11 @@ export default class Player {
    *   armor    -= amount * 0.5 (floored at 0)
    * Emits 'player:damage' and (once, at <= 0 hp) 'player:death'.
    */
+  /** Stun grenade: movement and look slow down for `seconds`. */
+  stun(seconds) {
+    this.stunned = Math.max(this.stunned || 0, Math.max(0, Number(seconds) || 0));
+  }
+
   /** Brief damage immunity after a respawn; firing ends it early. */
   protect(seconds) {
     this.spawnProtection = Math.max(0, Number(seconds) || 0);
@@ -308,6 +315,7 @@ export default class Player {
     this._slideCooldown = 0;
     this.spawnProtection = 0;
     this._mantleT = 0;
+    this.stunned = 0;
     this.moveSpeed2D = 0;
     this._heightCur = P.HEIGHT_STAND;
     this.eyeHeight = P.EYE_STAND;
@@ -352,6 +360,7 @@ export default class Player {
 
     this._decayViewDynamics(dt);
     if (this.spawnProtection > 0) this.spawnProtection = Math.max(0, this.spawnProtection - dt);
+    if (this.stunned > 0) this.stunned = Math.max(0, this.stunned - dt);
 
     if (!this.alive) {
       const simulatedElapsed = this.deathElapsed + Math.max(0, Number(dt) || 0);
@@ -412,6 +421,7 @@ export default class Player {
     if (!scopeLevel && weapons && typeof weapons.adsSensitivityScale === 'function') {
       sens *= weapons.adsSensitivityScale();
     }
+    if (this.stunned > 0) sens *= STUN_LOOK_SCALE;
 
     this.yaw -= look.dx * sens;
     this.pitch -= look.dy * sens;
@@ -516,6 +526,7 @@ export default class Player {
       if (typeof m === 'number' && m > 0) mult = m;
     }
     if (hasPerk(this, 'lightweight')) mult *= PERK_TUNING.LIGHTWEIGHT_SPEED;
+    if (this.stunned > 0) mult *= STUN_MOVE_SCALE;
     const baseSpeed = this.crouching
       ? P.CROUCH_SPEED
       : walkKey

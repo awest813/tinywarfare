@@ -192,13 +192,28 @@ Shipped for solo TDM (`src/game/loadouts.js`):
   - **Flak Jacket**: 55% less damage from frags, airstrikes, and C4.
 - Any faction can use any gun.
 
-Still to do:
-- Three perk slots.
-- Attachments (Phase 5).
-- Semtex and stun.
-- Shotgun and LMG models.
-- Bot classes and perks.
-- Unlock gating by rank.
+Also shipped:
+- **Two perk slots** (one per tier). A stored single-perk class holding a
+  tier-2 perk migrates it into slot two.
+  - Tier 1: Lightweight, Quick Hands, and **Scavenger** (each kill refills a
+    magazine of reserve on both guns).
+  - Tier 2: Ghost, Flak Jacket, and **Hardline** (streaks cost 20% less).
+- **New lethal and tactical**:
+  - **Semtex** sticks to the first surface or enemy it touches. It detonates
+    on a 2 s fuse from the throw, and is lethal to an enemy it is stuck to.
+  - **Stun** slows a caught player's movement (×0.5) and look (×0.35) for
+    up to 3.8 s. Stunned bots move and turn at ×0.4 with a delayed reaction.
+- **New guns**, procedurally derived from the AR receiver: the **M1014**
+  shotgun (8 pellets with steep falloff) and the **M249 SAW** LMG (100-round
+  box, slow handling).
+  - Both have first-person and third-person models, hand poses, and pinned
+    draw-call budgets.
+  - Pellets are one event that combat resolves per pellet, so they relay
+    online as-is.
+- **Bot loadouts in respawn modes**: rifles, SMG, shotgun, LMG, and at most one
+  sniper per side. Bots also roll a perk (Lightweight or Flak Jacket). Bot
+  shotguns fire pellets.
+- Unlock gating by rank moved to Phase 5.
 
 ### Phase 4: Scorestreaks
 Shipped for solo TDM (`src/game/score.js`, `src/game/streaks.js`):

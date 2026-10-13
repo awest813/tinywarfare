@@ -76,7 +76,8 @@ test('a TDM spawn deals the selected class and its perk', () => {
   assert.equal(w.slots[1], 'awp');
   assert.equal(w.slots[2], 'usp');
   assert.deepEqual([...w.slots[4]].sort(), ['hegrenade', 'smokegrenade']);
-  assert.equal(game.player.perk, 'ghost');
+  assert.equal(game.player.perk2, 'ghost');
+  assert.equal(game.player.perk, 'scavenger');
 });
 
 test('perks change reloads, swaps, and explosive damage', () => {

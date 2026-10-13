@@ -12,18 +12,23 @@
 
 export const LOADOUT_STORAGE_KEY = 'tiny-strike-classes-v1';
 
-export const PRIMARIES = Object.freeze(['m4a1', 'ak47', 'mp5', 'awp']);
+export const PRIMARIES = Object.freeze(['m4a1', 'ak47', 'mp5', 'shotgun', 'lmg', 'awp']);
 export const SECONDARIES = Object.freeze(['usp', 'glock', 'deagle']);
-export const LETHALS = Object.freeze(['hegrenade']);
-export const TACTICALS = Object.freeze(['flashbang', 'smokegrenade']);
+export const LETHALS = Object.freeze(['hegrenade', 'semtex']);
+export const TACTICALS = Object.freeze(['flashbang', 'stun', 'smokegrenade']);
 
+// Two perk slots: one from each tier.
 export const PERKS = Object.freeze({
-  lightweight: Object.freeze({ id: 'lightweight', label: 'LIGHTWEIGHT', detail: 'Move and sprint 8% faster' }),
-  quickhands: Object.freeze({ id: 'quickhands', label: 'QUICK HANDS', detail: 'Reload 35% and swap weapons 40% faster' }),
-  ghost: Object.freeze({ id: 'ghost', label: 'GHOST', detail: 'Hidden from enemy UAV; quieter footsteps' }),
-  flakjacket: Object.freeze({ id: 'flakjacket', label: 'FLAK JACKET', detail: 'Take 55% less explosive damage' }),
+  lightweight: Object.freeze({ id: 'lightweight', tier: 1, label: 'LIGHTWEIGHT', detail: 'Move and sprint 8% faster' }),
+  quickhands: Object.freeze({ id: 'quickhands', tier: 1, label: 'QUICK HANDS', detail: 'Reload 35% and swap weapons 40% faster' }),
+  scavenger: Object.freeze({ id: 'scavenger', tier: 1, label: 'SCAVENGER', detail: 'Each kill refills a magazine of reserve ammo' }),
+  ghost: Object.freeze({ id: 'ghost', tier: 2, label: 'GHOST', detail: 'Hidden from enemy UAV; quieter footsteps' }),
+  flakjacket: Object.freeze({ id: 'flakjacket', tier: 2, label: 'FLAK JACKET', detail: 'Take 55% less explosive damage' }),
+  hardline: Object.freeze({ id: 'hardline', tier: 2, label: 'HARDLINE', detail: 'Scorestreaks cost 20% less' }),
 });
 export const PERK_IDS = Object.freeze(Object.keys(PERKS));
+export const PERK1_IDS = Object.freeze(PERK_IDS.filter((id) => PERKS[id].tier === 1));
+export const PERK2_IDS = Object.freeze(PERK_IDS.filter((id) => PERKS[id].tier === 2));
 
 // One attachment on the primary. Stat changes only for now: the procedural
 // gun models do not yet mount the parts.
@@ -46,16 +51,17 @@ export const PERK_TUNING = Object.freeze({
   SUPPRESSOR_HEARING: 0.35,
   GRIP_RECOIL: 0.8,
   LASER_HIP_SPREAD: 0.75,
+  HARDLINE_COST: 0.8,
 });
 
-export const EXPLOSIVE_WEAPONS = Object.freeze(new Set(['hegrenade', 'airstrike', 'c4']));
+export const EXPLOSIVE_WEAPONS = Object.freeze(new Set(['hegrenade', 'semtex', 'airstrike', 'c4']));
 
 export const DEFAULT_CLASSES = Object.freeze([
-  Object.freeze({ name: 'ASSAULT', primary: 'm4a1', attachment: 'grip', secondary: 'usp', lethal: 'hegrenade', tactical: 'flashbang', perk: 'quickhands' }),
-  Object.freeze({ name: 'CLOSE QUARTERS', primary: 'mp5', attachment: 'laser', secondary: 'deagle', lethal: 'hegrenade', tactical: 'flashbang', perk: 'lightweight' }),
-  Object.freeze({ name: 'RECON SNIPER', primary: 'awp', attachment: 'suppressor', secondary: 'usp', lethal: 'hegrenade', tactical: 'smokegrenade', perk: 'ghost' }),
-  Object.freeze({ name: 'RIFLEMAN', primary: 'ak47', attachment: 'extmag', secondary: 'glock', lethal: 'hegrenade', tactical: 'smokegrenade', perk: 'flakjacket' }),
-  Object.freeze({ name: 'CUSTOM', primary: 'm4a1', attachment: 'none', secondary: 'deagle', lethal: 'hegrenade', tactical: 'flashbang', perk: 'lightweight' }),
+  Object.freeze({ name: 'ASSAULT', primary: 'm4a1', attachment: 'grip', secondary: 'usp', lethal: 'hegrenade', tactical: 'flashbang', perk: 'quickhands', perk2: 'hardline' }),
+  Object.freeze({ name: 'CLOSE QUARTERS', primary: 'mp5', attachment: 'laser', secondary: 'deagle', lethal: 'semtex', tactical: 'stun', perk: 'lightweight', perk2: 'flakjacket' }),
+  Object.freeze({ name: 'RECON SNIPER', primary: 'awp', attachment: 'suppressor', secondary: 'usp', lethal: 'hegrenade', tactical: 'smokegrenade', perk: 'scavenger', perk2: 'ghost' }),
+  Object.freeze({ name: 'RIFLEMAN', primary: 'ak47', attachment: 'extmag', secondary: 'glock', lethal: 'semtex', tactical: 'smokegrenade', perk: 'quickhands', perk2: 'flakjacket' }),
+  Object.freeze({ name: 'CUSTOM', primary: 'm4a1', attachment: 'none', secondary: 'deagle', lethal: 'hegrenade', tactical: 'flashbang', perk: 'lightweight', perk2: 'ghost' }),
 ]);
 
 /** True when `actor` carries this attachment on its primary. */
@@ -65,7 +71,7 @@ export function hasAttachment(actor, id) {
 
 /** True when `actor` (player or bot) runs the given perk. */
 export function hasPerk(actor, id) {
-  return !!actor && actor.perk === id;
+  return !!actor && (actor.perk === id || actor.perk2 === id);
 }
 
 function pick(value, allowed, fallback) {
@@ -87,7 +93,9 @@ export function sanitizeClass(value, fallback) {
     secondary: pick(src.secondary, SECONDARIES, fallback.secondary),
     lethal: pick(src.lethal, LETHALS, fallback.lethal),
     tactical: pick(src.tactical, TACTICALS, fallback.tactical),
-    perk: pick(src.perk, PERK_IDS, fallback.perk),
+    // A stored single-slot class may hold a tier-2 perk in `perk`: move it.
+    perk: pick(src.perk, PERK1_IDS, fallback.perk),
+    perk2: pick(src.perk2, PERK2_IDS, PERK2_IDS.includes(src.perk) ? src.perk : fallback.perk2),
   };
 }
 

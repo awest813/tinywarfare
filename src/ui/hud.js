@@ -13,7 +13,7 @@ import { MAP_CATALOG, normalizeMapId } from '../maps/catalog.js';
 import { FACTIONS, faction, scoreLine } from '../shared/factions.js';
 import { GAME_MODES, TDM, isRespawnMode, modeRules, normalizeModeId } from '../game/tdm.js';
 import { STREAKS } from '../game/streaks.js';
-import { ATTACHMENTS, ATTACHMENT_IDS, PRIMARIES, SECONDARIES, TACTICALS, PERKS, PERK_IDS } from '../game/loadouts.js';
+import { ATTACHMENTS, ATTACHMENT_IDS, LETHALS, PRIMARIES, SECONDARIES, TACTICALS, PERKS, PERK1_IDS, PERK2_IDS } from '../game/loadouts.js';
 import { resolveHumanPlayerName } from '../player/profile.js';
 import {
   KEY_BINDING_DEFINITIONS,
@@ -77,7 +77,7 @@ const FALLBACK_STATS = {
   awp: { dmg: 115, rpm: 41 },
 };
 const FALLBACK_MAXCARRY = { hegrenade: 1, flashbang: 2, smokegrenade: 1 };
-const GRENADE_IDS = { hegrenade: 1, flashbang: 1, smokegrenade: 1 };
+const GRENADE_IDS = { hegrenade: 1, flashbang: 1, smokegrenade: 1, semtex: 1, stun: 1 };
 
 const FALLBACK_BUY = [
   { category: 'Pistols', items: ['glock', 'usp', 'deagle'] },
@@ -1326,8 +1326,10 @@ export default class HUD {
     fill(document.getElementById('hud-class-primary'), PRIMARIES, weaponName);
     fill(document.getElementById('hud-class-attachment'), ATTACHMENT_IDS, (id) => ATTACHMENTS[id].label);
     fill(document.getElementById('hud-class-secondary'), SECONDARIES, weaponName);
+    fill(document.getElementById('hud-class-lethal'), LETHALS, weaponName);
     fill(document.getElementById('hud-class-tactical'), TACTICALS, weaponName);
-    fill(document.getElementById('hud-class-perk'), PERK_IDS, (id) => PERKS[id].label);
+    fill(document.getElementById('hud-class-perk'), PERK1_IDS, (id) => PERKS[id].label);
+    fill(document.getElementById('hud-class-perk2'), PERK2_IDS, (id) => PERKS[id].label);
     el.className?.addEventListener('change', () => {
       loadouts.edit(loadouts.selected, { name: el.className.value });
       this._renderClasses();
@@ -1363,16 +1365,17 @@ export default class HUD {
       '<small>' + (i + 1) + '</small><strong>' + esc(c.name) + '</strong>' +
       '<span>' + esc(weaponName(c.primary)) + (c.attachment && c.attachment !== 'none' ? ' + ' + esc(ATTACHMENTS[c.attachment].short) : '') +
       ' · ' + esc(weaponName(c.secondary)) + '</span>' +
-      '<em>' + esc(PERKS[c.perk]?.label || '') + '</em></button>').join('');
+      '<em>' + esc([PERKS[c.perk]?.label, PERKS[c.perk2]?.label].filter(Boolean).join(' + ')) + '</em></button>').join('');
     const active = loadouts.active();
     if (el.className && document.activeElement !== el.className) el.className.value = active.name;
-    for (const slot of ['primary', 'attachment', 'secondary', 'tactical', 'perk']) {
+    for (const slot of ['primary', 'attachment', 'secondary', 'lethal', 'tactical', 'perk', 'perk2']) {
       const select = document.getElementById('hud-class-' + slot);
       if (select) select.value = active[slot];
     }
     if (el.classPerkDetail) {
       const att = ATTACHMENTS[active.attachment];
-      el.classPerkDetail.textContent = [att && att.detail, PERKS[active.perk]?.detail].filter(Boolean).join('  ·  ');
+      el.classPerkDetail.textContent = [att && att.detail, PERKS[active.perk]?.detail, PERKS[active.perk2]?.detail]
+        .filter(Boolean).join('  ·  ');
     }
   }
 
@@ -3539,8 +3542,10 @@ export default class HUD {
       '<label>PRIMARY<select id="hud-class-primary" data-slot="primary"></select></label>' +
       '<label>ATTACHMENT<select id="hud-class-attachment" data-slot="attachment"></select></label>' +
       '<label>SECONDARY<select id="hud-class-secondary" data-slot="secondary"></select></label>' +
+      '<label>LETHAL<select id="hud-class-lethal" data-slot="lethal"></select></label>' +
       '<label>TACTICAL<select id="hud-class-tactical" data-slot="tactical"></select></label>' +
-      '<label>PERK<select id="hud-class-perk" data-slot="perk"></select></label>' +
+      '<label>PERK 1<select id="hud-class-perk" data-slot="perk"></select></label>' +
+      '<label>PERK 2<select id="hud-class-perk2" data-slot="perk2"></select></label>' +
       '<p id="hud-class-perk-detail"></p>' +
       '<button type="button" id="hud-class-reset">RESET CLASS</button>' +
       '</div></section>' +
@@ -4467,13 +4472,13 @@ export default class HUD {
 .mn-class:hover { border-color:var(--olive); }
 .mn-class:focus-visible { outline:2px solid var(--olive-bright); outline-offset:2px; }
 .mn-class.selected { border-color:var(--olive-bright); background:rgba(154,178,107,.16); box-shadow:inset 0 0 0 1px var(--olive); }
-.mn-class-editor { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:8px; align-items:end; margin-top:8px; padding:9px;
+.mn-class-editor { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; align-items:end; margin-top:8px; padding:9px;
   background:rgba(8,13,8,.72); border:1px solid rgba(154,178,107,.22); }
 .mn-class-editor label { display:flex; flex-direction:column; gap:4px; font-size:9px; font-weight:900; letter-spacing:.18em; color:var(--olive-dim); }
 .mn-class-editor input, .mn-class-editor select { min-width:0; height:30px; padding:0 6px; font:inherit; font-size:12px; font-weight:900;
   letter-spacing:.06em; color:#eef5e5; background:#080d08; border:1px solid rgba(154,178,107,.38); }
 .mn-class-editor input:focus-visible, .mn-class-editor select:focus-visible { outline:2px solid var(--olive-bright); outline-offset:1px; }
-#hud-class-perk-detail { grid-column:1 / span 5; margin:0; font-size:10px; letter-spacing:.08em; color:var(--olive); }
+#hud-class-perk-detail { grid-column:1 / span 3; margin:0; font-size:10px; letter-spacing:.08em; color:var(--olive); }
 .mn-mode-row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px 8px; }
 .mn-mode {
   appearance:none; display:flex; align-items:baseline; justify-content:space-between; gap:10px; min-width:0;
