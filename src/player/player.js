@@ -142,7 +142,10 @@ export default class Player {
     if (game.camera) game.camera.rotation.order = 'YXZ';
 
     // buffered jump: real keydown only (Input suppresses auto-repeat)
+    // Attacking in any form ends spawn protection.
     game.events.on('weapon:fire', () => { this.spawnProtection = 0; });
+    game.events.on('grenade:throw', () => { this.spawnProtection = 0; });
+    game.events.on('streak:activate', () => { this.spawnProtection = 0; });
     game.events.on('input:keydown', (p) => {
       if (p && p.key === ' ' && this.alive) this._jumpQueued = JUMP_BUFFER;
     });

@@ -404,8 +404,9 @@ export default class Scorestreaks {
   _resupply() {
     const weapons = this.game.weapons;
     const loadouts = this.game.loadouts;
+    const equipped = this.game.rounds && this.game.rounds.tdm && this.game.rounds.tdm.equippedLoadout;
     if (weapons && typeof weapons.resupply === 'function') {
-      weapons.resupply(loadouts && typeof loadouts.active === 'function' ? loadouts.active() : null);
+      weapons.resupply(equipped || (loadouts && typeof loadouts.active === 'function' ? loadouts.active() : null));
     }
   }
 

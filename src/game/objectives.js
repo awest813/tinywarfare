@@ -137,6 +137,7 @@ export class KillConfirmed {
       tags: this.tags.slice(-40).map((tag) => ({
         id: tag.id,
         team: tag.team,
+        ttl: round2(Math.max(0, tag.expires - this._time)),
         pos: { x: round2(tag.pos.x), y: round2(tag.pos.y), z: round2(tag.pos.z) },
       })),
     };
@@ -148,15 +149,20 @@ export class KillConfirmed {
     const wanted = new Map();
     for (const entry of data.tags) {
       const pos = entry && vec3(entry.pos);
-      if (pos && Number.isFinite(entry.id)) wanted.set(entry.id, { team: entry.team === 't' ? 't' : 'ct', pos });
+      const ttl = Number.isFinite(entry.ttl) ? Math.max(0, Math.min(KC.TAG_LIFETIME, entry.ttl)) : KC.TAG_LIFETIME;
+      if (pos && Number.isFinite(entry.id)) wanted.set(entry.id, { team: entry.team === 't' ? 't' : 'ct', pos, ttl });
     }
     for (let i = this.tags.length - 1; i >= 0; i--) {
       if (!wanted.has(this.tags[i].id)) this._removeTag(i);
     }
+    // Keep each tag's expiry real, so a replica that becomes the authority
+    // still clears them on time.
+    for (const tag of this.tags) tag.expires = this._time + wanted.get(tag.id).ttl;
     const have = new Set(this.tags.map((tag) => tag.id));
     for (const [id, entry] of wanted) {
       if (have.has(id)) continue;
-      const tag = { id, team: entry.team, pos: entry.pos, expires: Infinity, mesh: null };
+      this._nextId = Math.max(this._nextId, id);
+      const tag = { id, team: entry.team, pos: entry.pos, expires: this._time + entry.ttl, mesh: null };
       tag.mesh = this._buildTagMesh(tag);
       this.tags.push(tag);
     }

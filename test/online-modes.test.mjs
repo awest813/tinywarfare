@@ -154,3 +154,51 @@ test('the authority snapshot lists humans in FFA standings by network id', () =>
   const rows = tdm.networkSnapshot().ffa;
   assert.deepEqual(rows.map((r) => [r.id, r.kills]), [['me', 1], ['guest', 1], ['bot:Wolf', 0]]);
 });
+
+test('a replica promoted to authority keeps FFA kills and revives bots that died before', () => {
+  const { game } = makeGame('ffa', { authority: false });
+  const wolf = { name: 'Wolf', team: 't', alive: true, pos: v(10, 10) };
+  game.bots.all.push(wolf);
+  game.bots.respawnTdmBot = (bot) => { bot.alive = true; };
+  const tdm = new TeamDeathmatch(game);
+  tdm.startMatch();
+  tdm.goLive();
+  tdm.applyNetworkSnapshot({ ffa: [{ id: 'bot:Wolf', name: 'Wolf', kills: 25 }, { id: 'me', name: 'Me', kills: 20 }] });
+  wolf.alive = false; // died while this seat was a replica: no local death event scheduled it
+
+  game.multiplayer.isAuthority = () => true;
+  tdm.update(0.05);
+  game.events.emit('bot:death', { bot: { name: 'Other', team: 'ct', pos: v(0, 0) }, killer: game.player });
+  assert.equal(game.state.scores.ct, 21, 'my tally continues from the standings');
+  assert.equal(game.state.scores.t, 25);
+  tdm.update(TDM.RESPAWN_DELAY + 0.1);
+  assert.equal(wolf.alive, true, 'the dead bot is respawned by its new authority');
+});
+
+test('Kill Confirmed tags copied by a replica keep their remaining lifetime', () => {
+  const host = makeGame('kc').game;
+  const replica = makeGame('kc', { authority: false }).game;
+  const a = new KillConfirmed(host);
+  const b = new KillConfirmed(replica);
+  a.onDeath('t', v(1, 1));
+  a.update(20);
+  b.applyNetworkSnapshot(a.networkSnapshot());
+  b.update(11); // promoted: the tag had ~10 s left
+  assert.equal(b.tags.length, 0);
+});
+
+test('an FFA tie for first is a draw, and FFA bots start spread out with protection', () => {
+  const { game } = makeGame('ffa', { authority: true });
+  const spawned = [];
+  game.bots.all.push({ name: 'Wolf', team: 't', alive: true, pos: v(0, 40) }, { name: 'Bear', team: 't', alive: true, pos: v(1, 40) });
+  game.bots.respawnTdmBot = (bot, spawn, protection) => { spawned.push([bot.name, protection]); };
+  game.multiplayer.active = false;
+  const tdm = new TeamDeathmatch(game);
+  tdm.startMatch();
+  assert.deepEqual(spawned, [['Wolf', TDM.SPAWN_PROTECTION], ['Bear', TDM.SPAWN_PROTECTION]]);
+  tdm.ffaKills.set(game.player, 12);
+  tdm.ffaKills.set(game.bots.all[0], 12);
+  const end = tdm.endPayload();
+  assert.equal(end.draw, true);
+  assert.equal(end.winner, null);
+});

@@ -206,6 +206,11 @@ export default class TeamDeathmatch {
     const bots = game.bots;
     if (bots && typeof bots.resetForRound === 'function') bots.resetForRound();
     if (bots && typeof bots.prepareTdm === 'function') bots.prepareTdm();
+    // Free-for-all has no sides: team spawn clusters would open the match
+    // with point-blank kills, so every bot starts at its own safe spawn.
+    if (s.mode === 'ffa' && bots && Array.isArray(bots.all) && typeof bots.respawnTdmBot === 'function') {
+      for (const bot of bots.all) bots.respawnTdmBot(bot, this._spawnFor(bot.team, bot), TDM.SPAWN_PROTECTION);
+    }
 
     const player = game.player;
     if (player) {
@@ -231,9 +236,17 @@ export default class TeamDeathmatch {
     const s = this.game.state;
     this._time += dt;
     s.timer = Math.max(0, s.timer - dt);
+    // Just took over a room's simulation: carry on from replicated state.
+    if (this._ffaRows) this._adoptReplicaState();
 
     if (this._playerRespawnAt !== null && this._time >= this._playerRespawnAt) {
       this._respawnPlayer();
+    }
+    const bots = this.game.bots && Array.isArray(this.game.bots.all) ? this.game.bots.all : [];
+    for (const bot of bots) {
+      // Bots that died before this client became the authority (or that a
+      // death event missed) still come back.
+      if (!bot.alive && !this._botRespawns.has(bot)) this._botRespawns.set(bot, this._time + TDM.RESPAWN_DELAY);
     }
     for (const [bot, at] of this._botRespawns) {
       if (this._time < at) continue;
@@ -246,6 +259,24 @@ export default class TeamDeathmatch {
     const limit = this.rules().scoreLimit;
     if (s.scores.ct >= limit || s.scores.t >= limit || s.timer <= 0) {
       this._endMatch();
+    }
+  }
+
+  /** Rebuild FFA kill counts from the last standings the old authority sent. */
+  _adoptReplicaState() {
+    const rows = this._ffaRows;
+    this._ffaRows = null;
+    const player = this.game.player;
+    const byId = new Map();
+    if (player) {
+      const localId = player.networkId || (this.game.multiplayer && this.game.multiplayer.localId);
+      if (localId) byId.set(String(localId), player);
+    }
+    for (const remote of this._remotes()) if (remote.networkId) byId.set(String(remote.networkId), remote);
+    for (const bot of (this.game.bots && this.game.bots.all) || []) byId.set('bot:' + bot.name, bot);
+    for (const row of rows) {
+      const actor = row.isLocal ? player : byId.get(String(row.id));
+      if (actor && row.kills > 0) this.ffaKills.set(actor, Math.max(this.ffaKills.get(actor) || 0, row.kills));
     }
   }
 
@@ -458,6 +489,9 @@ export default class TeamDeathmatch {
     const loadout = progression && typeof progression.resolveLoadout === 'function' && loadouts
       ? progression.resolveLoadout(chosen)
       : chosen;
+    // What the player actually carries (locked picks already swapped), for
+    // resupplies.
+    this.equippedLoadout = loadout;
     if (player) {
       player.perk = loadout.perk || null;
       player.perk2 = loadout.perk2 || null;
@@ -544,9 +578,12 @@ export default class TeamDeathmatch {
       const place = Math.max(1, standings.findIndex((row) => row.isLocal) + 1);
       const player = this.game.player;
       const team = (player && player.team) || 'ct';
+      // A shared first place is a draw, not a win for whoever sorts first.
+      const top = standings[0] ? standings[0].kills : 0;
+      const draw = place === 1 && standings.length > 1 && standings[1].kills === top;
       return {
-        winner: place === 1 ? team : (team === 'ct' ? 't' : 'ct'),
-        draw: false,
+        winner: draw ? null : place === 1 ? team : (team === 'ct' ? 't' : 'ct'),
+        draw,
         mode: s.mode,
         scores: { ct: s.scores.ct, t: s.scores.t },
         ffa: {

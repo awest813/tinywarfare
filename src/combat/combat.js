@@ -198,6 +198,7 @@ export default class Combat {
   /** Resolve a non-host human's shot on the authoritative host. */
   fireRemote(e, shooter) {
     if (!e || !shooter || !shooter.alive || !e.origin || !e.dir) return;
+    shooter.spawnProtection = 0; // firing ends a fresh spawn's immunity
     const weaponId = e.weaponId || 'usp';
     const def = this._def(weaponId);
     this._sOrigin.set(e.origin.x, e.origin.y, e.origin.z);
@@ -214,6 +215,7 @@ export default class Combat {
   /** Spawn a non-host human's grenade in the authoritative simulation. */
   throwRemoteGrenade(e, shooter) {
     if (!e || !shooter || !shooter.alive) return;
+    shooter.spawnProtection = 0;
     this._onGrenadeThrow({
       type: e.grenadeType || 'hegrenade',
       origin: e.origin,
@@ -1199,6 +1201,8 @@ export default class Combat {
     const ev = g.events;
     const byPlayer = this._isPlayer(attacker);
     const ffa = isFfa(g);
+    // Called-in ordnance never hits the soldier who called it.
+    const sparesCaller = weaponId === 'airstrike';
 
     // --- player ---
     const pl = g.player;
@@ -1209,7 +1213,7 @@ export default class Combat {
       if (d <= radius) {
         const isSelf = attacker === pl;
         const friendly = !ffa && attackerTeam != null && attackerTeam === pl.team && !isSelf;
-        if ((hurtTeammates || !friendly)
+        if (!(isSelf && sparesCaller) && (hurtTeammates || !friendly)
           && (!requireLOS || this._losClear(center, this._v6))) {
           const dmg = Math.max(1, Math.round(maxDmg * Math.pow(1 - d / radius, HE_FALLOFF_EXP)));
           pl.takeDamage(dmg, { from: attacker, weapon: weaponId, headshot: false, part: 'body' });
@@ -1242,6 +1246,7 @@ export default class Combat {
       for (let i = 0; i < remotes.length; i++) {
         const r = remotes[i];
         if (!r || !r.alive || !r.position || typeof r.takeDamage !== 'function') continue;
+        if (sparesCaller && r === attacker) continue;
         this._v6.copy(r.position);
         this._v6.y += (r.height != null ? r.height : 1.83) * 0.5;
         const d = this._v6.distanceTo(center);
