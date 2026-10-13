@@ -10,6 +10,7 @@ import {
   LEADERBOARD_MAPS,
 } from './src/server/leaderboard.mjs';
 import { normalizeCharacterId } from './src/player/profile.js';
+import { rankedOutcome } from './src/shared/leaderboard-core.mjs';
 import {
   acceptAuthoritySnapshot,
   applyAuthoritativeDamageResult,
@@ -388,11 +389,6 @@ function finalizeRankedRoom(room, state) {
   if (!scores || !Number.isFinite(Number(scores.ct)) || !Number.isFinite(Number(scores.t))) return;
   room.rankedFinalState = state;
   room.rankedDeliveries ||= {};
-  const ct = Math.max(0, Math.floor(Number(scores.ct)));
-  const t = Math.max(0, Math.floor(Number(scores.t)));
-  const winner = state.matchWinner === 'ct' || state.matchWinner === 't'
-    ? state.matchWinner
-    : ct === t ? 'draw' : ct > t ? 'ct' : 't';
   const completedAt = room.rankedCompletedAt ||= new Date().toISOString();
   const duration = room.rankedDuration ||= Math.max(0, (Date.now() - room.startedAt) / 1000);
   const participants = room.matchPlayers || [];
@@ -422,6 +418,7 @@ function finalizeRankedRoom(room, state) {
       delivery.failureNotified = sendRankedFailure(room, participant, delivery);
       continue;
     }
+    const outcome = rankedOutcome(cleanGameMode(room.gameMode), state, participant);
     const humanOpponents = participants.filter((other) => other.team !== participant.team).length;
     const botOpponents = room.mode === 'mixed' ? Math.max(0, 5 - humanOpponents) : 0;
     try {
@@ -432,9 +429,9 @@ function finalizeRankedRoom(room, state) {
         mapId: room.mapId,
         mode: room.mode,
         gameMode: cleanGameMode(room.gameMode),
-        winner,
-        teamWon: winner === 'draw' ? false : participant.team === winner,
-        scores: { ct, t },
+        winner: outcome.winner,
+        teamWon: outcome.teamWon,
+        scores: outcome.scores,
         kills: stats.kills,
         deaths: stats.deaths,
         headshots: stats.headshots,
@@ -445,7 +442,7 @@ function finalizeRankedRoom(room, state) {
         humanOpponents,
         botOpponents,
         duration,
-        roundsPlayed: ct + t,
+        roundsPlayed: outcome.roundsPlayed,
         completedAt,
       });
       delivery.status = 'delivered';

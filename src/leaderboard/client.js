@@ -5,6 +5,7 @@ import {
 } from '../player/profile.js';
 
 export { normalizePlayerName } from '../player/profile.js';
+const RESPAWN_GAME_MODES = new Set(['tdm', 'kc', 'dom', 'hp', 'ffa']);
 const PENDING_KEY = 'tiny-strike-pending-matches';
 const SESSION_KEY = 'tiny-strike-leaderboard-token';
 const CAREER_KEY = 'tiny-strike-career-cache-v1';
@@ -240,7 +241,11 @@ export class LeaderboardClient {
     const opponents = sessionMode === 'solo' ? 'bots' :
       sessionMode === 'humans' ? 'humans' : 'mixed';
     const scores = result.scores || state.scores || {};
-    const winner = result.winner || (finiteInt(scores.ct) >= finiteInt(scores.t) ? 'ct' : 't');
+    const tied = finiteInt(scores.ct) === finiteInt(scores.t);
+    const winner = result.draw || (!result.winner && tied)
+      ? 'draw'
+      : result.winner || (finiteInt(scores.ct) > finiteInt(scores.t) ? 'ct' : 't');
+    const gameMode = RESPAWN_GAME_MODES.has(result.mode || state.mode) ? (result.mode || state.mode) : 'sd';
     const playerTeam = player.team === 't' ? 't' : 'ct';
     const roster = Array.isArray(this.game?.multiplayer?.roster)
       ? this.game.multiplayer.roster
@@ -258,6 +263,7 @@ export class LeaderboardClient {
       playerName: this.getPlayerName(),
       mapId: this.game?.selectedMapId || 'dustyard',
       mode: opponents,
+      gameMode,
       opponents,
       multiplayer: sessionMode !== 'solo',
       playerTeam,
@@ -278,7 +284,7 @@ export class LeaderboardClient {
       botOpponents,
       primaryCategory,
       rankingCategories: ['overall', primaryCategory],
-      roundsPlayed: Math.max(this._roundsPlayed, finiteInt(state.round)),
+      roundsPlayed: gameMode === 'sd' ? Math.max(this._roundsPlayed, finiteInt(state.round)) : 1,
       durationSeconds: duration,
       duration,
       completedAt: new Date(this.now()).toISOString(),
@@ -443,11 +449,6 @@ export class LeaderboardClient {
       this.game?.events?.emit('leaderboard:server-recorded', {
         matchId: this.game.multiplayer.matchId || null,
       });
-      return;
-    }
-    if (['tdm', 'kc', 'dom', 'hp', 'ffa'].includes(result.mode)) {
-      // Server-side validation only understands round-based results so far.
-      this.game?.events?.emit('leaderboard:unranked', { matchId: null, reason: 'mode' });
       return;
     }
     const payload = this.buildMatchPayload(result);

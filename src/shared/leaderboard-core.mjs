@@ -1,5 +1,16 @@
 export const LEADERBOARD_CATEGORIES = Object.freeze(['humans', 'bots', 'overall']);
 export const LEADERBOARD_MODES = Object.freeze(['humans', 'bots', 'mixed', 'solo']);
+/** Rulesets a result can come from: round-based S&D and the respawn modes. */
+export const LEADERBOARD_GAME_MODES = Object.freeze(['sd', 'tdm', 'kc', 'dom', 'hp', 'ffa']);
+/**
+ * Respawn-mode score limits (mirrors MODE_RULES in src/game/tdm.js). Domination
+ * ticks every held flag at once, so it may overshoot by up to two.
+ */
+export const RESPAWN_SCORE_LIMITS = Object.freeze({ tdm: 50, kc: 30, dom: 150, hp: 150, ffa: 30 });
+const RESPAWN_OVERSHOOT = Object.freeze({ dom: 2 });
+const RESPAWN_TIME_LIMIT_SECONDS = 600;
+// Wall-clock allowance over the match clock: get-ready, loading, reconnects.
+const RESPAWN_MAX_DURATION_SECONDS = RESPAWN_TIME_LIMIT_SECONDS + 300;
 export const LEADERBOARD_MAPS = Object.freeze([
   'dustyard',
   'frostline',
@@ -347,6 +358,97 @@ function outcomeOf(payload, ct, t) {
   return { winner, result };
 }
 
+export function cleanLeaderboardGameMode(value) {
+  if (value == null || value === '') return 'sd';
+  const gameMode = String(value).toLowerCase();
+  if (!LEADERBOARD_GAME_MODES.includes(gameMode)) {
+    throw new LeaderboardError(400, `gameMode must be one of: ${LEADERBOARD_GAME_MODES.join(', ')}.`);
+  }
+  return gameMode;
+}
+
+/**
+ * One participant's result from a room's final authoritative state. In
+ * free-for-all the room's scores are the host's view, so each player's
+ * scores are rebuilt from the replicated standings: ct = own kills,
+ * t = the best rival.
+ */
+export function rankedOutcome(gameMode, state, participant) {
+  const mode = LEADERBOARD_GAME_MODES.includes(gameMode) ? gameMode : 'sd';
+  const scores = (state && state.scores) || {};
+  let ct = Math.max(0, Math.floor(Number(scores.ct) || 0));
+  let t = Math.max(0, Math.floor(Number(scores.t) || 0));
+  if (mode === 'ffa') {
+    const rows = Array.isArray(state?.respawn?.ffa) ? state.respawn.ffa : [];
+    const id = participant && participant.id;
+    const kills = (row) => Math.max(0, Math.floor(Number(row && row.kills) || 0));
+    ct = kills(rows.find((row) => row && row.id === id));
+    t = rows.reduce((best, row) => (row && row.id !== id ? Math.max(best, kills(row)) : best), 0);
+    const winner = ct === t ? 'draw' : ct > t ? 'ct' : 't';
+    return { winner, teamWon: winner === 'ct', scores: { ct, t }, roundsPlayed: 1 };
+  }
+  const winner = state && (state.matchWinner === 'ct' || state.matchWinner === 't')
+    ? state.matchWinner
+    : ct === t ? 'draw' : ct > t ? 'ct' : 't';
+  return {
+    winner,
+    teamWon: winner === 'draw' ? false : participant?.team === winner,
+    scores: { ct, t },
+    roundsPlayed: mode === 'sd' ? ct + t : 1,
+  };
+}
+
+/** A respawn-mode match: one continuous fight to a score limit or the clock. */
+function validateRespawnResult(payload, nowMs, base) {
+  const { gameMode } = base;
+  const limit = RESPAWN_SCORE_LIMITS[gameMode];
+  const ceiling = limit + (RESPAWN_OVERSHOOT[gameMode] || 0);
+  const scores = payload.scores || {};
+  const ct = boundedInteger(scores.ct, 'scores.ct', 0, ceiling);
+  const t = boundedInteger(scores.t, 'scores.t', 0, ceiling);
+  const duration = finiteNumber(payload.duration ?? payload.durationSeconds, 'duration');
+  if (duration < MIN_DURATION_SECONDS || duration > RESPAWN_MAX_DURATION_SECONDS) {
+    throw new LeaderboardError(422, `duration must be between ${MIN_DURATION_SECONDS} and ${RESPAWN_MAX_DURATION_SECONDS} seconds for this result.`);
+  }
+  // Complete means the limit was reached or the clock ran out.
+  if (Math.max(ct, t) < limit && duration < RESPAWN_TIME_LIMIT_SECONDS - 10) {
+    throw new LeaderboardError(400, 'A completed match must reach the score limit or the time limit.');
+  }
+  let winner;
+  let result;
+  if (gameMode === 'ffa') {
+    // Scores are per player (own kills vs best rival), so they decide alone.
+    winner = ct === t ? 'draw' : ct > t ? 'ct' : 't';
+    result = winner === 'draw' ? 'draw' : winner === 'ct' ? 'win' : 'loss';
+  } else {
+    ({ winner, result } = outcomeOf(payload, ct, t));
+  }
+  const kills = boundedInteger(payload.kills, 'kills', 0, 200);
+  if (kills > Math.ceil(duration / 6) + 5) {
+    throw new LeaderboardError(422, 'The elimination rate is not plausible for the reported duration.');
+  }
+  if (gameMode === 'ffa' && ct > kills) {
+    throw new LeaderboardError(422, 'Free-for-all score cannot exceed the reported kills.');
+  }
+  const deaths = boundedInteger(payload.deaths, 'deaths', 0, Math.ceil(duration / 3) + 2);
+  const headshots = boundedInteger(payload.headshots, 'headshots', 0, kills);
+  return assembleResult(payload, nowMs, {
+    ...base,
+    winner,
+    result,
+    scores: { ct, t },
+    duration,
+    roundsPlayed: 1,
+    roundsWon: result === 'win' ? 1 : 0,
+    roundsLost: result === 'loss' ? 1 : 0,
+    kills,
+    deaths,
+    headshots,
+    plants: 0,
+    defuses: 0,
+  });
+}
+
 export function validateLeaderboardResult(payload, nowMs) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     throw new LeaderboardError(400, 'A JSON match result is required.');
@@ -354,6 +456,8 @@ export function validateLeaderboardResult(payload, nowMs) {
   const matchId = cleanMatchId(payload.matchId);
   const mode = cleanLeaderboardMode(payload.mode);
   const mapId = cleanMapId(payload.mapId);
+  const gameMode = cleanLeaderboardGameMode(payload.gameMode);
+  if (gameMode !== 'sd') return validateRespawnResult(payload, nowMs, { matchId, mode, mapId, gameMode });
   const scores = payload.scores || {};
   const ct = boundedInteger(scores.ct, 'scores.ct', 0, 8);
   const t = boundedInteger(scores.t, 'scores.t', 0, 8);
@@ -380,7 +484,30 @@ export function validateLeaderboardResult(payload, nowMs) {
   if (kills > Math.ceil(duration / 8) + 5) {
     throw new LeaderboardError(422, 'The elimination rate is not plausible for the reported duration.');
   }
+  const roundsWon = result === 'draw' ? ct : result === 'win' ? Math.max(ct, t) : Math.min(ct, t);
+  return assembleResult(payload, nowMs, {
+    matchId,
+    mode,
+    mapId,
+    gameMode,
+    winner,
+    result,
+    scores: { ct, t },
+    duration,
+    roundsPlayed,
+    roundsWon,
+    roundsLost: roundsPlayed - roundsWon,
+    kills,
+    deaths,
+    headshots,
+    plants,
+    defuses,
+  });
+}
 
+/** Shared tail: submission window, human/bot split, and the stored shape. */
+function assembleResult(payload, nowMs, fields) {
+  const { mode, kills, deaths, headshots } = fields;
   let completedAt = nowMs;
   if (payload.completedAt != null) {
     completedAt = Date.parse(payload.completedAt);
@@ -390,8 +517,6 @@ export function validateLeaderboardResult(payload, nowMs) {
     }
   }
 
-  const roundsWon = result === 'draw' ? ct : result === 'win' ? Math.max(ct, t) : Math.min(ct, t);
-  const roundsLost = roundsPlayed - roundsWon;
   const humanOpponents = payload.humanOpponents == null
     ? null
     : boundedInteger(payload.humanOpponents, 'humanOpponents', 0, 5);
@@ -433,21 +558,22 @@ export function validateLeaderboardResult(payload, nowMs) {
   const botHeadshots = Math.min(killsBots, headshots - humanHeadshots);
 
   return {
-    matchId,
+    matchId: fields.matchId,
     mode,
-    mapId,
-    winner,
-    result,
-    scores: { ct, t },
-    duration: Math.round(duration),
-    roundsPlayed,
-    roundsWon,
-    roundsLost,
+    gameMode: fields.gameMode,
+    mapId: fields.mapId,
+    winner: fields.winner,
+    result: fields.result,
+    scores: fields.scores,
+    duration: Math.round(fields.duration),
+    roundsPlayed: fields.roundsPlayed,
+    roundsWon: fields.roundsWon,
+    roundsLost: fields.roundsLost,
     kills,
     deaths,
     headshots,
-    plants,
-    defuses,
+    plants: fields.plants,
+    defuses: fields.defuses,
     completedAt: new Date(completedAt).toISOString(),
     splits: {
       humans: {
@@ -859,6 +985,7 @@ export function submitMatchToData(data, playerId, payload, nowMs) {
   const publicResult = {
     matchId: match.matchId,
     mode: match.mode,
+    gameMode: match.gameMode,
     mapId: match.mapId,
     points,
     breakdown,

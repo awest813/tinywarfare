@@ -1,4 +1,4 @@
-import { LEADERBOARD_MAPS } from '../src/shared/leaderboard-core.mjs';
+import { LEADERBOARD_MAPS, rankedOutcome } from '../src/shared/leaderboard-core.mjs';
 import {
   acceptAuthoritySnapshot,
   applyAuthoritativeDamageResult,
@@ -680,11 +680,6 @@ export class RoomDurableObject {
     if (!scores || !Number.isFinite(Number(scores.ct)) || !Number.isFinite(Number(scores.t))) return;
     room.rankedFinalState = state;
     room.rankedDeliveries ||= {};
-    const ct = Math.max(0, Math.floor(Number(scores.ct)));
-    const t = Math.max(0, Math.floor(Number(scores.t)));
-    const winner = state.matchWinner === 'ct' || state.matchWinner === 't'
-      ? state.matchWinner
-      : ct === t ? 'draw' : ct > t ? 'ct' : 't';
     const completedAt = room.rankedCompletedAt ||= new Date().toISOString();
     const duration = room.rankedDuration ||= Math.max(0, (Date.now() - room.startedAt) / 1000);
     const participants = room.matchPlayers || [];
@@ -724,6 +719,7 @@ export class RoomDurableObject {
         delivery.failureNotified = this._sendRankedFailure(room, participant, delivery);
         continue;
       }
+      const outcome = rankedOutcome(cleanGameMode(room.gameMode), state, participant);
       const humanOpponents = participants.filter((other) => other.team !== participant.team).length;
       const botOpponents = room.mode === 'mixed' ? Math.max(0, 5 - humanOpponents) : 0;
       const payload = {
@@ -732,9 +728,9 @@ export class RoomDurableObject {
         mapId: room.mapId,
         mode: room.mode,
         gameMode: cleanGameMode(room.gameMode),
-        winner,
-        teamWon: winner === 'draw' ? false : participant.team === winner,
-        scores: { ct, t },
+        winner: outcome.winner,
+        teamWon: outcome.teamWon,
+        scores: outcome.scores,
         kills: stats.kills,
         deaths: stats.deaths,
         headshots: stats.headshots,
@@ -745,7 +741,7 @@ export class RoomDurableObject {
         humanOpponents,
         botOpponents,
         duration,
-        roundsPlayed: ct + t,
+        roundsPlayed: outcome.roundsPlayed,
         completedAt,
       };
       try {
