@@ -10,8 +10,10 @@
 //   'menu' -> 'freeze' (short get-ready, no buying) -> 'live' -> 'gameEnd'
 // There is no bomb, no economy, and no roundEnd phase.
 //
-// Solo + bots only for now: online rooms keep Search & Destroy until the
-// room protocol carries a mode (see docs/ROADMAP.md, Phase 1).
+// Online rooms run the same engine on the authority (the room host). It
+// scores remote deaths, picks respawn points for remote players and sends
+// them as 'respawn' messages; other clients only replicate its state
+// (networkSnapshot / applyNetworkSnapshot) and run the respawn countdown.
 // ============================================================================
 
 import * as THREE from 'three';
@@ -138,14 +140,33 @@ export default class TeamDeathmatch {
     this._candidates = null;
     this.objective = null;
     this.ffaKills = new Map();      // actor -> kills (free-for-all)
+    this._remoteRespawns = new Map(); // remote human -> respawn time (authority)
+    this._ffaRows = null;           // replicated FFA standings (non-authority)
 
     const ev = game.events;
     ev.on('bot:death', (p) => this._onBotDeath(p));
     ev.on('player:death', (p) => this._onPlayerDeath(p));
+    ev.on('remote:death', (p) => this._onRemoteDeath(p));
   }
 
   active() {
     return isRespawnMode(this.game.state.mode);
+  }
+
+  /** True when this client simulates the match (solo, or the room host). */
+  authority() {
+    const mp = this.game.multiplayer;
+    return !mp || !mp.active || mp.isAuthority();
+  }
+
+  _online() {
+    const mp = this.game.multiplayer;
+    return !!(mp && mp.active);
+  }
+
+  _remotes() {
+    const mp = this.game.multiplayer;
+    return mp && mp.active && Array.isArray(mp.remotePlayers) ? mp.remotePlayers : [];
   }
 
   rules() {
@@ -170,10 +191,12 @@ export default class TeamDeathmatch {
     this._time = 0;
     this._playerRespawnAt = null;
     this._botRespawns.clear();
+    this._remoteRespawns.clear();
     this._candidates = null;
     if (this.objective) this.objective.stop();
     this.objective = createObjective(s.mode, game);
     this.ffaKills = new Map();
+    this._ffaRows = null;
 
     s.round = 1;
     s.phase = 'freeze';
@@ -217,6 +240,7 @@ export default class TeamDeathmatch {
       this._botRespawns.delete(bot);
       if (!bot.alive) this._respawnBot(bot);
     }
+    this._updateRemotes(dt);
     if (this.objective) this.objective.update(dt);
 
     const limit = this.rules().scoreLimit;
@@ -225,10 +249,114 @@ export default class TeamDeathmatch {
     }
   }
 
+  /** Non-authority frame: keep the countdown and objective visuals moving. */
+  replicaUpdate(dt) {
+    this._time += dt;
+    if (this.objective && typeof this.objective.replicaUpdate === 'function') this.objective.replicaUpdate(dt);
+  }
+
+  /** Non-authority: show the respawn countdown while the authority decides. */
+  awaitRespawn() {
+    this._playerRespawnAt = this._time + TDM.RESPAWN_DELAY;
+  }
+
+  /** Non-authority: the authority sent this seat back in at `spawn`. */
+  respawnLocal(spawn) {
+    this._playerRespawnAt = null;
+    const player = this.game.player;
+    if (!player) return;
+    const at = spawn || this._spawnFor(player.team || 'ct', player);
+    if (typeof player.resetForRound === 'function') player.resetForRound(at);
+    player.armor = 0;
+    if (typeof player.protect === 'function') player.protect(TDM.SPAWN_PROTECTION);
+    this._equipPlayer();
+    this.game.events.emit('player:respawn', { pos: at ? at.pos : null });
+  }
+
+  /** Authority: what replicas need beyond phase/scores/timer. */
+  networkSnapshot() {
+    const objective = this.objective && typeof this.objective.networkSnapshot === 'function'
+      ? this.objective.networkSnapshot()
+      : null;
+    const ffa = this.game.state.mode === 'ffa'
+      ? this.ffaStandings().slice(0, 24).map((row) => ({ id: row.id, name: row.name, kills: row.kills }))
+      : null;
+    return { objective, ffa };
+  }
+
+  /** Replica: apply the authority's objective and standings. */
+  applyNetworkSnapshot(data) {
+    if (!data || typeof data !== 'object') return;
+    if (this.objective && data.objective && typeof this.objective.applyNetworkSnapshot === 'function') {
+      this.objective.applyNetworkSnapshot(data.objective);
+    }
+    if (Array.isArray(data.ffa)) {
+      const localId = this.game.multiplayer && this.game.multiplayer.localId;
+      this._ffaRows = data.ffa
+        .filter((row) => row && typeof row === 'object')
+        .map((row) => ({
+          actor: null,
+          id: typeof row.id === 'string' ? row.id : null,
+          name: row.id && row.id === localId ? 'You' : String(row.name || 'Soldier').slice(0, 24),
+          kills: Math.max(0, Math.floor(Number(row.kills) || 0)),
+          isLocal: !!row.id && row.id === localId,
+        }));
+      // Scores are per-viewer in FFA: own kills vs the best of everyone else.
+      const s = this.game.state;
+      const mine = this._ffaRows.find((row) => row.isLocal);
+      s.scores.ct = mine ? mine.kills : 0;
+      s.scores.t = this._ffaRows.reduce((best, row) => (row.isLocal ? best : Math.max(best, row.kills)), 0);
+    }
+  }
+
   // --------------------------------------------------------------------------
 
+  _updateRemotes(dt) {
+    const remotes = this._remotes();
+    if (!remotes.length && !this._remoteRespawns.size) return;
+    const mp = this.game.multiplayer;
+    for (const remote of remotes) {
+      if (remote.spawnProtection > 0) remote.spawnProtection = Math.max(0, remote.spawnProtection - dt);
+      // Late joiners and anyone missed by a death event still get deployed.
+      if (!remote.alive && !this._remoteRespawns.has(remote)) {
+        this._remoteRespawns.set(remote, this._time + TDM.RESPAWN_DELAY);
+      }
+    }
+    for (const [remote, at] of this._remoteRespawns) {
+      if (!remotes.includes(remote)) { this._remoteRespawns.delete(remote); continue; }
+      if (this._time < at) continue;
+      this._remoteRespawns.delete(remote);
+      if (remote.alive) continue;
+      const spawn = this._spawnFor(remote.team || 'ct', remote);
+      remote.health = 100;
+      remote.armor = 0;
+      remote.spectating = false;
+      remote.spawnProtection = TDM.SPAWN_PROTECTION;
+      if (spawn && spawn.pos) {
+        remote.position.copy(spawn.pos);
+        if (remote.targetPosition) remote.targetPosition.copy(spawn.pos);
+        remote.yaw = spawn.yaw || 0;
+        remote.targetYaw = remote.yaw;
+      }
+      if (mp && typeof mp._setRemoteAlive === 'function') mp._setRemoteAlive(remote, true);
+      else remote.alive = true;
+      if (mp && typeof mp.sendRespawn === 'function') mp.sendRespawn(remote.networkId, spawn);
+      if (this.game.hud) this.game.hud._sbDirty = true;
+    }
+  }
+
+  _onRemoteDeath(p) {
+    if (!this.active() || this.game.state.phase !== 'live' || !this.authority()) return;
+    const remote = p && p.player;
+    if (!remote) return;
+    this._score(remote.team);
+    this._ffaCredit(p.killer, remote);
+    if (this.objective) this.objective.onDeath(remote.team, remote.pos || remote.position);
+    this._remoteRespawns.set(remote, this._time + TDM.RESPAWN_DELAY);
+  }
+
   _onBotDeath(p) {
-    if (!this.active() || this.game.state.phase !== 'live') return;
+    if (!this.active() || this.game.state.phase !== 'live' || !this.authority()) return;
     const bot = p && p.bot;
     if (!bot) return;
     this._score(bot.team);
@@ -239,6 +367,10 @@ export default class TeamDeathmatch {
 
   _onPlayerDeath(p) {
     if (!this.active() || this.game.state.phase !== 'live') return;
+    if (!this.authority()) {
+      this.awaitRespawn();
+      return;
+    }
     const player = this.game.player;
     this._score(player ? player.team : 'ct');
     this._ffaCredit(p && p.killer, player);
@@ -265,11 +397,22 @@ export default class TeamDeathmatch {
 
   /** Free-for-all standings, best first: [{ actor, name, kills }]. */
   ffaStandings() {
+    if (this._ffaRows && !this.authority()) {
+      return [...this._ffaRows].sort((a, b) => b.kills - a.kills || (a.isLocal ? -1 : b.isLocal ? 1 : 0));
+    }
     const player = this.game.player;
-    const everyone = [player, ...((this.game.bots && this.game.bots.all) || [])].filter(Boolean);
+    const bots = (this.game.bots && this.game.bots.all) || [];
+    const everyone = [player, ...this._remotes(), ...bots].filter(Boolean);
+    const idOf = (actor) => (actor.networkId ? String(actor.networkId) : actor === player ? null : 'bot:' + actor.name);
     return everyone
-      .map((actor) => ({ actor, name: actor === player ? 'You' : actor.name, kills: this.ffaKills.get(actor) || 0 }))
-      .sort((a, b) => b.kills - a.kills || (a.actor === player ? -1 : b.actor === player ? 1 : 0));
+      .map((actor) => ({
+        actor,
+        id: idOf(actor),
+        name: actor === player ? 'You' : actor.name,
+        kills: this.ffaKills.get(actor) || 0,
+        isLocal: actor === player,
+      }))
+      .sort((a, b) => b.kills - a.kills || (a.isLocal ? -1 : b.isLocal ? 1 : 0));
   }
 
   /** A death scores for the side opposite the victim. */
@@ -290,6 +433,9 @@ export default class TeamDeathmatch {
     player.armor = 0;
     if (typeof player.protect === 'function') player.protect(TDM.SPAWN_PROTECTION);
     this._equipPlayer();
+    // Online, the room must hear the authority is alive again too.
+    const mp = this.game.multiplayer;
+    if (this._online() && mp.localId && typeof mp.sendRespawn === 'function') mp.sendRespawn(mp.localId, spawn);
     this.game.events.emit('player:respawn', { pos: spawn ? spawn.pos : null });
   }
 
@@ -355,6 +501,7 @@ export default class TeamDeathmatch {
     if (bots && Array.isArray(bots.all)) for (const b of bots.all) add(b, b.pos);
     const player = this.game.player;
     if (player) add(player, player.position);
+    for (const remote of this._remotes()) add(remote, remote.position);
     // Objectives can pull spawns (Domination: toward flags this team holds).
     if (this.objective && typeof this.objective.spawnAnchors === 'function') {
       for (const pos of this.objective.spawnAnchors(team)) friends.push(pos);
@@ -379,16 +526,25 @@ export default class TeamDeathmatch {
     s.canBuy = false;
     this._playerRespawnAt = null;
     this._botRespawns.clear();
+    this._remoteRespawns.clear();
+    // FFA standings are built before the objective goes away.
+    const payload = this.endPayload();
     if (this.objective) {
       this.objective.stop();
       this.objective = null;
     }
+    this.game.events.emit('game:end', payload);
+  }
+
+  /** The game:end payload for this viewer (authority or replica). */
+  endPayload() {
+    const s = this.game.state;
     if (s.mode === 'ffa') {
       const standings = this.ffaStandings();
+      const place = Math.max(1, standings.findIndex((row) => row.isLocal) + 1);
       const player = this.game.player;
-      const place = Math.max(1, standings.findIndex((row) => row.actor === player) + 1);
       const team = (player && player.team) || 'ct';
-      this.game.events.emit('game:end', {
+      return {
         winner: place === 1 ? team : (team === 'ct' ? 't' : 'ct'),
         draw: false,
         mode: s.mode,
@@ -399,15 +555,25 @@ export default class TeamDeathmatch {
           leader: standings[0] ? standings[0].name : '',
           leaderKills: standings[0] ? standings[0].kills : 0,
         },
-      });
-      return;
+      };
     }
     const winner = s.scores.ct > s.scores.t ? 'ct' : s.scores.t > s.scores.ct ? 't' : null;
-    this.game.events.emit('game:end', {
+    return {
       winner,
       draw: winner === null,
       mode: s.mode,
       scores: { ct: s.scores.ct, t: s.scores.t },
-    });
+    };
+  }
+
+  /** Replica reached gameEnd: drop objective props and stop the countdown. */
+  endReplica() {
+    this._playerRespawnAt = null;
+    const payload = this.endPayload();
+    if (this.objective) {
+      this.objective.stop();
+      this.objective = null;
+    }
+    return payload;
   }
 }

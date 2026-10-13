@@ -14,7 +14,11 @@
 //
 // Each objective exposes the same small surface: onDeath, update, botGoal,
 // radarMarkers, hud, stop. Scores land in game.state.scores; the local
-// player's personal awards go out as 'objective:score' for MatchScore.
+// player's personal awards go out as 'objective:score' for MatchScore, and a
+// remote player's as 'objective:award' (relayed to their client).
+//
+// Online, only the authority runs update(); replicas get networkSnapshot()
+// through applyNetworkSnapshot() and call replicaUpdate() for visuals.
 // ============================================================================
 
 import * as THREE from 'three';
@@ -41,12 +45,32 @@ function horizontalDistance(a, b) {
   return Math.hypot(a.x - b.x, a.z - b.z);
 }
 
+/** Personal objective points for whoever earned them (local or remote human). */
+function awardActor(game, entry, points, label) {
+  if (entry.isPlayer) game.events.emit('objective:score', { points, label });
+  else if (entry.remoteId) game.events.emit('objective:award', { targetId: entry.remoteId, points, label });
+}
+
+function vec3(v) {
+  return v && Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z)
+    ? new THREE.Vector3(v.x, v.y, v.z)
+    : null;
+}
+
+const round2 = (n) => Math.round(n * 100) / 100;
+
 /** Every living participant as { actor, team, pos, isPlayer }. */
 function livingActors(game) {
   const out = [];
   const player = game.player;
   if (player && player.alive && player.position) {
     out.push({ actor: player, team: player.team || 'ct', pos: player.position, isPlayer: true });
+  }
+  const mp = game.multiplayer;
+  if (mp && mp.active && Array.isArray(mp.remotePlayers)) {
+    for (const r of mp.remotePlayers) {
+      if (r && r.alive && r.position) out.push({ actor: r, team: r.team || 'ct', pos: r.position, isPlayer: false, remoteId: r.networkId });
+    }
   }
   const bots = game.bots && game.bots.all;
   if (Array.isArray(bots)) {
@@ -64,6 +88,7 @@ export class KillConfirmed {
     this.game = game;
     this.tags = [];
     this._time = 0;
+    this._nextId = 0;
     this._geo = null;
     this._mats = null;
   }
@@ -71,6 +96,7 @@ export class KillConfirmed {
   onDeath(victimTeam, pos) {
     if (!pos) return;
     const tag = {
+      id: ++this._nextId,
       team: victimTeam === 't' ? 't' : 'ct',
       pos: new THREE.Vector3(pos.x, pos.y || 0, pos.z),
       expires: this._time + KC.TAG_LIFETIME,
@@ -100,13 +126,49 @@ export class KillConfirmed {
       const confirmed = collector.team !== tag.team;
       if (confirmed) s.scores[collector.team] = (s.scores[collector.team] || 0) + 1;
       this.game.events.emit('objective:tag', { confirmed, team: collector.team, byPlayer: collector.isPlayer });
-      if (collector.isPlayer) {
-        this.game.events.emit('objective:score', confirmed
-          ? { points: KC.CONFIRM_POINTS, label: 'KILL CONFIRMED' }
-          : { points: KC.DENY_POINTS, label: 'KILL DENIED' });
-      }
+      if (confirmed) awardActor(this.game, collector, KC.CONFIRM_POINTS, 'KILL CONFIRMED');
+      else awardActor(this.game, collector, KC.DENY_POINTS, 'KILL DENIED');
       this._removeTag(i);
     }
+  }
+
+  networkSnapshot() {
+    return {
+      tags: this.tags.slice(-40).map((tag) => ({
+        id: tag.id,
+        team: tag.team,
+        pos: { x: round2(tag.pos.x), y: round2(tag.pos.y), z: round2(tag.pos.z) },
+      })),
+    };
+  }
+
+  /** Replica: mirror the authority's live tags (ids keep meshes stable). */
+  applyNetworkSnapshot(data) {
+    if (!data || !Array.isArray(data.tags)) return;
+    const wanted = new Map();
+    for (const entry of data.tags) {
+      const pos = entry && vec3(entry.pos);
+      if (pos && Number.isFinite(entry.id)) wanted.set(entry.id, { team: entry.team === 't' ? 't' : 'ct', pos });
+    }
+    for (let i = this.tags.length - 1; i >= 0; i--) {
+      if (!wanted.has(this.tags[i].id)) this._removeTag(i);
+    }
+    const have = new Set(this.tags.map((tag) => tag.id));
+    for (const [id, entry] of wanted) {
+      if (have.has(id)) continue;
+      const tag = { id, team: entry.team, pos: entry.pos, expires: Infinity, mesh: null };
+      tag.mesh = this._buildTagMesh(tag);
+      this.tags.push(tag);
+    }
+  }
+
+  replicaUpdate(dt) {
+    this._time += dt;
+    this.tags.forEach((tag, i) => {
+      if (!tag.mesh) return;
+      tag.mesh.rotation.y += dt * 2.4;
+      tag.mesh.position.y = tag.pos.y + 0.75 + Math.sin(this._time * 3 + i) * 0.08;
+    });
   }
 
   /** Nearest tag worth a detour (either kind: confirm or deny). */
@@ -245,11 +307,11 @@ export class Domination {
     for (const flag of this.flags) {
       let ct = 0;
       let t = 0;
-      let playerInside = false;
+      const inside = [];
       for (const a of actors) {
         if (horizontalDistance(a.pos, flag.pos) > DOM.RADIUS || Math.abs(a.pos.y - flag.pos.y) > 3) continue;
         if (a.team === 't') t++; else ct++;
-        if (a.isPlayer) playerInside = true;
+        inside.push(a);
       }
       flag.contested = ct > 0 && t > 0;
       const before = flag.owner;
@@ -270,8 +332,10 @@ export class Domination {
       }
       if (flag.owner !== before) {
         this.game.events.emit('objective:flag', { name: flag.name, owner: flag.owner, previous: before });
-        if (flag.owner && playerInside && this.game.player && flag.owner === this.game.player.team) {
-          this.game.events.emit('objective:score', { points: DOM.CAPTURE_POINTS, label: 'FLAG ' + flag.name + ' CAPTURED' });
+        if (flag.owner) {
+          for (const a of inside) {
+            if (a.team === flag.owner) awardActor(this.game, a, DOM.CAPTURE_POINTS, 'FLAG ' + flag.name + ' CAPTURED');
+          }
         }
         this._paintFlag(flag);
       }
@@ -285,11 +349,49 @@ export class Domination {
       }
     }
 
+    this._animate();
+  }
+
+  _animate() {
     for (const flag of this.flags) {
       if (flag.group && flag.group.userData.cloth) {
         flag.group.userData.cloth.rotation.y = Math.sin(this._time * 2.1 + flag.pos.x) * 0.25;
       }
     }
+  }
+
+  networkSnapshot() {
+    return {
+      flags: this.flags.map((flag) => ({
+        name: flag.name,
+        control: round2(flag.control),
+        owner: flag.owner,
+        contested: flag.contested,
+      })),
+    };
+  }
+
+  /** Replica: flag positions come from the shared map; state from the authority. */
+  applyNetworkSnapshot(data) {
+    if (!data || !Array.isArray(data.flags)) return;
+    for (const entry of data.flags) {
+      const flag = entry && this.flags.find((f) => f.name === entry.name);
+      if (!flag) continue;
+      const owner = entry.owner === 'ct' || entry.owner === 't' ? entry.owner : null;
+      flag.control = THREE.MathUtils.clamp(Number(entry.control) || 0, -1, 1);
+      flag.contested = !!entry.contested;
+      if (owner !== flag.owner) {
+        const previous = flag.owner;
+        flag.owner = owner;
+        this.game.events.emit('objective:flag', { name: flag.name, owner, previous });
+        this._paintFlag(flag);
+      }
+    }
+  }
+
+  replicaUpdate(dt) {
+    this._time += dt;
+    this._animate();
   }
 
   /** Nearest flag the bot's side does not hold; otherwise defend one. */
@@ -408,7 +510,7 @@ export class Hardpoint {
     this.owner = null;
     this.contested = false;
     this._fraction = { ct: 0, t: 0 };
-    this._personal = 0;
+    this._personal = new Map(); // human -> seconds toward the next hold award
     this._group = this._buildZone();
     this._placeZone();
   }
@@ -433,11 +535,11 @@ export class Hardpoint {
 
     let ct = 0;
     let t = 0;
-    let playerInside = false;
+    const inside = [];
     for (const a of livingActors(this.game)) {
       if (horizontalDistance(a.pos, zone) > HP.RADIUS || Math.abs(a.pos.y - zone.y) > 3) continue;
       if (a.team === 't') t++; else ct++;
-      if (a.isPlayer) playerInside = true;
+      inside.push(a);
     }
     this.contested = ct > 0 && t > 0;
     const holder = this.contested ? null : ct > 0 ? 'ct' : t > 0 ? 't' : null;
@@ -453,17 +555,52 @@ export class Hardpoint {
       this._fraction[holder] -= 1;
       s.scores[holder] = (s.scores[holder] || 0) + 1;
     }
-    const player = this.game.player;
-    if (playerInside && player && player.team === holder) {
-      this._personal += dt;
-      if (this._personal >= HP.POINTS_EVERY) {
-        this._personal -= HP.POINTS_EVERY;
-        this.game.events.emit('objective:score', { points: HP.HOLD_POINTS, label: 'HARDPOINT SECURED' });
+    // Personal hold time per human in the zone (bots earn nothing).
+    for (const a of inside) {
+      if (!a.isPlayer && !a.remoteId) continue;
+      const key = a.isPlayer ? 'local' : a.remoteId;
+      const held = (this._personal.get(key) || 0) + dt;
+      if (held >= HP.POINTS_EVERY) {
+        this._personal.set(key, held - HP.POINTS_EVERY);
+        awardActor(this.game, a, HP.HOLD_POINTS, 'HARDPOINT SECURED');
+      } else {
+        this._personal.set(key, held);
       }
     }
+    this._pulse();
+  }
+
+  _pulse() {
     if (this._group) {
       this._group.userData.beam.material.opacity = 0.16 + 0.06 * Math.sin(this.clock * 3);
     }
+  }
+
+  networkSnapshot() {
+    return { index: this.index, clock: round2(this.clock), owner: this.owner, contested: this.contested };
+  }
+
+  applyNetworkSnapshot(data) {
+    if (!data || typeof data !== 'object') return;
+    const index = Math.floor(Number(data.index));
+    if (Number.isFinite(index) && index >= 0 && index < this.zones.length && index !== this.index) {
+      this.index = index;
+      this.owner = null;
+      this._placeZone();
+      this.game.events.emit('objective:hardpoint', { moved: true, index });
+    }
+    if (Number.isFinite(data.clock)) this.clock = THREE.MathUtils.clamp(data.clock, 0, HP.ROTATE);
+    this.contested = !!data.contested;
+    const owner = data.owner === 'ct' || data.owner === 't' ? data.owner : null;
+    if (owner !== this.owner) {
+      this.owner = owner;
+      this._paint();
+    }
+  }
+
+  replicaUpdate(dt) {
+    this.clock = Math.min(HP.ROTATE, this.clock + dt);
+    this._pulse();
   }
 
   botGoal() {

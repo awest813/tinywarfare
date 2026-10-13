@@ -142,6 +142,11 @@ export default class Rounds {
     const previousPhase = s.phase;
     const previousRound = s.round;
 
+    if (isRespawnMode(s.mode)) {
+      this._applyRespawnSnapshot(remote, previousPhase);
+      return;
+    }
+
     if (Number.isFinite(remote.round) && remote.round > previousRound) {
       const died = !this.game.player.alive;
       s.round = remote.round;
@@ -211,6 +216,27 @@ export default class Rounds {
     }
   }
 
+  /** Replica side of a respawn mode: one continuous match, no rounds. */
+  _applyRespawnSnapshot(remote, previousPhase) {
+    const s = this.game.state;
+    if (Number.isFinite(remote.round)) s.round = remote.round;
+    if (remote.scores) {
+      s.scores.ct = Number(remote.scores.ct) || 0;
+      s.scores.t = Number(remote.scores.t) || 0;
+    }
+    if (Number.isFinite(remote.timer)) s.timer = remote.timer;
+    s.canBuy = false;
+    this.tdm.applyNetworkSnapshot(remote.respawn);
+    s.phase = remote.phase || s.phase;
+    if (s.phase === previousPhase) return;
+    if (s.phase === 'gameEnd') {
+      const payload = this.tdm.endReplica();
+      this.game.events.emit('game:end', payload);
+    } else {
+      this.game.events.emit('round:phase', { phase: s.phase });
+    }
+  }
+
   // ==========================================================================
   // Per-frame update (first in the main update order — owns the timers)
   // ==========================================================================
@@ -226,6 +252,11 @@ export default class Rounds {
       // and a promoted authority receives a wall-clock-adjusted handoff state.
       if (NETWORK_TIMED_PHASES.has(s.phase) && Number.isFinite(s.timer)) {
         s.timer = Math.max(0, s.timer - dt);
+      }
+      if (isRespawnMode(s.mode)) {
+        if (s.phase !== 'menu' && s.phase !== 'gameEnd') this.tdm.replicaUpdate(dt);
+        s.canBuy = false;
+        return;
       }
       this._updateBombVisual(dt);
       this._updateCanBuy();
@@ -498,9 +529,9 @@ export default class Rounds {
 
   _startMatch() {
     const s = this.game.state;
-    // Online rooms only speak Search & Destroy until the protocol carries a mode.
+    // Online rooms play the mode their host picked; solo plays the menu pick.
     const mp = this.game.multiplayer;
-    s.mode = mp && mp.active ? 'sd' : normalizeModeId(this.game.selectedMode);
+    s.mode = normalizeModeId(mp && mp.active ? mp.gameMode : this.game.selectedMode);
     this._matchStarted = true;
     this._matchWinner = null;
     this._lastRoundResult = null;

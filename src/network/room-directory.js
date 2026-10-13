@@ -1,5 +1,6 @@
 import { mapById, normalizeMapId } from '../maps/catalog.js';
 import { resolveRoomDirectoryEndpoint } from './endpoints.js';
+import { GAME_MODES } from '../game/tdm.js';
 
 const DEFAULT_CAPACITY = 10;
 const FINISHED_PHASES = new Set(['ended', 'finished', 'gameend', 'game_end']);
@@ -46,6 +47,7 @@ export function normalizeRoomEntry(value) {
     code,
     mapId: normalizeMapId(value.mapId ?? value.map),
     mode: value.mode === 'humans' ? 'humans' : 'mixed',
+    gameMode: Object.prototype.hasOwnProperty.call(GAME_MODES, value.gameMode) ? value.gameMode : 'sd',
     phase,
     started,
     finished,
@@ -111,6 +113,7 @@ export function roomPresentation(room) {
   return {
     map,
     status: roomStatus(room),
-    modeLabel: room?.mode === 'humans' ? 'HUMANS ONLY' : 'HUMANS + BOTS',
+    modeLabel: (GAME_MODES[room?.gameMode] || GAME_MODES.sd).short + ' · ' +
+      (room?.mode === 'humans' ? 'HUMANS ONLY' : 'HUMANS + BOTS'),
   };
 }

@@ -110,10 +110,17 @@ export default class Scorestreaks {
     return this.selected;
   }
 
-  /** Streaks only run in solo respawn modes. */
+  /**
+   * Streaks run in respawn modes, solo or online. Online, radar streaks and
+   * care packages stay on the caller's client; ordnance runs on the authority.
+   */
   enabled() {
-    const g = this.game;
-    return isRespawnMode(g.state.mode) && !(g.multiplayer && g.multiplayer.active);
+    return isRespawnMode(this.game.state.mode);
+  }
+
+  _replica() {
+    const mp = this.game.multiplayer;
+    return !!(mp && mp.active && !mp.isAuthority());
   }
 
   uavActive() {
@@ -211,7 +218,7 @@ export default class Scorestreaks {
     const due = this._strikes.filter((strike) => this._time >= strike.at);
     if (!due.length) return;
     this._strikes = this._strikes.filter((strike) => this._time < strike.at);
-    for (const strike of due) this._detonate(strike.pos);
+    for (const strike of due) this._detonate(strike.pos, strike.caller);
   }
 
   /** Care packages on the radar. */
@@ -293,13 +300,43 @@ export default class Scorestreaks {
     const run = new THREE.Vector3(_dir.x, 0, _dir.z);
     if (run.lengthSq() < 1e-6) run.set(-Math.sin(player.yaw || 0), 0, -Math.cos(player.yaw || 0));
     run.normalize();
+    if (this._replica()) {
+      // The authority owns damage: it flies the run and relays the blasts.
+      const mp = this.game.multiplayer;
+      if (typeof mp.sendStreak === 'function') mp.sendStreak('airstrike', { target, dir: run });
+      this.game.events.emit('streak:airstrike', { target: target.clone(), dir: run.clone(), _network: true });
+      return true;
+    }
+    this._scheduleStrike(target, run, null);
+    this.game.events.emit('streak:airstrike', { target: target.clone(), dir: run.clone() });
+    return true;
+  }
+
+  _scheduleStrike(target, run, caller) {
     for (let i = 0; i < AIRSTRIKE.BOMBS; i++) {
       this._strikes.push({
         at: this._time + AIRSTRIKE.DELAY + i * AIRSTRIKE.INTERVAL,
         pos: target.clone().addScaledVector(run, i * AIRSTRIKE.SPACING),
+        caller,
       });
     }
-    this.game.events.emit('streak:airstrike', { target: target.clone(), dir: run.clone() });
+  }
+
+  /** Authority: run a streak a remote player called (only ordnance comes here). */
+  runRemote(message, caller) {
+    if (!this.enabled() || !message || !caller || !caller.alive) return false;
+    if (this.game.state.phase !== 'live' || message.streakId !== 'airstrike') return false;
+    const t = message.target;
+    if (!t || !Number.isFinite(t.x) || !Number.isFinite(t.y) || !Number.isFinite(t.z)) return false;
+    const target = new THREE.Vector3(t.x, t.y, t.z);
+    // Calls land within the caller's reach, like a local call.
+    if (caller.position && target.distanceTo(caller.position) > AIRSTRIKE.RANGE + 5) return false;
+    const d = message.dir;
+    const run = d && Number.isFinite(d.x) && Number.isFinite(d.z) ? new THREE.Vector3(d.x, 0, d.z) : new THREE.Vector3(0, 0, -1);
+    if (run.lengthSq() < 1e-6) run.set(0, 0, -1);
+    run.normalize();
+    this._scheduleStrike(target, run, caller);
+    this.game.events.emit('streak:airstrike', { target: target.clone(), dir: run.clone(), callerId: caller.networkId || null });
     return true;
   }
 
@@ -392,7 +429,7 @@ export default class Scorestreaks {
     return mesh;
   }
 
-  _detonate(pos) {
+  _detonate(pos, caller = null) {
     const g = this.game;
     const center = pos.clone();
     // Ordnance falls from above: land on the first surface under this point
@@ -404,10 +441,10 @@ export default class Scorestreaks {
     center.y += 0.6;
     g.events.emit('fx:explosion', { pos: center.clone(), radius: AIRSTRIKE.RADIUS });
     const combat = g.combat;
-    const player = g.player;
+    const attacker = caller || g.player || null;
     if (combat && typeof combat._radialDamage === 'function') {
-      combat._radialDamage(center, AIRSTRIKE.RADIUS, AIRSTRIKE.DAMAGE, player || null,
-        player ? player.team : null, 'airstrike', true, false);
+      combat._radialDamage(center, AIRSTRIKE.RADIUS, AIRSTRIKE.DAMAGE, attacker,
+        attacker ? attacker.team : null, 'airstrike', true, false);
     }
     if (combat && typeof combat._shakePlayer === 'function') combat._shakePlayer(center, 40, 1.4);
   }

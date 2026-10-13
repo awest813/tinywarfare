@@ -1306,10 +1306,14 @@ export default class HUD {
     else this._cancelMapSelection();
   }
 
-  _selectMode(value) {
+  _selectMode(value, options = {}) {
     const id = normalizeModeId(value);
+    const changed = this.game && this.game.selectedMode !== id;
     if (this.game) this.game.selectedMode = id;
-    try { localStorage.setItem('tiny-strike-mode', id); } catch { /* private mode */ }
+    // A room's mode mirrored from the host is not this player's preference.
+    if (options.persist !== false) {
+      try { localStorage.setItem('tiny-strike-mode', id); } catch { /* private mode */ }
+    }
     if (this._el.modePicker) {
       for (const button of this._el.modePicker.querySelectorAll('[data-mode-id]')) {
         const selected = button.dataset.modeId === id;
@@ -1319,6 +1323,7 @@ export default class HUD {
     }
     if (this._el.classPicker) this._el.classPicker.hidden = !isRespawnMode(id);
     this._updateStartSub();
+    if (changed && options.notify !== false) this.game?.events?.emit?.('ui:mode-select', { mode: id });
   }
 
   _bindClassControls() {

@@ -14,6 +14,7 @@ import {
   fetchRoomDirectory,
   roomPresentation,
 } from './room-directory.js';
+import { GAME_MODES, isRespawnMode, normalizeModeId } from '../game/tdm.js';
 
 const SEND_HZ = 20;
 const SNAPSHOT_HZ = 12;
@@ -39,10 +40,13 @@ const RESUME_SEAT_PREFIX = 'tiny-strike-room-seat-v1:';
 const RANKED_IDENTITY_IN_USE = 'ranked_identity_in_use';
 const EFFECT_EVENTS = [
   'fx:tracer', 'fx:impact', 'fx:blood', 'fx:explosion', 'fx:flash', 'fx:smoke', 'kill',
+  // Respawn modes: personal objective points earned by a remote player, and
+  // the airstrike flyover cue.
+  'objective:award', 'streak:airstrike',
 ];
-const AUTHORITY_OUTBOUND_TYPES = new Set(['snapshot', 'damage', 'event', 'yield_authority']);
+const AUTHORITY_OUTBOUND_TYPES = new Set(['snapshot', 'damage', 'event', 'respawn', 'yield_authority']);
 const SYNC_BLOCKED_OUTBOUND_TYPES = new Set([
-  'player_state', 'snapshot', 'damage', 'event', 'fire', 'grenade',
+  'player_state', 'snapshot', 'damage', 'event', 'respawn', 'fire', 'grenade', 'streak',
 ]);
 const AUTHORITY_PROTOCOL_VERSION = 1;
 
@@ -196,6 +200,8 @@ export default class Multiplayer {
     this.matchId = null;
     this.mapId = normalizeMapId(game && game.selectedMapId);
     this.mode = 'mixed';
+    // Ruleset the room plays (sd/tdm/kc/dom/hp/ffa); the host picks it.
+    this.gameMode = 'sd';
     this.roster = [];
     this.remotePlayers = [];
     this._remoteById = new Map();
@@ -337,6 +343,7 @@ export default class Multiplayer {
       characterId,
       room,
       mode,
+      gameMode: normalizeModeId(this.game.selectedMode),
       mapId: normalizeMapId(this.game.selectedMapId || this.mapId),
       leaderboardToken,
       authorityProtocol: AUTHORITY_PROTOCOL_VERSION,
@@ -975,6 +982,33 @@ export default class Multiplayer {
     this._send({ type: 'set_map', mapId: normalizeMapId(mapId) });
   }
 
+  setGameMode(mode) {
+    if (!this.connected || this.active || !this.isHost) return;
+    this._send({ type: 'set_game_mode', gameMode: normalizeModeId(mode) });
+  }
+
+  /** Authority: revive a player (remote or itself) at a pose in a respawn mode. */
+  sendRespawn(targetId, spawn) {
+    if (!this.active || !this.isAuthority() || !targetId) return;
+    this._send({
+      type: 'respawn',
+      targetId,
+      pos: spawn && spawn.pos ? vec(spawn.pos) : null,
+      yaw: spawn && Number.isFinite(spawn.yaw) ? spawn.yaw : 0,
+    });
+  }
+
+  /** A non-host's scorestreak that must run on the authority (airstrike). */
+  sendStreak(streakId, data = {}) {
+    if (!this.active || this.syncing || this.isHost) return;
+    this._send({
+      type: 'streak',
+      streakId,
+      target: data.target ? vec(data.target) : null,
+      dir: data.dir ? vec(data.dir) : null,
+    });
+  }
+
   startMatch() {
     // A host can click START during the menu's short map-selection debounce.
     // Publish and load that selection first so start_match can never capture
@@ -1005,6 +1039,7 @@ export default class Multiplayer {
 
   applyDamageToRemote(target, amount, info = {}) {
     if (!this.active || !this.isAuthority() || !target || !target.alive || !(amount > 0)) return;
+    if (target.spawnProtection > 0) return; // respawn modes: fresh spawns are briefly immune
     let healthDamage = amount;
     if (target.armor > 0) {
       healthDamage = amount * (info.headshot ? 0.85 : this.game.config.ARMOR_DAMAGE_SCALE);
@@ -1082,6 +1117,15 @@ export default class Multiplayer {
       else {
         this._applyRoomMap(this.mapId);
         this.game.events.emit('hud:notice', { text: 'Only the room host can change the map.' });
+      }
+    });
+    ev.on('ui:mode-select', (data) => {
+      const requested = normalizeModeId(data && data.mode);
+      if (!this.connected || this.active || !this.localId || requested === this.gameMode) return;
+      if (this.isHost) this.setGameMode(requested);
+      else {
+        this._mirrorRoomMode();
+        this.game.events.emit('hud:notice', { text: 'Only the room host can change the mode.' });
       }
     });
     ev.on('profile:changed', (event) => {
@@ -1316,6 +1360,7 @@ export default class Multiplayer {
         this.localId = message.id;
         this.roomCode = message.room;
         this.mode = message.mode;
+        this._acceptGameMode(message.gameMode);
         this.reconnectToken = String(message.reconnectToken || this.reconnectToken || '');
         this._canPersistResumeTicket = this._seatRanked;
         this._persistResumeTicket();
@@ -1365,6 +1410,7 @@ export default class Multiplayer {
           renderLobby: false,
         })) break;
         this.mode = message.mode;
+        if (!this.active) this._acceptGameMode(message.gameMode);
         if (!this.active) this._applyRoomMap(message.mapId);
         else this.mapId = normalizeMapId(message.mapId || this.mapId);
         this._acceptRoster(message.players);
@@ -1412,6 +1458,7 @@ export default class Multiplayer {
           const canonicalSync = this.syncing;
           this.matchId = message.matchId || this.matchId;
           this.mode = message.mode === 'humans' ? 'humans' : 'mixed';
+          this._acceptGameMode(message.gameMode);
           this.mapId = normalizeMapId(message.mapId || this.mapId);
           this._acceptRoster(message.players, this.roster);
           if (this.active) this._syncActiveRoster();
@@ -1509,6 +1556,17 @@ export default class Multiplayer {
         }
         break;
       }
+      case 'streak': {
+        if (!this.isHost) break;
+        const shooter = this._remoteById.get(message.shooterId);
+        if (shooter && this.game.streaks && typeof this.game.streaks.runRemote === 'function') {
+          this.game.streaks.runRemote(message, shooter);
+        }
+        break;
+      }
+      case 'respawn':
+        this._applyRespawn(message);
+        break;
       case 'damage':
         this._applyDamageMessage(message);
         break;
@@ -1649,6 +1707,7 @@ export default class Multiplayer {
     this.active = true;
     this.matchId = message.matchId || null;
     this.mode = message.mode === 'humans' ? 'humans' : 'mixed';
+    this._acceptGameMode(message.gameMode);
     this.hostId = message.hostId;
     this.isHost = this.localId === this.hostId;
     this._acceptRoster(message.players);
@@ -1700,6 +1759,14 @@ export default class Multiplayer {
       hostId: this.hostId,
     });
     this.game.events.emit('ui:start');
+    if (!lateJoin && this.respawnMode() && mine.alive === false && this.game.player &&
+      typeof this.game.player.waitForNextRound === 'function') {
+      // Joined a running respawn match: there is no next round to wait for,
+      // the authority deploys this seat within a few seconds.
+      this.game.player.waitForNextRound();
+      this.game.rounds?.tdm?.awaitRespawn?.();
+      this.game.events.emit('hud:notice', { text: 'Match in progress — deploying shortly.' });
+    }
     if (lateJoin) {
       const currentRound = positiveRound(snapshot?.state?.round) || Math.max(1, (this.joinRound || 2) - 1);
       // The local rounds module creates round one during ui:start. Align its
@@ -2109,6 +2176,11 @@ export default class Multiplayer {
           ? this.game.rounds.lastRoundResult()
           : null,
         matchWinner: this.game.rounds ? this.game.rounds._matchWinner : null,
+        mode: s.mode,
+        respawn: this.game.rounds && this.game.rounds.tdm && isRespawnMode(s.mode) &&
+          typeof this.game.rounds.tdm.networkSnapshot === 'function'
+          ? this.game.rounds.tdm.networkSnapshot()
+          : null,
       },
       bots,
       botAuthority: this.game.bots && typeof this.game.bots.networkAuthoritySnapshot === 'function'
@@ -2263,6 +2335,9 @@ export default class Multiplayer {
       if (data.victimId) {
         data.victimName = this._humanCallsign(data.victimName, data.victimId);
       }
+      // The authority wrote these from its own seat; re-aim them at this one.
+      data.killerIsLocal = !!data.killerId && data.killerId === this.localId;
+      data.victimIsLocal = !!data.victimId && data.victimId === this.localId;
     }
     const hydrate = (obj) => {
       if (!obj || typeof obj !== 'object') return obj;
@@ -2301,10 +2376,70 @@ export default class Multiplayer {
         this.game.events.emit('econ:kill', { weaponId: data.weaponId, reward });
         this.game.events.emit('hud:hitmarker', { headshot: !!data.headshot, kill: true });
       }
+      // The caller already played its own flyover when it called the strike.
+      if (eventName === 'streak:airstrike' && data.callerId && data.callerId === this.localId) return;
+      if (eventName === 'objective:award') {
+        if (data.targetId === this.localId) {
+          this.game.events.emit('objective:score', { points: Number(data.points) || 0, label: String(data.label || '') });
+        }
+        return;
+      }
       this.game.events.emit(eventName, { ...hydrate(data), _network: true });
     } finally {
       this._networkEvent = false;
     }
+  }
+
+  respawnMode() {
+    return isRespawnMode(this.gameMode);
+  }
+
+  _acceptGameMode(value) {
+    if (value === undefined) return;
+    this.gameMode = normalizeModeId(value);
+    if (!this.active) this._mirrorRoomMode();
+  }
+
+  /** Show the room's mode in the menu picker without saving it as a preference. */
+  _mirrorRoomMode() {
+    const hud = this.game.hud;
+    if (hud && typeof hud._selectMode === 'function') {
+      hud._selectMode(this.gameMode, { persist: false, notify: false });
+    } else {
+      this.game.selectedMode = this.gameMode;
+    }
+  }
+
+  /** Respawn modes: the authority revived a player at a pose. */
+  _applyRespawn(message) {
+    if (!this.active || !message || !message.targetId) return;
+    const pos = message.pos && Number.isFinite(message.pos.x) ? message.pos : null;
+    const yaw = Number.isFinite(message.yaw) ? message.yaw : 0;
+    if (message.targetId === this.localId) {
+      // The authority already respawned itself before sending this.
+      if (this.isHost) return;
+      this.waitingForNextRound = false;
+      this.joinRound = null;
+      const tdm = this.game.rounds && this.game.rounds.tdm;
+      if (tdm && typeof tdm.respawnLocal === 'function') {
+        tdm.respawnLocal(pos ? { pos: new THREE.Vector3(pos.x, pos.y, pos.z), yaw } : null);
+      }
+      return;
+    }
+    if (this.isHost) return;
+    const remote = this._remoteById.get(message.targetId);
+    if (!remote) return;
+    remote.spectating = false;
+    remote.health = 100;
+    remote.armor = 0;
+    if (pos) {
+      remote.position.set(pos.x, pos.y, pos.z);
+      remote.targetPosition.set(pos.x, pos.y, pos.z);
+    }
+    remote.yaw = yaw;
+    remote.targetYaw = yaw;
+    this._setRemoteAlive(remote, true);
+    if (this.game.hud) this.game.hud._sbDirty = true;
   }
 
   _removeRemote(id) {
@@ -2515,7 +2650,8 @@ export default class Multiplayer {
 
   _renderLobby() {
     if (!this._ui || !this._ui.roster) return;
-    this._ui.code.textContent = `${this.roomCode} · ${this.mode === 'humans' ? 'HUMANS ONLY' : 'HUMANS + BOTS'} · ${mapById(this.mapId).name.toUpperCase()}`;
+    const gameMode = GAME_MODES[this.gameMode] || GAME_MODES.sd;
+    this._ui.code.textContent = `${this.roomCode} · ${gameMode.short} · ${this.mode === 'humans' ? 'HUMANS ONLY' : 'HUMANS + BOTS'} · ${mapById(this.mapId).name.toUpperCase()}`;
     this._ui.mode.value = this.mode;
     this._ui.mode.disabled = !this.isHost;
     this._ui.mode.onchange = () => this._send({ type: 'set_mode', mode: this._ui.mode.value });
@@ -2526,7 +2662,7 @@ export default class Multiplayer {
     }).join('');
     this._ui.start.style.display = this.isHost ? 'block' : 'none';
     const roomStatus = this.isHost
-      ? 'You are host. Start when the teams are ready.'
+      ? 'You are host. Pick the mode and map above, then start when the teams are ready.'
       : 'Waiting for the host to start.';
     this._status(roomStatus + (!this.isRankedParticipant()
       ? (this._unrankedIdentityConflict
