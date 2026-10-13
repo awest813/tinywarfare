@@ -10,6 +10,7 @@
 // ---------------------------------------------------------------------------
 
 import * as THREE from 'three';
+import { EXPLOSIVE_WEAPONS, PERK_TUNING, hasPerk } from '../game/loadouts.js';
 import { generateRandomPlayerName } from './profile.js';
 import { SpectatorCamera } from './spectator.js';
 
@@ -180,6 +181,8 @@ export default class Player {
   takeDamage(amount, info) {
     if (!this.alive || !(amount > 0)) return;
     if (this.spawnProtection > 0) return;
+    const weaponId = typeof info?.weapon === 'string' ? info.weapon : info?.weapon?.id;
+    if (hasPerk(this, 'flakjacket') && EXPLOSIVE_WEAPONS.has(weaponId)) amount *= PERK_TUNING.FLAK_SCALE;
     const game = this.game;
     if (game.state.phase === 'menu') return;
     info = info || {};
@@ -504,6 +507,7 @@ export default class Player {
       const m = weapons.currentMoveMult();
       if (typeof m === 'number' && m > 0) mult = m;
     }
+    if (hasPerk(this, 'lightweight')) mult *= PERK_TUNING.LIGHTWEIGHT_SPEED;
     const baseSpeed = this.crouching
       ? P.CROUCH_SPEED
       : walkKey

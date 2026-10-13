@@ -40,6 +40,9 @@ The two sides are **U.S. Forces** (defenders) and **Russian Forces** (attackers)
 - **Team Deathmatch** (solo vs bots): respawn after 3 seconds with an
   M4/AK starter class. First side to 50 kills, or the higher score after
   10 minutes, wins. Pick it in the menu's MODE row.
+  Pick one of five editable **classes** in the menu's CLASS row (primary,
+  secondary, frag, tactical, and a perk: Lightweight, Quick Hands, Ghost, or
+  Flak Jacket). While dead, press 1–5 to change class for the next spawn.
   Score earned since your last death charges scorestreaks: a **UAV** at 500
   (every enemy on the radar for 30 s) and a **precision airstrike** at 900
   (three bombs walking out from where your crosshair meets the ground).

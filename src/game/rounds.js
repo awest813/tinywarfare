@@ -523,6 +523,7 @@ export default class Rounds {
     }
 
     this._resetBombState();
+    if (player) player.perk = null; // perks belong to respawn-mode classes
     if (s.mode === 'tdm') {
       this.tdm.startMatch();
       return;

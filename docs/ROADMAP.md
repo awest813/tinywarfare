@@ -165,18 +165,30 @@ Still to do:
 - Replicate `sprinting` and `sliding` to remote players' animation.
 
 ### Phase 3: Create-a-class
-- Class slots: primary, secondary, lethal, tactical, and three perks. Five
-  default classes plus editable custom classes stored in `player/profile.js`.
-  A class picker appears on the death screen and applies on the next spawn.
-- New lethals and tacticals in `weapons/data.js` and `combat.js`: frag (from HE),
-  semtex (sticks), flash and smoke (existing), stun (slows), and a claymore
-  later.
-- Perks (first set): faster sprint recovery, quieter footsteps (the footstep
-  system already exists), resistance to explosives, hidden from UAV, and faster
-  reloads. Hook points: `player.js` speed, `combat.js` damage, audio cues,
-  and radar visibility.
-- Weapon roster: keep the seven procedural guns. Add a shotgun and an LMG using
-  the parts kit in `gfx/weapons/parts.js` and `build.js`.
+Shipped for solo TDM (`src/game/loadouts.js`):
+- Five editable classes: Assault, Close Quarters, Recon Sniper, Rifleman,
+  Custom. Each has a primary (M4A1, AK-47, MP5, AWP), a secondary (USP, Glock,
+  Deagle), a frag, a tactical (flash or smoke), and one perk.
+  - Classes are saved in `tiny-strike-classes-v1`. Stored values are
+    sanitised against the allowed lists.
+- The menu shows a CLASS row when TDM is selected, with an inline editor:
+  name, selects, perk description, and reset. While dead, keys 1-5 pick the
+  next life's class, and the death screen shows it.
+- Perks:
+  - **Lightweight**: +8% movement and sprint speed.
+  - **Quick Hands**: 35% faster reloads and 40% faster swaps.
+  - **Ghost**: hidden from the enemy UAV hunt, and bots hear your footsteps at
+    45% range.
+  - **Flak Jacket**: 55% less damage from frags, airstrikes, and C4.
+- Any faction can use any gun.
+
+Still to do:
+- Three perk slots.
+- Attachments (Phase 5).
+- Semtex and stun.
+- Shotgun and LMG models.
+- Bot classes and perks.
+- Unlock gating by rank.
 
 ### Phase 4: Scorestreaks
 Shipped for solo TDM (`src/game/score.js`, `src/game/streaks.js`):

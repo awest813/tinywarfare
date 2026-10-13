@@ -17,6 +17,7 @@
 
 import * as THREE from 'three';
 import { WEAPONS, GEAR, BUY_MENU } from './data.js';
+import { PERK_TUNING, hasPerk } from '../game/loadouts.js';
 
 const SWITCH_TIME = 0.6;        // standard raise time
 const FAST_SWITCH_TIME = 0.35;  // post-throw / round-start raise
@@ -286,7 +287,8 @@ export default class Weapons {
   equip(id) {
     if (!id || !WEAPONS[id] || !this.owns(id)) return false;
     if (id === this.currentId && this._state !== 'throwing') return false;
-    this._forceEquip(id, SWITCH_TIME, true);
+    const swap = hasPerk(this.game.player, 'quickhands') ? PERK_TUNING.QUICKHANDS_SWAP : 1;
+    this._forceEquip(id, SWITCH_TIME * swap, true);
     return true;
   }
 
@@ -903,8 +905,8 @@ export default class Weapons {
     this._unscope(); // reloading the AWP drops the scope
     this._state = 'reloading';
     this._stateT = 0;
-    this._stateDur = def.reloadTime;
-    this.game.events.emit('weapon:reload:start', { id: def.id, duration: def.reloadTime });
+    this._stateDur = def.reloadTime * (hasPerk(player, 'quickhands') ? PERK_TUNING.QUICKHANDS_RELOAD : 1);
+    this.game.events.emit('weapon:reload:start', { id: def.id, duration: this._stateDur });
   }
 
   // ==========================================================================

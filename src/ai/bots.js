@@ -214,6 +214,7 @@ const CT_HOLD_MAX = 10.5;
 const T_HOLD_MIN = 3.0;
 const T_HOLD_MAX = 5.5;
 const TDM_HOLD_MAX = 1.6;        // respawn modes keep everyone moving
+const GHOST_FOOTSTEP_RANGE = 0.45; // Ghost perk: bots hear the player's steps at this fraction
 const INVESTIGATE_HOLD_MIN = 2.0;
 const INVESTIGATE_HOLD_MAX = 3.8;
 
@@ -1922,7 +1923,9 @@ export default class Bots {
 
     ev.on('player:footstep', (p) => {
       if (!p || !p.pos || p.walking) return; // sneaking is quiet
-      this._hearSound(p.pos, (this.game.player && this.game.player.team) || 'ct', this._cfg.HEAR_RANGE);
+      const ghost = this.game.player && this.game.player.perk === 'ghost';
+      this._hearSound(p.pos, (this.game.player && this.game.player.team) || 'ct',
+        this._cfg.HEAR_RANGE * (ghost ? GHOST_FOOTSTEP_RANGE : 1));
     });
 
     ev.on('bot:footstep', (p) => {
@@ -2669,12 +2672,12 @@ export default class Bots {
     };
     for (const other of this.all) consider(other, other.pos);
     const player = this.game.player;
-    if (player) consider(player, player.position);
-
-    // An enemy UAV over the player's team sharpens the bots' hunt.
+    // An enemy UAV over the player's team sharpens the bots' hunt; Ghost
+    // keeps the player off that picture.
     const streaks = this.game.streaks;
     const uavUp = !!(streaks && typeof streaks.enemyUavActive === 'function' && streaks.enemyUavActive()) &&
       bot.team !== ((player && player.team) || 'ct');
+    if (player && !(uavUp && player.perk === 'ghost')) consider(player, player.position);
     let goal = null;
     if (nearest && Math.random() < (uavUp ? 0.95 : 0.7)) {
       goal = this._diverseNear(bot, nearest, 12);

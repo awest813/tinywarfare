@@ -13,6 +13,7 @@ import { MAP_CATALOG, normalizeMapId } from '../maps/catalog.js';
 import { FACTIONS, faction, scoreLine } from '../shared/factions.js';
 import { GAME_MODES, TDM, normalizeModeId } from '../game/tdm.js';
 import { STREAKS } from '../game/streaks.js';
+import { PRIMARIES, SECONDARIES, TACTICALS, PERKS, PERK_IDS } from '../game/loadouts.js';
 import { resolveHumanPlayerName } from '../player/profile.js';
 import {
   KEY_BINDING_DEFINITIONS,
@@ -440,6 +441,13 @@ export default class HUD {
       buyHintKey: $('hud-buy-hint-key'),
       mapPicker: $('hud-map-picker'),
       modePicker: $('hud-mode-picker'),
+      classPicker: $('hud-class-picker'),
+      classRow: $('hud-class-row'),
+      classEdit: $('hud-class-edit'),
+      classEditor: $('hud-class-editor'),
+      className: $('hud-class-name'),
+      classReset: $('hud-class-reset'),
+      classPerkDetail: $('hud-class-perk-detail'),
       career: $('hud-career'),
       careerToggle: $('hud-career-toggle'),
       careerBody: $('hud-career-body'),
@@ -571,6 +579,7 @@ export default class HUD {
         button.addEventListener('click', () => this._selectMode(button.dataset.modeId));
       }
     }
+    this._bindClassControls();
     let savedMode = null;
     try { savedMode = localStorage.getItem('tiny-strike-mode'); } catch { /* private mode */ }
     this._selectMode(this.game?.selectedMode || savedMode);
@@ -1296,7 +1305,69 @@ export default class HUD {
         button.setAttribute('aria-pressed', selected ? 'true' : 'false');
       }
     }
+    if (this._el.classPicker) this._el.classPicker.hidden = id !== 'tdm';
     this._updateStartSub();
+  }
+
+  _bindClassControls() {
+    const loadouts = this.game?.loadouts;
+    const el = this._el;
+    if (!loadouts || !el.classRow) return;
+    const fill = (select, ids, label) => {
+      if (!select) return;
+      select.innerHTML = ids.map((id) => '<option value="' + id + '">' + esc(label(id)) + '</option>').join('');
+      select.addEventListener('change', () => {
+        loadouts.edit(loadouts.selected, { [select.dataset.slot]: select.value });
+        this._renderClasses();
+      });
+    };
+    const weaponName = (id) => String(this._names[id] || id).toUpperCase();
+    fill(document.getElementById('hud-class-primary'), PRIMARIES, weaponName);
+    fill(document.getElementById('hud-class-secondary'), SECONDARIES, weaponName);
+    fill(document.getElementById('hud-class-tactical'), TACTICALS, weaponName);
+    fill(document.getElementById('hud-class-perk'), PERK_IDS, (id) => PERKS[id].label);
+    el.className?.addEventListener('change', () => {
+      loadouts.edit(loadouts.selected, { name: el.className.value });
+      this._renderClasses();
+    });
+    el.classEdit?.addEventListener('click', () => {
+      const open = el.classEditor.hidden;
+      el.classEditor.hidden = !open;
+      el.classEdit.setAttribute('aria-expanded', open ? 'true' : 'false');
+      el.classEdit.textContent = open ? 'DONE' : 'EDIT';
+    });
+    el.classReset?.addEventListener('click', () => {
+      loadouts.resetClass(loadouts.selected);
+      this._renderClasses();
+    });
+    el.classRow.addEventListener('click', (e) => {
+      const button = e.target.closest('[data-class-index]');
+      if (!button) return;
+      loadouts.select(Number(button.dataset.classIndex));
+      this._renderClasses();
+    });
+    this.game.events.on('loadout:select', () => this._renderClasses());
+    this._renderClasses();
+  }
+
+  _renderClasses() {
+    const loadouts = this.game?.loadouts;
+    const el = this._el;
+    if (!loadouts || !el.classRow) return;
+    const weaponName = (id) => String(this._names[id] || id).toUpperCase();
+    el.classRow.innerHTML = loadouts.classes.map((c, i) =>
+      '<button type="button" class="mn-class' + (i === loadouts.selected ? ' selected' : '') +
+      '" data-class-index="' + i + '" aria-pressed="' + (i === loadouts.selected) + '">' +
+      '<small>' + (i + 1) + '</small><strong>' + esc(c.name) + '</strong>' +
+      '<span>' + esc(weaponName(c.primary)) + ' · ' + esc(weaponName(c.secondary)) + '</span>' +
+      '<em>' + esc(PERKS[c.perk]?.label || '') + '</em></button>').join('');
+    const active = loadouts.active();
+    if (el.className && document.activeElement !== el.className) el.className.value = active.name;
+    for (const slot of ['primary', 'secondary', 'tactical', 'perk']) {
+      const select = document.getElementById('hud-class-' + slot);
+      if (select) select.value = active[slot];
+    }
+    if (el.classPerkDetail) el.classPerkDetail.textContent = PERKS[active.perk]?.detail || '';
   }
 
   _updateStartSub() {
@@ -2624,7 +2695,7 @@ export default class HUD {
       : null;
     const respawning = Number.isFinite(respawnIn);
     const targetKey = `${waiting ? `waiting:${joinRound || '?'}` : ''}:${target ? String(target.id || target.name || '') : ''}` +
-      (respawning ? `:respawn:${Math.ceil(respawnIn)}` : '');
+      (respawning ? `:respawn:${Math.ceil(respawnIn)}:${this.game.loadouts?.selected ?? ''}` : '');
     if (dead !== c.dead || dying !== c.dying || targetKey !== c.spectatorKey) {
       c.dead = dead;
       c.dying = dying;
@@ -2634,9 +2705,10 @@ export default class HUD {
       if (dead && respawning) {
         if (this._el.deathMain) this._el.deathMain.textContent = 'RESPAWNING IN ' + Math.max(1, Math.ceil(respawnIn));
         if (this._el.deathKiller) {
-          this._el.deathKiller.textContent = this._deathKiller
+          const next = this.game.loadouts?.active?.();
+          this._el.deathKiller.textContent = (this._deathKiller
             ? 'ELIMINATED BY ' + this._deathKiller.toUpperCase()
-            : 'ELIMINATED';
+            : 'ELIMINATED') + (next ? '  ·  NEXT CLASS: ' + next.name + ' [1–5]' : '');
         }
       } else if (dead) {
         if (this._el.deathMain) {
@@ -3370,6 +3442,18 @@ export default class HUD {
       '<div class="mn-mode-row">' + Object.values(GAME_MODES).map((mode) =>
         '<button type="button" class="mn-mode" data-mode-id="' + mode.id + '" aria-pressed="false">' +
         '<strong>' + mode.label + '</strong><span>' + mode.detail + '</span></button>').join('') +
+      '</div></section>' +
+      '<section class="mn-class-picker" id="hud-class-picker" aria-label="Choose a class" hidden>' +
+      '<div class="mn-section-head">CLASS<button type="button" id="hud-class-edit" aria-expanded="false">EDIT</button></div>' +
+      '<div class="mn-class-row" id="hud-class-row"></div>' +
+      '<div class="mn-class-editor" id="hud-class-editor" hidden>' +
+      '<label>NAME<input id="hud-class-name" maxlength="16" autocomplete="off" spellcheck="false"></label>' +
+      '<label>PRIMARY<select id="hud-class-primary" data-slot="primary"></select></label>' +
+      '<label>SECONDARY<select id="hud-class-secondary" data-slot="secondary"></select></label>' +
+      '<label>TACTICAL<select id="hud-class-tactical" data-slot="tactical"></select></label>' +
+      '<label>PERK<select id="hud-class-perk" data-slot="perk"></select></label>' +
+      '<p id="hud-class-perk-detail"></p>' +
+      '<button type="button" id="hud-class-reset">RESET CLASS</button>' +
       '</div></section>' +
       '<div class="mn-actions">' +
       '<button id="hud-start"><span class="btn-main">PLAY VS BOTS</span>' +
@@ -4267,6 +4351,30 @@ export default class HUD {
 .mn-map > b { display:none; position:absolute; right:4px; top:4px; width:15px; height:15px; text-align:center; line-height:15px; background:var(--map-a); color:#101510; font-size:10px; }
 .mn-map.selected > b { display:block; }
 .mn-mode-picker { position:relative; flex:0 0 auto; width:min(880px,94vw); }
+.mn-class-picker { position:relative; flex:0 0 auto; width:min(880px,94vw); }
+.mn-class-picker[hidden], .mn-class-editor[hidden] { display:none; }
+.mn-class-picker .mn-section-head { display:flex; align-items:center; justify-content:space-between; }
+#hud-class-edit, #hud-class-reset { appearance:none; font:inherit; font-size:9px; font-weight:900; letter-spacing:.2em; padding:3px 9px;
+  color:var(--olive-bright); background:transparent; border:1px solid rgba(154,178,107,.35); cursor:pointer; }
+#hud-class-edit:focus-visible, #hud-class-reset:focus-visible { outline:2px solid var(--olive-bright); outline-offset:2px; }
+.mn-class-row { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; }
+.mn-class { appearance:none; position:relative; display:flex; flex-direction:column; gap:2px; min-width:0; padding:7px 9px 8px;
+  font-family:inherit; text-align:left; cursor:pointer; color:#dfe8d2; background:rgba(8,13,8,.72);
+  border:1px solid rgba(154,178,107,.22); clip-path:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px); }
+.mn-class small { position:absolute; right:7px; top:5px; font-size:9px; font-weight:900; color:var(--olive-dim); }
+.mn-class strong { font-size:11.5px; font-weight:900; letter-spacing:.08em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-right:12px; }
+.mn-class span, .mn-class em { font-size:8.5px; font-weight:900; letter-spacing:.08em; font-style:normal; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--olive-dim); }
+.mn-class em { color:var(--olive); }
+.mn-class:hover { border-color:var(--olive); }
+.mn-class:focus-visible { outline:2px solid var(--olive-bright); outline-offset:2px; }
+.mn-class.selected { border-color:var(--olive-bright); background:rgba(154,178,107,.16); box-shadow:inset 0 0 0 1px var(--olive); }
+.mn-class-editor { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; align-items:end; margin-top:8px; padding:9px;
+  background:rgba(8,13,8,.72); border:1px solid rgba(154,178,107,.22); }
+.mn-class-editor label { display:flex; flex-direction:column; gap:4px; font-size:9px; font-weight:900; letter-spacing:.18em; color:var(--olive-dim); }
+.mn-class-editor input, .mn-class-editor select { min-width:0; height:30px; padding:0 6px; font:inherit; font-size:12px; font-weight:900;
+  letter-spacing:.06em; color:#eef5e5; background:#080d08; border:1px solid rgba(154,178,107,.38); }
+.mn-class-editor input:focus-visible, .mn-class-editor select:focus-visible { outline:2px solid var(--olive-bright); outline-offset:1px; }
+#hud-class-perk-detail { grid-column:1 / span 4; margin:0; font-size:10px; letter-spacing:.08em; color:var(--olive); }
 .mn-mode-row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
 .mn-mode {
   appearance:none; display:flex; align-items:baseline; justify-content:space-between; gap:10px; min-width:0;
@@ -4636,7 +4744,9 @@ html.touch-device .mn-id { min-height:52px; }
 @media (max-width: 620px) {
   #hud-menu { padding-inline:12px; }
   .mn-title { font-size:40px; }
-  .mn-career,.mn-map-picker,.mn-mode-picker { width:100%; }
+  .mn-career,.mn-map-picker,.mn-mode-picker,.mn-class-picker { width:100%; }
+  .mn-class-row,.mn-class-editor { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  #hud-class-perk-detail { grid-column:1 / -1; }
   .mn-id { flex-wrap:wrap; gap:6px 12px; padding:9px 12px; }
   .mn-id-name { flex:1 1 auto; }
   .mn-id > .mn-chev { order:2; }

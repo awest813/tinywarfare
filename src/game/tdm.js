@@ -229,10 +229,15 @@ export default class TeamDeathmatch {
     const weapons = this.game.weapons;
     const player = this.game.player;
     if (!weapons || typeof weapons.resetForRound !== 'function') return;
-    const loadout = tdmLoadout(player ? player.team : 'ct');
+    const loadouts = this.game.loadouts;
+    const loadout = loadouts && typeof loadouts.active === 'function'
+      ? loadouts.active()
+      : tdmLoadout(player ? player.team : 'ct');
+    if (player) player.perk = loadout.perk || null;
     weapons.resetForRound({ died: true });
     weapons.give(loadout.secondary);
     weapons.give(loadout.lethal);
+    if (loadout.tactical) weapons.give(loadout.tactical);
     weapons.give(loadout.primary);
     weapons.equip(loadout.primary);
   }
