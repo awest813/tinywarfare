@@ -38,6 +38,7 @@
 // ============================================================================
 
 import * as THREE from 'three';
+import TeamDeathmatch, { normalizeModeId } from './tdm.js';
 
 // --- Tuning local to this module (everything match-critical is in CONFIG) ---
 const MENU_AUTOSTART_DELAY = 0.5; // s, debug (?test) auto-start
@@ -64,6 +65,8 @@ export default class Rounds {
     s.phase = 'menu';
     s.timer = 0;
     s.canBuy = false;
+    s.mode = normalizeModeId(s.mode);
+    this.tdm = new TeamDeathmatch(game);
 
     // --- match / round bookkeeping ---------------------------------------
     this._matchStarted = false;
@@ -226,6 +229,17 @@ export default class Rounds {
       }
       this._updateBombVisual(dt);
       this._updateCanBuy();
+      return;
+    }
+
+    if (s.mode === 'tdm' && s.phase !== 'menu') {
+      if (s.phase === 'freeze') {
+        s.timer -= dt;
+        if (s.timer <= 0) this.tdm.goLive();
+      } else if (s.phase === 'live') {
+        this.tdm.update(dt);
+      }
+      s.canBuy = false;
       return;
     }
 
@@ -484,6 +498,9 @@ export default class Rounds {
 
   _startMatch() {
     const s = this.game.state;
+    // Online rooms only speak Search & Destroy until the protocol carries a mode.
+    const mp = this.game.multiplayer;
+    s.mode = mp && mp.active ? 'sd' : normalizeModeId(this.game.selectedMode);
     this._matchStarted = true;
     this._matchWinner = null;
     this._lastRoundResult = null;
@@ -505,6 +522,11 @@ export default class Rounds {
       player.hasKit = false;
     }
 
+    this._resetBombState();
+    if (s.mode === 'tdm') {
+      this.tdm.startMatch();
+      return;
+    }
     this._startRound();
   }
 

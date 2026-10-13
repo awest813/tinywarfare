@@ -445,6 +445,11 @@ export class LeaderboardClient {
       });
       return;
     }
+    if (result.mode === 'tdm') {
+      // Server-side validation only understands round-based results so far.
+      this.game?.events?.emit('leaderboard:unranked', { matchId: null, reason: 'mode' });
+      return;
+    }
     const payload = this.buildMatchPayload(result);
     this.game?.events?.emit('leaderboard:submitting', { payload });
     try {

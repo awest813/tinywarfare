@@ -33,7 +33,17 @@ server still works for solo play, but online rooms require `npm start`.
 
 ## Game modes
 
-- **Solo + bots:** the original offline game, with one human CT and bot teams.
+The two sides are **U.S. Forces** (defenders) and **Russian Forces** (attackers).
+
+- **Search & Destroy** (solo or online): the original round-based bomb mode
+  with an economy and buy menu. First side to 8 rounds wins.
+- **Team Deathmatch** (solo vs bots): respawn after 3 seconds with an
+  M4/AK starter class. First side to 50 kills, or the higher score after
+  10 minutes, wins. Pick it in the menu's MODE row.
+
+Ways to play:
+
+- **Solo + bots:** one human on the U.S. side, with bot teams.
 - **Humans only:** create a room, share its six-character code, choose CT or T,
   and start after at least one human joins each team.
 - **Humans + bots:** create or join a room; each side is filled to five players

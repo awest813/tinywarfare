@@ -213,6 +213,7 @@ const CT_HOLD_MIN = 6.5;
 const CT_HOLD_MAX = 10.5;
 const T_HOLD_MIN = 3.0;
 const T_HOLD_MAX = 5.5;
+const TDM_HOLD_MAX = 1.6;        // respawn modes keep everyone moving
 const INVESTIGATE_HOLD_MIN = 2.0;
 const INVESTIGATE_HOLD_MAX = 3.8;
 
@@ -2626,8 +2627,9 @@ export default class Bots {
       return;
     }
 
-    // Objective logic per team.
-    if (bot.team === 't') this._thinkT(bot);
+    // Objective logic per mode / team.
+    if (this.game.state.mode === 'tdm') this._thinkHunt(bot);
+    else if (bot.team === 't') this._thinkT(bot);
     else this._thinkCT(bot);
 
     // Idle scanning while holding: sweep the head/body left-right.
@@ -2641,6 +2643,75 @@ export default class Bots {
       bot.yaw += angleDiff(bot.scanYaw, bot.yaw) * 0.12;
     }
 
+  }
+
+  // ----- Team Deathmatch -----
+
+  /**
+   * TDM objective: keep moving toward the fight. Most goals land near the
+   * nearest living enemy (bots "hear" the battle, as respawn-mode bots do);
+   * the rest sweep a random part of the map so lanes stay contested.
+   */
+  _thinkHunt(bot) {
+    if (bot.state === 'hold' && bot.holdTimer > TDM_HOLD_MAX) bot.holdTimer = TDM_HOLD_MAX;
+    if (bot.hasGoal || bot.path || (bot.state === 'hold' && bot.holdTimer > 0)) return;
+
+    let nearest = null;
+    let best = Infinity;
+    const consider = (actor, pos) => {
+      if (!actor || !actor.alive || !pos || actor.team === bot.team) return;
+      const d2 = pos.distanceToSquared(bot.pos);
+      if (d2 < best) { best = d2; nearest = pos; }
+    };
+    for (const other of this.all) consider(other, other.pos);
+    const player = this.game.player;
+    if (player) consider(player, player.position);
+
+    let goal = null;
+    if (nearest && Math.random() < 0.7) {
+      goal = this._diverseNear(bot, nearest, 12);
+    } else {
+      const nodes = this.game.world && this.game.world.waypoints && this.game.world.waypoints.nodes;
+      if (nodes && nodes.length) goal = this._diverseNear(bot, nodes[randInt(0, nodes.length - 1)].pos, 8);
+    }
+    if (goal && this._setGoal(bot, goal)) bot.state = 'move';
+  }
+
+  /** Switch the roster from bomb plans to TDM hunting with respawn loadouts. */
+  prepareTdm() {
+    this.bombCarrier = null;
+    this._bombPlanted = false;
+    this._bombDropped = false;
+    this._targetSite = null;
+    for (const bot of this.all) this._prepareTdmBot(bot);
+  }
+
+  /** Respawn a single bot mid-match (TDM). */
+  respawnTdmBot(bot, spawn) {
+    this._respawnBot(bot, spawn, Math.max(1, this.game.state.round || 1));
+    this._prepareTdmBot(bot);
+  }
+
+  _prepareTdmBot(bot) {
+    this._clearRoute(bot);
+    bot.plan = 'hunt';
+    bot.planVia = null;
+    bot.patrolArea = null;
+    bot.patrolPoints = null;
+    bot.anchor.copy(bot.pos);
+    bot.anchorReached = true;
+
+    // Mostly rifles, some SMGs, at most one sniper per side at a time.
+    const sniperTaken = this.all.some((other) =>
+      other !== bot && other.alive && other.team === bot.team && other.weaponId === 'awp');
+    const r = Math.random();
+    let id = bot.team === 't' ? 'ak47' : 'm4a1';
+    if (r < 0.1 && !sniperTaken) id = 'awp';
+    else if (r < 0.32) id = 'mp5';
+    bot.weaponId = id;
+    bot.mag = (GUN[id] || GUN_FALLBACK).mag;
+    bot.armor = 0;
+    this._applyGunLook(bot);
   }
 
   // ----- Terrorists -----

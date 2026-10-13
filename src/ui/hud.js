@@ -11,6 +11,7 @@
 import * as THREE from 'three';
 import { MAP_CATALOG, normalizeMapId } from '../maps/catalog.js';
 import { FACTIONS, faction, scoreLine } from '../shared/factions.js';
+import { GAME_MODES, TDM, normalizeModeId } from '../game/tdm.js';
 import { resolveHumanPlayerName } from '../player/profile.js';
 import {
   KEY_BINDING_DEFINITIONS,
@@ -435,6 +436,7 @@ export default class HUD {
       settingsStatus: $('hud-settings-status'),
       buyHintKey: $('hud-buy-hint-key'),
       mapPicker: $('hud-map-picker'),
+      modePicker: $('hud-mode-picker'),
       career: $('hud-career'),
       careerToggle: $('hud-career-toggle'),
       careerBody: $('hud-career-body'),
@@ -561,6 +563,14 @@ export default class HUD {
       }
     }
     this._selectMap(this._selectedMapId, false);
+    if (this._el.modePicker) {
+      for (const button of this._el.modePicker.querySelectorAll('[data-mode-id]')) {
+        button.addEventListener('click', () => this._selectMode(button.dataset.modeId));
+      }
+    }
+    let savedMode = null;
+    try { savedMode = localStorage.getItem('tiny-strike-mode'); } catch { /* private mode */ }
+    this._selectMode(this.game?.selectedMode || savedMode);
 
     const open = () => this._setLeaderboardOpen(true);
     if (this._el.leaderboardOpen) this._el.leaderboardOpen.addEventListener('click', open);
@@ -1267,12 +1277,30 @@ export default class HUD {
         }
       }
     }
-    if (this._el.startSub) {
-      const entry = MAP_CATALOG.find((map) => map.id === id);
-      if (entry) this._el.startSub.textContent = 'ON ' + String(entry.name).toUpperCase();
-    }
+    this._updateStartSub();
     if (notify) this._queueMapSelection(id);
     else this._cancelMapSelection();
+  }
+
+  _selectMode(value) {
+    const id = normalizeModeId(value);
+    if (this.game) this.game.selectedMode = id;
+    try { localStorage.setItem('tiny-strike-mode', id); } catch { /* private mode */ }
+    if (this._el.modePicker) {
+      for (const button of this._el.modePicker.querySelectorAll('[data-mode-id]')) {
+        const selected = button.dataset.modeId === id;
+        button.classList.toggle('selected', selected);
+        button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      }
+    }
+    this._updateStartSub();
+  }
+
+  _updateStartSub() {
+    if (!this._el.startSub) return;
+    const entry = MAP_CATALOG.find((map) => map.id === this._selectedMapId);
+    const mode = GAME_MODES[normalizeModeId(this.game?.selectedMode)];
+    this._el.startSub.textContent = mode.short + (entry ? ' · ON ' + String(entry.name).toUpperCase() : '');
   }
 
   _queueMapSelection(id) {
@@ -1484,6 +1512,7 @@ export default class HUD {
     ev.on('weapon:reload:end', () => this._setReloading(false));
     ev.on('weapon:equip', () => this._setReloading(false));
     ev.on('round:start', () => this._onRoundStart());
+    ev.on('player:respawn', () => this._onRoundStart());
     ev.on('round:phase', (d) => this._onRoundPhase(d || {}));
     ev.on('round:end', (d) => this._onRoundEnd(d || {}));
     ev.on('game:end', (d) => { this._endInfo = d || null; this._lastReward = null; });
@@ -1491,6 +1520,7 @@ export default class HUD {
     ev.on('leaderboard:submitted', (d) => this._onLeaderboardSubmitted(d || {}));
     ev.on('leaderboard:unranked', (d) => {
       this._endUnranked = true;
+      this._unrankedReason = d?.reason || null;
       this._renderUnrankedEndState(d || {});
     });
     ev.on('leaderboard:server-recorded', () => {
@@ -1680,6 +1710,10 @@ export default class HUD {
     const cfg = (this.game && this.game.config) || {};
     switch (d.phase) {
       case 'freeze': {
+        if (this.game.state && this.game.state.mode === 'tdm') {
+          this._showMsg('TEAM DEATHMATCH', 'FIRST TEAM TO ' + TDM.SCORE_LIMIT + ' KILLS WINS', TDM.READY_TIME - 0.5);
+          break;
+        }
         const dur = Math.max(1.5, (cfg.MATCH && cfg.MATCH.FREEZE_TIME || 6) - 0.5);
         const buyPrompt = this.game.input?.touchMode
           ? 'TAP $ BUY FOR EQUIPMENT'
@@ -1997,11 +2031,21 @@ export default class HUD {
     }
 
     const round = st.round | 0;
-    if (round !== c.round) {
-      c.round = round;
+    const roundKey = st.mode === 'tdm' ? 'tdm' : round;
+    if (roundKey !== c.round) {
+      c.round = roundKey;
       const winRounds = (this.game.config && this.game.config.MATCH &&
         this.game.config.MATCH.WIN_ROUNDS) || 8;
-      if (this._el.round) this._el.round.textContent = 'ROUND ' + round + '  ·  FIRST TO ' + winRounds;
+      if (this._el.round) {
+        this._el.round.textContent = st.mode === 'tdm'
+          ? GAME_MODES.tdm.label + '  ·  FIRST TO ' + TDM.SCORE_LIMIT
+          : 'ROUND ' + round + '  ·  FIRST TO ' + winRounds;
+      }
+    }
+    const showMoney = st.mode !== 'tdm';
+    if (showMoney !== c.showMoney) {
+      c.showMoney = showMoney;
+      if (this._el.moneyBox) this._el.moneyBox.style.display = showMoney ? '' : 'none';
     }
   }
 
@@ -2515,14 +2559,26 @@ export default class HUD {
           ? humanCallsign(this.game, target.name, targetPlayerId)
           : String(target.name || 'TEAMMATE'))
       : '';
-    const targetKey = `${waiting ? `waiting:${joinRound || '?'}` : ''}:${target ? String(target.id || target.name || '') : ''}`;
+    const respawnIn = dead && this.game.state && this.game.state.mode === 'tdm'
+      ? this.game.rounds?.tdm?.playerRespawnIn?.()
+      : null;
+    const respawning = Number.isFinite(respawnIn);
+    const targetKey = `${waiting ? `waiting:${joinRound || '?'}` : ''}:${target ? String(target.id || target.name || '') : ''}` +
+      (respawning ? `:respawn:${Math.ceil(respawnIn)}` : '');
     if (dead !== c.dead || dying !== c.dying || targetKey !== c.spectatorKey) {
       c.dead = dead;
       c.dying = dying;
       c.spectatorKey = targetKey;
       if (this._el.death) this._el.death.style.display = dead ? 'flex' : 'none';
       if (this._el.death) this._el.death.classList.toggle('transitioning', dying);
-      if (dead) {
+      if (dead && respawning) {
+        if (this._el.deathMain) this._el.deathMain.textContent = 'RESPAWNING IN ' + Math.max(1, Math.ceil(respawnIn));
+        if (this._el.deathKiller) {
+          this._el.deathKiller.textContent = this._deathKiller
+            ? 'ELIMINATED BY ' + this._deathKiller.toUpperCase()
+            : 'ELIMINATED';
+        }
+      } else if (dead) {
         if (this._el.deathMain) {
           this._el.deathMain.textContent = waiting
             ? `SPAWNING ROUND ${joinRound || 'NEXT'}`
@@ -2774,7 +2830,8 @@ export default class HUD {
     this._lastBuyToggle = now;
     if (!this._buyOpen && !this._canOpenBuy()) {
       const st = (this.game && this.game.state) || {};
-      if (MATCH_PHASES[st.phase]) this._showMsg('', 'BUY PERIOD OVER', 1.1);
+      if (st.mode === 'tdm') this._showMsg('', 'NO BUYING IN TEAM DEATHMATCH', 1.1);
+      else if (MATCH_PHASES[st.phase]) this._showMsg('', 'BUY PERIOD OVER', 1.1);
       return;
     }
     this._setBuyOpen(!this._buyOpen);
@@ -2938,19 +2995,24 @@ export default class HUD {
     }
   }
 
-  _renderUnrankedEndState() {
-    this._setEndRank('UNRANKED GUEST · NO LEADERBOARD CREDIT', 'unranked');
+  _renderUnrankedEndState(d = {}) {
+    const modeOnly = d.reason === 'mode';
+    this._setEndRank(modeOnly
+      ? 'TEAM DEATHMATCH IS UNRANKED FOR NOW · SEARCH & DESTROY EARNS CAREER XP'
+      : 'UNRANKED GUEST · NO LEADERBOARD CREDIT', 'unranked');
     if (this._el.endRewards) {
       this._el.endRewards.classList.remove('pending');
       this._el.endRewards.classList.add('unranked');
     }
     if (this._el.endRewardPoints) this._el.endRewardPoints.textContent = 'NO CREDIT';
-    if (this._el.endRewardRank) this._el.endRewardRank.textContent = 'GUEST';
+    if (this._el.endRewardRank) this._el.endRewardRank.textContent = modeOnly ? 'TDM' : 'GUEST';
     if (this._el.endRewardLevel) this._el.endRewardLevel.textContent = 'CAREER UNCHANGED';
     if (this._el.endXpFill) this._el.endXpFill.style.width = '0%';
     if (this._el.endXpLabel) this._el.endXpLabel.textContent = 'THIS MATCH DOES NOT CHANGE YOUR SAVED CAREER';
     if (this._el.endUnlocks) {
-      this._el.endUnlocks.innerHTML = '<span class="steady">REJOIN WITH YOUR RANKED IDENTITY TO EARN PROGRESS</span>';
+      this._el.endUnlocks.innerHTML = modeOnly
+        ? '<span class="steady">RANKED TEAM DEATHMATCH ARRIVES WITH THE XP OVERHAUL</span>'
+        : '<span class="steady">REJOIN WITH YOUR RANKED IDENTITY TO EARN PROGRESS</span>';
     }
   }
 
@@ -3012,16 +3074,19 @@ export default class HUD {
     const st = (this.game && this.game.state) || {};
     const info = this._endInfo || {};
     const scores = info.scores || st.scores || { ct: 0, t: 0 };
+    const draw = !!info.draw;
     let winner = info.winner;
     if (!winner) winner = (scores.ct >= scores.t) ? 'ct' : 't';
     const playerTeam = this.game?.player?.team === 't' ? 't' : 'ct';
-    const won = winner === playerTeam;
+    const won = !draw && winner === playerTeam;
     if (this._el.endTitle) {
-      this._el.endTitle.textContent = won ? 'MISSION ACCOMPLISHED' : 'MISSION FAILED';
-      this._el.endTitle.classList.toggle('lost', !won);
+      this._el.endTitle.textContent = draw ? 'STALEMATE' : won ? 'MISSION ACCOMPLISHED' : 'MISSION FAILED';
+      this._el.endTitle.classList.toggle('lost', !won && !draw);
     }
     if (this._el.endSub) {
-      this._el.endSub.textContent = faction(winner).name + ' WIN THE MATCH';
+      this._el.endSub.textContent = draw
+        ? 'NEITHER SIDE BROKE THROUGH'
+        : faction(winner).name + ' WIN THE MATCH';
     }
     if (this._el.endScore) {
       this._el.endScore.textContent = scoreLine(scores.ct, scores.t, '  :  ');
@@ -3035,7 +3100,7 @@ export default class HUD {
     }
     this._configureEndPrimaryAction();
     this._renderEndRewards(null);
-    if (this._endUnranked) this._renderUnrankedEndState();
+    if (this._endUnranked) this._renderUnrankedEndState({ reason: this._unrankedReason });
   }
 
   // --------------------------------------------------------------------------
@@ -3238,6 +3303,12 @@ export default class HUD {
       '<div class="mn-section-head">BATTLEGROUND</div>' +
       '<div class="mn-map-grid">' + maps + '</div>' +
       '</section>' +
+      '<section class="mn-mode-picker" id="hud-mode-picker" aria-label="Choose a game mode">' +
+      '<div class="mn-section-head">MODE</div>' +
+      '<div class="mn-mode-row">' + Object.values(GAME_MODES).map((mode) =>
+        '<button type="button" class="mn-mode" data-mode-id="' + mode.id + '" aria-pressed="false">' +
+        '<strong>' + mode.label + '</strong><span>' + mode.detail + '</span></button>').join('') +
+      '</div></section>' +
       '<div class="mn-actions">' +
       '<button id="hud-start"><span class="btn-main">PLAY VS BOTS</span>' +
       '<span class="btn-sub" id="hud-start-sub">INSTANT SOLO MATCH</span></button>' +
@@ -4111,6 +4182,21 @@ export default class HUD {
 .mn-map-copy span { flex:0 0 auto; font-size:8.5px; font-weight:900; letter-spacing:.1em; text-transform:uppercase; color:var(--map-a); }
 .mn-map > b { display:none; position:absolute; right:4px; top:4px; width:15px; height:15px; text-align:center; line-height:15px; background:var(--map-a); color:#101510; font-size:10px; }
 .mn-map.selected > b { display:block; }
+.mn-mode-picker { position:relative; flex:0 0 auto; width:min(880px,94vw); }
+.mn-mode-row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.mn-mode {
+  appearance:none; display:flex; align-items:baseline; justify-content:space-between; gap:10px; min-width:0;
+  padding:9px 12px; font-family:inherit; text-align:left; cursor:pointer; color:#dfe8d2;
+  background:rgba(8,13,8,.72); border:1px solid rgba(154,178,107,.22);
+  clip-path:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px);
+  transition:border-color .12s,background .12s;
+}
+.mn-mode strong { font-size:12.5px; font-weight:900; letter-spacing:.12em; white-space:nowrap; }
+.mn-mode span { font-size:9px; font-weight:900; letter-spacing:.12em; color:var(--olive-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.mn-mode:hover { border-color:var(--olive); }
+.mn-mode:focus-visible { outline:2px solid var(--olive-bright); outline-offset:2px; }
+.mn-mode.selected { border-color:var(--olive-bright); background:rgba(154,178,107,.16); box-shadow:inset 0 0 0 1px var(--olive); }
+.mn-mode.selected span { color:var(--olive-bright); }
 /* ---------- primary action + quiet secondary row ---------- */
 .mn-actions,.end-actions { position:relative; display:flex; align-items:stretch; justify-content:center; gap:10px; }
 #hud-start, #hud-restart, #hud-end-leaderboard {
@@ -4466,7 +4552,7 @@ html.touch-device .mn-id { min-height:52px; }
 @media (max-width: 620px) {
   #hud-menu { padding-inline:12px; }
   .mn-title { font-size:40px; }
-  .mn-career,.mn-map-picker { width:100%; }
+  .mn-career,.mn-map-picker,.mn-mode-picker { width:100%; }
   .mn-id { flex-wrap:wrap; gap:6px 12px; padding:9px 12px; }
   .mn-id-name { flex:1 1 auto; }
   .mn-id > .mn-chev { order:2; }

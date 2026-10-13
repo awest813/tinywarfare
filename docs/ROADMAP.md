@@ -105,16 +105,32 @@ Two smaller ones ride along:
 Each phase ships a playable build and keeps `npm test` green.
 
 ### Phase 1: Team Deathmatch (the first MW-feeling build)
-- Mode interface plus Search & Destroy extraction (behaviour unchanged).
-- TDM: score limit of 50 kills or 10 minutes, respawn after 3 s, spawn
-  protection, spawn scoring.
-- In TDM the buy menu is replaced by a fixed starter class. Money, the economy
-  and kill rewards are bypassed, not deleted.
-- Bot hunt/roam objective; bots respawn on the same timer.
-- Mode picker on the main menu next to the map cards; online rooms carry the
-  mode.
-- HUD: kill-score bar instead of the round counter, "+100" score popups, and a
-  respawn countdown.
+Shipped for solo play (`src/game/tdm.js`):
+- Pick TDM in the menu's MODE row. The choice is saved in `tiny-strike-mode`.
+- A 50-kill score limit and a 10-minute clock; a level score when time runs
+  out is a stalemate.
+- Respawn after 3 s for the player and bots. Spawn scoring uses every team
+  spawn and nav node: at least 16 m from living enemies, out of their line of
+  sight, near a teammate, and facing the nearest enemy.
+- Fixed starter class: M4A1 or AK-47, team pistol, and a frag. No buying,
+  money, or armor. The money panel is hidden.
+- Bots use a hunt objective (`_thinkHunt`), mostly heading toward the nearest
+  enemy, with rifle, SMG, and at most one sniper per side.
+- HUD shows "TEAM DEATHMATCH · FIRST TO 50", a get-ready banner, a
+  "RESPAWNING IN N" death screen, and draw handling on the end screen.
+- TDM results are deliberately unranked. Server validation only understands
+  round results.
+- A simulated three-minute match plays through with no console errors: about 50
+  kills, all spawns valid, and the match ends at the limit.
+
+Still to do for Phase 1:
+- Online TDM. The room protocol and `rooms-core` need a mode field, the
+  network snapshot needs mode state, and late joiners should spawn instead of
+  spectate. Online rooms are pinned to S&D for now.
+- Ranked TDM: generalise `leaderboard-core.mjs` result validation per mode.
+- Spawn protection, "+100" score popups, and a killcam or death recap.
+- Extract S&D out of `rounds.js` behind the same mode interface. TDM
+  currently plugs in as a delegate.
 
 ### Phase 2: Movement and gunfeel
 - **Sprint** becomes the default on Shift (hold or toggle in settings). Walk
