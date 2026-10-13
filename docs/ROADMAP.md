@@ -235,11 +235,22 @@ Shipped for solo TDM (`src/game/score.js`, `src/game/streaks.js`):
   - Audio: a synthesized jet flyby and radio chirps.
 - S&D and online rooms have no streaks.
 
-Still to do:
-- Let the player pick three streaks.
-- Counter-UAV and Care Package.
-- Touch buttons for streaks.
-- Host-authoritative streaks for online TDM.
+Also shipped:
+- **Pick two of four** streaks in the menu's CLASS section. The picks are
+  saved in `tiny-strike-streaks-v1` and ordered by cost. Slot keys are 5 and
+  6; key 7 is the bonus slot.
+- **Counter-UAV** (600): for 25 s it jams the enemy UAV ("ENEMY UAV JAMMED")
+  and drops the enemy bots' chance of hunting the nearest target from 70% to
+  35%.
+- **Care Package** (750):
+  - A crate drops where you aim (within 40 m) and takes 3 s to fall. It shows
+    on the radar.
+  - Walk over it for a random UAV, Counter-UAV, or airstrike in the bonus
+    slot, or a full ammo and grenade resupply.
+  - It is recovered after 60 s on the ground.
+- **Touch**: a STREAK button appears whenever a streak is ready and fires the
+  first ready one.
+- Host-authoritative streaks for online play are covered by the server work.
 
 ### Phase 5: Progression and attachments
 Shipped: **attachments**, one per class on the primary. The class editor picks

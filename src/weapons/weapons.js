@@ -155,6 +155,25 @@ export default class Weapons {
     return mult;
   }
 
+  /** Full resupply: both guns to full mag and reserve, class grenades back. */
+  resupply(loadout = null) {
+    for (const slot of [1, 2]) {
+      const id = this.slots[slot];
+      const def = id && WEAPONS[id];
+      if (!def || !this.ammo[id]) continue;
+      this.ammo[id].mag = this.magSizeOf(def);
+      this.ammo[id].reserve = def.reserve;
+    }
+    if (loadout) {
+      for (const id of [loadout.lethal, loadout.tactical]) {
+        if (!id || !WEAPONS[id]) continue;
+        const max = WEAPONS[id].maxCarry || WEAPONS[id].magSize || 1;
+        while (this._grenadeCount(id) < max && this.give(id)) { /* top up */ }
+      }
+    }
+    this.game.events.emit('weapon:resupply', {});
+  }
+
   /** Scavenger: each local kill tops up a magazine of reserve for both guns. */
   _onKillScavenge(e) {
     if (!e || !e.killerIsLocal || !hasPerk(this.game.player, 'scavenger')) return;

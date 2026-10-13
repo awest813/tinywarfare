@@ -29,8 +29,9 @@ export const KEY_BINDING_DEFINITIONS = Object.freeze([
   Object.freeze({ id: 'weapon2', label: 'Sidearm', canonicalKey: '2', defaultKey: '2' }),
   Object.freeze({ id: 'weapon3', label: 'Knife', canonicalKey: '3', defaultKey: '3' }),
   Object.freeze({ id: 'weapon4', label: 'Grenade', canonicalKey: '4', defaultKey: '4' }),
-  Object.freeze({ id: 'streak1', label: 'Streak: UAV', canonicalKey: '5', defaultKey: '5' }),
-  Object.freeze({ id: 'streak2', label: 'Streak: Airstrike', canonicalKey: '6', defaultKey: '6' }),
+  Object.freeze({ id: 'streak1', label: 'Scorestreak 1', canonicalKey: '5', defaultKey: '5' }),
+  Object.freeze({ id: 'streak2', label: 'Scorestreak 2', canonicalKey: '6', defaultKey: '6' }),
+  Object.freeze({ id: 'streak3', label: 'Bonus Streak', canonicalKey: '7', defaultKey: '7' }),
 ]);
 
 const DEFINITION_BY_ID = new Map(KEY_BINDING_DEFINITIONS.map((entry) => [entry.id, entry]));

@@ -170,6 +170,9 @@ export default class TouchControls {
     const canBuy = !dead && !!state.canBuy && (phase === 'freeze' || phase === 'live');
     const canUse = !dead && (phase === 'live' || phase === 'planted');
     this._el.buy?.toggleAttribute('hidden', !canBuy);
+    const streakReady = !dead && phase === 'live' &&
+      !!this.game.streaks?.status?.().some?.((row) => row.ready);
+    this._el.streak?.toggleAttribute('hidden', !streakReady);
     this._el.use?.toggleAttribute('hidden', !canUse);
     if (this._el.jump) {
       this._el.jump.textContent = dead ? 'NEXT' : 'JUMP';
@@ -211,6 +214,7 @@ export default class TouchControls {
         <button type="button" class="tc-button tc-buy" aria-label="Open buy menu">$ BUY</button>
         <button type="button" class="tc-button tc-reload" aria-label="Reload weapon">RELOAD</button>
         <button type="button" class="tc-button tc-scope" aria-label="Toggle sniper scope">SCOPE</button>
+        <button type="button" class="tc-button tc-streak" aria-label="Call in scorestreak" hidden>STREAK</button>
       </div>
       <div class="tc-weapons" aria-label="Weapon slots">
         <button type="button" class="tc-slot" data-slot="1" aria-label="Primary weapon"><b>1</b><span>PRIMARY</span></button>
@@ -233,6 +237,7 @@ export default class TouchControls {
       score: root.querySelector('.tc-score'),
       buy: root.querySelector('.tc-buy'),
       reload: root.querySelector('.tc-reload'),
+      streak: root.querySelector('.tc-streak'),
       scope: root.querySelector('.tc-scope'),
       use: root.querySelector('.tc-use'),
       crouch: root.querySelector('.tc-crouch'),
@@ -262,6 +267,7 @@ export default class TouchControls {
       this.game.input?.setVirtualButton?.(2, false);
     });
     this._bindTap(this._el.reload, () => this.game.input?.pulseVirtualAction?.('reload'));
+    this._bindTap(this._el.streak, () => this.game.streaks?.activateFirstReady?.());
     this._bindTap(this._el.buy, () => this.game.input?.pulseVirtualAction?.('buy'));
     this._bindTap(this._el.jump, () => this.game.input?.pulseVirtualAction?.('jump'));
     this._bindTap(this._el.crouch, () => this._setCrouch(!this._crouched));

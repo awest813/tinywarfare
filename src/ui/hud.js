@@ -12,7 +12,7 @@ import * as THREE from 'three';
 import { MAP_CATALOG, normalizeMapId } from '../maps/catalog.js';
 import { FACTIONS, faction, scoreLine } from '../shared/factions.js';
 import { GAME_MODES, TDM, isRespawnMode, modeRules, normalizeModeId } from '../game/tdm.js';
-import { STREAKS } from '../game/streaks.js';
+import { STREAKS, STREAK_IDS } from '../game/streaks.js';
 import { ATTACHMENTS, ATTACHMENT_IDS, LETHALS, PRIMARIES, SECONDARIES, TACTICALS, PERKS, PERK1_IDS, PERK2_IDS } from '../game/loadouts.js';
 import { resolveHumanPlayerName } from '../player/profile.js';
 import {
@@ -1352,6 +1352,33 @@ export default class HUD {
     });
     this.game.events.on('loadout:select', () => this._renderClasses());
     this._renderClasses();
+    this._bindStreakPicker();
+  }
+
+  _bindStreakPicker() {
+    const streaks = this.game?.streaks;
+    const a = document.getElementById('hud-streak-a');
+    const b = document.getElementById('hud-streak-b');
+    if (!streaks || !a || !b) return;
+    const options = STREAK_IDS.map((id) =>
+      '<option value="' + id + '">' + esc(STREAKS[id].label + ' · ' + STREAKS[id].cost) + '</option>').join('');
+    a.innerHTML = options;
+    b.innerHTML = options;
+    const render = () => {
+      [a.value, b.value] = streaks.selected;
+      const detail = document.getElementById('hud-streak-detail');
+      if (detail) detail.textContent = streaks.selected.map((id) => STREAKS[id].detail).join('  ·  ');
+    };
+    const onChange = (changed) => {
+      const next = [a.value, b.value];
+      // Both slots on one streak: the other slot keeps its previous pick.
+      if (next[0] === next[1]) next[changed === a ? 1 : 0] = streaks.selected.find((id) => id !== changed.value);
+      streaks.selectStreaks(next); // stored cheapest first
+      render();
+    };
+    a.addEventListener('change', () => onChange(a));
+    b.addEventListener('change', () => onChange(b));
+    render();
   }
 
   _renderClasses() {
@@ -1583,9 +1610,22 @@ export default class HUD {
 
     ev.on('kill', (d) => this._onKill(d || {}));
     ev.on('score:award', (d) => this._onScoreAward(d || {}));
-    ev.on('streak:ready', (d) => this._showMsg(String(d?.label || '') + ' READY', 'PRESS ' + this._bindingLabel(d?.id === 'uav' ? 'streak1' : 'streak2'), 2));
-    ev.on('streak:activate', (d) => this._showMsg(d?.id === 'airstrike' ? 'AIRSTRIKE INBOUND' : 'UAV ONLINE', d?.id === 'airstrike' ? 'TAKE COVER' : 'ENEMIES MARKED ON RADAR', 1.8));
-    ev.on('streak:enemy', () => this._showMsg('ENEMY UAV OVERHEAD', 'KEEP MOVING', 2.2));
+    ev.on('streak:ready', (d) => this._showMsg(String(d?.label || '') + ' READY',
+      'PRESS ' + this._bindingLabel('streak' + ((d?.slot ?? 0) + 1)), 2));
+    ev.on('streak:activate', (d) => {
+      const copy = {
+        uav: ['UAV ONLINE', 'ENEMIES MARKED ON RADAR'],
+        counteruav: ['COUNTER-UAV ONLINE', 'ENEMY RECON JAMMED'],
+        carepackage: ['CARE PACKAGE INBOUND', 'WATCH THE SKY'],
+        airstrike: ['AIRSTRIKE INBOUND', 'TAKE COVER'],
+      }[d?.id] || [String(d?.label || ''), ''];
+      this._showMsg(copy[0], copy[1], 1.8);
+    });
+    ev.on('streak:enemy', (d) => this._showMsg(d?.jammed ? 'ENEMY UAV JAMMED' : 'ENEMY UAV OVERHEAD',
+      d?.jammed ? 'COUNTER-UAV HOLDING' : 'KEEP MOVING', 2.2));
+    ev.on('streak:package-landed', () => this._showMsg('', 'CARE PACKAGE ON THE GROUND', 1.4));
+    ev.on('streak:package', (d) => this._showMsg(String(d?.label || 'SUPPLIES'),
+      d?.reward === 'resupply' ? 'AMMO AND GRENADES REFILLED' : 'BONUS STREAK · PRESS ' + this._bindingLabel('streak3'), 2));
     ev.on('objective:flag', (d) => {
       const mine = (this.game.player && this.game.player.team) || 'ct';
       if (d?.owner === mine) this._showMsg('FLAG ' + d.name + ' SECURED', '', 1.4);
@@ -2203,13 +2243,15 @@ export default class HUD {
     if (!on) return;
     const rows = streaks.status();
     const uav = streaks.uavActive() ? Math.ceil(streaks.uavTime) : 0;
-    const key = rows.map((r) => `${r.id}:${r.ready ? 'R' : Math.floor(r.progress * 40)}`).join('|') + ':' + uav;
+    const cuav = streaks.counterUavActive() ? Math.ceil(streaks.counterTime) : 0;
+    const key = rows.map((r) => `${r.id}:${r.slot}:${r.ready ? 'R' : Math.floor(r.progress * 40)}`).join('|') + ':' + uav + ':' + cuav;
     if (key === this._cache.streaksKey) return;
     this._cache.streaksKey = key;
     root.innerHTML = rows.map((r) => {
-      const binding = this._bindingLabel(r.id === 'uav' ? 'streak1' : 'streak2');
-      const live = r.id === 'uav' && uav ? ' · ' + uav + 'S' : '';
-      return '<div class="sk-row' + (r.ready ? ' ready' : '') + '">' +
+      const binding = this._bindingLabel('streak' + (r.slot + 1));
+      const timer = r.id === 'uav' ? uav : r.id === 'counteruav' ? cuav : 0;
+      const live = timer ? ' · ' + timer + 'S' : '';
+      return '<div class="sk-row' + (r.ready ? ' ready' : '') + (r.bonus ? ' bonus' : '') + '">' +
         '<kbd>' + esc(binding) + '</kbd><span>' + esc(r.label) + live + '</span>' +
         '<i style="--sk:' + (r.progress * 100).toFixed(1) + '%"></i></div>';
     }).join('');
@@ -2470,8 +2512,10 @@ export default class HUD {
 
     // objective markers: Domination flags (owner colour, letter) and KC tags
     const objective = isRespawnMode(st.mode) ? g.rounds?.tdm?.objective : null;
-    const markers = objective && typeof objective.radarMarkers === 'function' ? objective.radarMarkers() : null;
-    if (markers) {
+    const objectiveMarkers = objective && typeof objective.radarMarkers === 'function' ? objective.radarMarkers() : [];
+    const streakMarkers = g.streaks && typeof g.streaks.radarMarkers === 'function' ? g.streaks.radarMarkers() : [];
+    const markers = objectiveMarkers.concat(streakMarkers);
+    if (markers.length) {
       for (const m of markers) {
         const bl = this._clampBlip((m.x - px) * RADAR_SCALE, (m.z - pz) * RADAR_SCALE);
         if (m.kind === 'flag') {
@@ -2487,6 +2531,12 @@ export default class HUD {
           c.fillStyle = '#0b0f08';
           c.fillText(m.name || '', 0, 0.5);
           c.restore();
+        } else if (m.kind === 'package') {
+          c.fillStyle = m.landed ? 'rgba(247,210,122,0.95)' : 'rgba(247,210,122,' + (0.4 + 0.4 * Math.sin(this._time * 8)).toFixed(2) + ')';
+          c.fillRect(bl.x - 3.5, bl.y - 3.5, 7, 7);
+          c.strokeStyle = '#0b0f08';
+          c.lineWidth = 1;
+          c.strokeRect(bl.x - 3.5, bl.y - 3.5, 7, 7);
         } else if (m.kind === 'tag') {
           c.fillStyle = m.team === ((p && p.team) || 'ct') ? 'rgba(95,159,224,0.9)' : 'rgba(247,210,122,0.95)';
           c.beginPath();
@@ -3537,6 +3587,10 @@ export default class HUD {
       '<section class="mn-class-picker" id="hud-class-picker" aria-label="Choose a class" hidden>' +
       '<div class="mn-section-head">CLASS<button type="button" id="hud-class-edit" aria-expanded="false">EDIT</button></div>' +
       '<div class="mn-class-row" id="hud-class-row"></div>' +
+      '<div class="mn-streak-row"><span>SCORESTREAKS</span>' +
+      '<select id="hud-streak-a" aria-label="Scorestreak 1"></select>' +
+      '<select id="hud-streak-b" aria-label="Scorestreak 2"></select>' +
+      '<small id="hud-streak-detail"></small></div>' +
       '<div class="mn-class-editor" id="hud-class-editor" hidden>' +
       '<label>NAME<input id="hud-class-name" maxlength="16" autocomplete="off" spellcheck="false"></label>' +
       '<label>PRIMARY<select id="hud-class-primary" data-slot="primary"></select></label>' +
@@ -4457,6 +4511,13 @@ export default class HUD {
 .mn-mode-picker { position:relative; flex:0 0 auto; width:min(880px,94vw); }
 .mn-class-picker { position:relative; flex:0 0 auto; width:min(880px,94vw); }
 .mn-class-picker[hidden], .mn-class-editor[hidden] { display:none; }
+.mn-streak-row { display:flex; align-items:center; gap:8px; margin-top:8px; flex-wrap:wrap; }
+.mn-streak-row span { font-size:9px; font-weight:900; letter-spacing:.22em; color:var(--olive-dim); }
+.mn-streak-row select { height:28px; padding:0 6px; font:inherit; font-size:11px; font-weight:900; letter-spacing:.06em;
+  color:#eef5e5; background:#080d08; border:1px solid rgba(154,178,107,.38); }
+.mn-streak-row select:focus-visible { outline:2px solid var(--olive-bright); outline-offset:1px; }
+.mn-streak-row small { flex:1 1 200px; font-size:9.5px; letter-spacing:.06em; color:var(--olive); }
+.sk-row.bonus { border-style:dashed; }
 .mn-class-picker .mn-section-head { display:flex; align-items:center; justify-content:space-between; }
 #hud-class-edit, #hud-class-reset { appearance:none; font:inherit; font-size:9px; font-weight:900; letter-spacing:.2em; padding:3px 9px;
   color:var(--olive-bright); background:transparent; border:1px solid rgba(154,178,107,.35); cursor:pointer; }

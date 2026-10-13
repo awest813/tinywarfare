@@ -2728,13 +2728,16 @@ export default class Bots {
     const uavUp = !!(streaks && typeof streaks.enemyUavActive === 'function' && streaks.enemyUavActive()) &&
       bot.team !== ((player && player.team) || 'ct');
     if (player && !(uavUp && player.perk === 'ghost')) consider(player, player.position);
+    // The player's Counter-UAV scatters the enemy side's hunt.
+    const jammed = !!(streaks && typeof streaks.counterUavActive === 'function' && streaks.counterUavActive()) &&
+      bot.team !== ((player && player.team) || 'ct');
     // Objective modes: most decisions go to the tag / flag the objective picks.
     const objective = this.game.rounds && this.game.rounds.tdm && this.game.rounds.tdm.objective;
     const objectiveGoal = objective && typeof objective.botGoal === 'function' ? objective.botGoal(bot) : null;
     let goal = null;
     if (objectiveGoal && Math.random() < 0.75) {
       goal = this._diverseNear(bot, objectiveGoal, 3);
-    } else if (nearest && Math.random() < (uavUp ? 0.95 : 0.7)) {
+    } else if (nearest && Math.random() < (uavUp ? 0.95 : jammed ? 0.35 : 0.7)) {
       goal = this._diverseNear(bot, nearest, 12);
     } else {
       const nodes = this.game.world && this.game.world.waypoints && this.game.world.waypoints.nodes;
