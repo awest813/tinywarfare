@@ -32,6 +32,7 @@ export const TDM = Object.freeze({
   READY_TIME: 4,          // s of 'freeze' before the first fight
   RESPAWN_DELAY: 3,       // s from death to respawn
   SAFE_DISTANCE: 16,      // m: never spawn closer than this to a living enemy
+  SPAWN_PROTECTION: 1.5,  // s of damage immunity after a respawn (firing ends it)
 });
 
 // Starter class until create-a-class lands (Phase 3).
@@ -213,6 +214,7 @@ export default class TeamDeathmatch {
     const spawn = this._spawnFor(player.team || 'ct', player);
     player.resetForRound(spawn);
     player.armor = 0;
+    if (typeof player.protect === 'function') player.protect(TDM.SPAWN_PROTECTION);
     this._equipPlayer();
     this.game.events.emit('player:respawn', { pos: spawn ? spawn.pos : null });
   }
@@ -220,7 +222,7 @@ export default class TeamDeathmatch {
   _respawnBot(bot) {
     const bots = this.game.bots;
     if (!bots || typeof bots.respawnTdmBot !== 'function') return;
-    bots.respawnTdmBot(bot, this._spawnFor(bot.team, bot));
+    bots.respawnTdmBot(bot, this._spawnFor(bot.team, bot), TDM.SPAWN_PROTECTION);
   }
 
   _equipPlayer() {

@@ -1724,6 +1724,7 @@ export default class Bots {
 
   _respawnBot(bot, spawn, round) {
     bot.health = this._cfg.HEALTH;
+    bot.spawnProtection = 0;
     bot.alive = true;
     bot.velY = 0;
     bot.onGround = true;
@@ -1828,7 +1829,7 @@ export default class Bots {
   // -------------------------------------------------------------------------
 
   _damageBot(bot, amount, info) {
-    if (!bot.alive) return;
+    if (!bot.alive || bot.spawnProtection > 0) return;
     let dmg = amount;
     if (bot.armor > 0) {
       // Headshots punch through helmets (0.85) so AK/M4 one-taps stay lethal.
@@ -2016,6 +2017,8 @@ export default class Bots {
         this._animateBot(b, dt);
         continue;
       }
+
+      if (b.spawnProtection > 0) b.spawnProtection = Math.max(0, b.spawnProtection - dt);
 
       // Staggered brain tick (~10 Hz per bot).
       b.thinkTimer -= dt;
@@ -2465,6 +2468,7 @@ export default class Bots {
   }
 
   _fireShot(bot, dist, blind) {
+    bot.spawnProtection = 0; // shooting forfeits spawn protection
     const stats = GUN[bot.weaponId] || GUN_FALLBACK;
     // Aim error: gaussian ~1.2 deg, worse when moving/blind/newly spotted,
     // slightly tighter up close.
@@ -2687,9 +2691,10 @@ export default class Bots {
   }
 
   /** Respawn a single bot mid-match (TDM). */
-  respawnTdmBot(bot, spawn) {
+  respawnTdmBot(bot, spawn, protection = 0) {
     this._respawnBot(bot, spawn, Math.max(1, this.game.state.round || 1));
     this._prepareTdmBot(bot);
+    bot.spawnProtection = Math.max(0, Number(protection) || 0);
   }
 
   _prepareTdmBot(bot) {

@@ -390,6 +390,7 @@ export default class HUD {
       radar: $('hud-radar'),
       radarCanvas: $('hud-radar-canvas'),
       crosshair: $('hud-crosshair'),
+      scorePop: $('hud-score-pop'),
       chL: $('hud-ch-l'), chR: $('hud-ch-r'), chT: $('hud-ch-t'), chB: $('hud-ch-b'),
       hitmarker: $('hud-hitmarker'),
       killcue: $('hud-killcue'),
@@ -1499,6 +1500,7 @@ export default class HUD {
     if (!ev) return;
 
     ev.on('kill', (d) => this._onKill(d || {}));
+    ev.on('score:award', (d) => this._onScoreAward(d || {}));
     ev.on('hud:hitmarker', (d) => this._onHitmarker(d || {}));
     ev.on('player:damage', (d) => this._onPlayerDamage(d || {}));
     ev.on('player:death', (d) => this._onPlayerDeath(d || {}));
@@ -2052,6 +2054,18 @@ export default class HUD {
   // --------------------------------------------------------------------------
   // Crosshair + hitmarker
   // --------------------------------------------------------------------------
+
+  /** "+100 KILL" style popups under the crosshair; newest on top, max four. */
+  _onScoreAward(d) {
+    const root = this._el.scorePop;
+    if (!root || !(d.points > 0)) return;
+    const row = document.createElement('div');
+    row.className = 'sp-row' + (d.label === 'KILL' ? '' : ' sp-bonus');
+    row.innerHTML = '<b>+' + (d.points | 0) + '</b><span>' + esc(String(d.label || '')) + '</span>';
+    root.prepend(row);
+    while (root.children.length > 4) root.lastElementChild.remove();
+    setTimeout(() => row.remove(), 1600);
+  }
 
   _updateCrosshair(phase) {
     const c = this._cache;
@@ -3182,6 +3196,7 @@ export default class HUD {
       '<div class="death-sub" id="hud-death-killer">SPECTATING</div></div></div>' +
 
       // crosshair + hitmarker
+      '<div id="hud-score-pop" aria-live="polite"></div>' +
       '<div id="hud-crosshair">' +
       '<div class="ch ch-h" id="hud-ch-l"></div><div class="ch ch-h" id="hud-ch-r"></div>' +
       '<div class="ch ch-v" id="hud-ch-t"></div><div class="ch ch-v" id="hud-ch-b"></div>' +
@@ -3689,6 +3704,16 @@ export default class HUD {
 .ch-v { width: 2px; height: 8px; top: 0; left: -1px; }
 .ch-dot { width: 2px; height: 2px; left: -1px; top: -1px; }
 #hud-crosshair .ch { transition: opacity .12s; }
+#hud-score-pop { position:absolute; left:50%; top:calc(50% + 44px); transform:translateX(-50%); z-index:4;
+  display:flex; flex-direction:column; align-items:center; gap:2px; pointer-events:none; }
+.sp-row { display:flex; align-items:baseline; gap:7px; font-weight:900; letter-spacing:.12em; white-space:nowrap;
+  color:#f3f7ec; text-shadow:0 1px 3px rgba(0,0,0,.85); animation:sp-pop 1.6s ease-out forwards; }
+.sp-row b { font-size:17px; color:#f7d27a; }
+.sp-row span { font-size:11px; }
+.sp-row.sp-bonus b { font-size:14px; color:#9fe0a0; }
+@keyframes sp-pop { 0% { opacity:0; transform:translateY(6px) scale(.9); } 10% { opacity:1; transform:none; }
+  75% { opacity:1; } 100% { opacity:0; transform:translateY(-8px); } }
+@media (prefers-reduced-motion: reduce) { .sp-row { animation:none; } }
 #hud-crosshair.ads .ch:not(.ch-dot), #hud-crosshair.sprint .ch { opacity: 0; }
 
 /* ---------- hitmarker ---------- */

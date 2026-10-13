@@ -95,6 +95,7 @@ export default class Player {
     this._slideT = 0;
     this._slideCooldown = 0;
     this._crouchKeyPrev = false;
+    this.spawnProtection = 0;
     this.moveSpeed2D = 0;
     this.eyeHeight = P.EYE_STAND;
     this.radius = P.RADIUS;
@@ -131,6 +132,7 @@ export default class Player {
     if (game.camera) game.camera.rotation.order = 'YXZ';
 
     // buffered jump: real keydown only (Input suppresses auto-repeat)
+    game.events.on('weapon:fire', () => { this.spawnProtection = 0; });
     game.events.on('input:keydown', (p) => {
       if (p && p.key === ' ' && this.alive) this._jumpQueued = JUMP_BUFFER;
     });
@@ -170,8 +172,14 @@ export default class Player {
    *   armor    -= amount * 0.5 (floored at 0)
    * Emits 'player:damage' and (once, at <= 0 hp) 'player:death'.
    */
+  /** Brief damage immunity after a respawn; firing ends it early. */
+  protect(seconds) {
+    this.spawnProtection = Math.max(0, Number(seconds) || 0);
+  }
+
   takeDamage(amount, info) {
     if (!this.alive || !(amount > 0)) return;
+    if (this.spawnProtection > 0) return;
     const game = this.game;
     if (game.state.phase === 'menu') return;
     info = info || {};
@@ -288,6 +296,7 @@ export default class Player {
     this.sliding = false;
     this._slideT = 0;
     this._slideCooldown = 0;
+    this.spawnProtection = 0;
     this.moveSpeed2D = 0;
     this._heightCur = P.HEIGHT_STAND;
     this.eyeHeight = P.EYE_STAND;
@@ -331,6 +340,7 @@ export default class Player {
     if (phase === 'menu') return;
 
     this._decayViewDynamics(dt);
+    if (this.spawnProtection > 0) this.spawnProtection = Math.max(0, this.spawnProtection - dt);
 
     if (!this.alive) {
       const simulatedElapsed = this.deathElapsed + Math.max(0, Number(dt) || 0);

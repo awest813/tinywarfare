@@ -14,6 +14,7 @@ import ViewModel from './weapons/viewmodel.js';
 import Combat from './combat/combat.js';
 import Bots from './ai/bots.js';
 import Rounds from './game/rounds.js';
+import MatchScore from './game/score.js';
 import HUD from './ui/hud.js';
 import AudioSys from './audio/audio.js';
 import Effects from './effects/effects.js';
@@ -178,6 +179,7 @@ game.viewmodel = new ViewModel(game);
 game.combat = new Combat(game);
 game.bots = new Bots(game);
 game.rounds = new Rounds(game);
+game.score = new MatchScore(game);
 game.leaderboard = new LeaderboardClient(game);
 game.hud = new HUD(game);
 game.touchControls = new TouchControls(game);
@@ -221,7 +223,7 @@ window.visualViewport?.addEventListener?.('resize', resizeRenderer, { passive: t
 const UPDATE_ORDER = [
   // The world drives the sky: its LUT/IBL bakes must land before anything is
   // drawn with them.
-  'world', 'rounds', 'touchControls', 'player', 'weapons', 'viewmodel', 'bots',
+  'world', 'rounds', 'score', 'touchControls', 'player', 'weapons', 'viewmodel', 'bots',
   // Spectator runs after replicated/AI actors so deaths, disconnects, and
   // poses affect the observer camera in the same rendered frame.
   'combat', 'multiplayer', 'spectator', 'effects', 'hud', 'audio', 'input',
