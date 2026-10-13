@@ -15,7 +15,7 @@ export function resolveWebSocketEndpoint(
   if (url.protocol === 'http:') url.protocol = 'ws:';
   else if (url.protocol === 'https:') url.protocol = 'wss:';
   if (url.protocol !== 'ws:' && url.protocol !== 'wss:') {
-    throw new TypeError('Tiny Strike WebSocket endpoint must use ws, wss, http, or https.');
+    throw new TypeError('Tiny Warfare WebSocket endpoint must use ws, wss, http, or https.');
   }
   return url.toString();
 }
@@ -29,7 +29,7 @@ export function resolveRoomDirectoryEndpoint(
   if (explicit) {
     const url = new URL(explicit, locationBase(locationLike));
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      throw new TypeError('Tiny Strike room directory endpoint must use http or https.');
+      throw new TypeError('Tiny Warfare room directory endpoint must use http or https.');
     }
     return url.toString();
   }
@@ -40,7 +40,7 @@ export function resolveRoomDirectoryEndpoint(
     if (url.protocol === 'ws:') url.protocol = 'http:';
     else if (url.protocol === 'wss:') url.protocol = 'https:';
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      throw new TypeError('Tiny Strike room service endpoint must use http, https, ws, or wss.');
+      throw new TypeError('Tiny Warfare room service endpoint must use http, https, ws, or wss.');
     }
     url.pathname = '/api/rooms';
     url.search = '';

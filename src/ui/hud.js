@@ -3173,7 +3173,7 @@ export default class HUD {
       // scoreboard
       '<div id="hud-scoreboard"><div class="hud-panel sb-panel">' +
       '<i class="hud-corner tr"></i><i class="hud-corner bl"></i>' +
-      '<div class="sb-titlebar"><span class="sb-title">TINY STRIKE — SCOREBOARD</span></div>' +
+      '<div class="sb-titlebar"><span class="sb-title">TINY WARFARE — SCOREBOARD</span></div>' +
       '<div class="sb-sub" id="hud-sb-score">CT 0 : 0 T</div>' +
       '<div id="hud-sb-body"></div>' +
       '</div></div>' +
@@ -3212,7 +3212,7 @@ export default class HUD {
       '<div class="mn-scan"></div>' +
       '<div class="mn-top">' +
       '<div class="mn-op">TACTICAL BOMB DEFUSAL</div>' +
-      '<div class="mn-title" data-title="TINY STRIKE">TINY STRIKE</div>' +
+      '<div class="mn-title" data-title="TINY WARFARE">TINY WARFARE</div>' +
       '</div>' +
       '<section class="mn-career" id="hud-career" aria-label="Your career progress">' +
       '<button class="mn-id" id="hud-career-toggle" type="button" aria-expanded="false" aria-controls="hud-career-body">' +
@@ -3279,7 +3279,7 @@ export default class HUD {
       '<div id="hud-leaderboard" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="hud-lb-title">' +
       '<div class="lb-panel">' +
       '<div class="lb-accent"></div>' +
-      '<header class="lb-top"><div><small>TINY STRIKE NETWORK</small><h2 id="hud-lb-title">LEADERBOARDS</h2></div>' +
+      '<header class="lb-top"><div><small>TINY WARFARE NETWORK</small><h2 id="hud-lb-title">LEADERBOARDS</h2></div>' +
       '<button id="hud-leaderboard-close" type="button" aria-label="Close leaderboard">×</button></header>' +
       '<div class="lb-toolbar"><div class="lb-identity"><span class="lb-avatar" id="hud-leaderboard-avatar" aria-hidden="true"><i></i></span>' +
       '<span class="lb-identity-copy"><small>YOUR OPERATIVE</small><strong id="hud-leaderboard-name">Operative</strong>' +

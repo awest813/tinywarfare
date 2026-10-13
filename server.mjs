@@ -1,6 +1,6 @@
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { extname, normalize, resolve } from 'node:path';
+import { extname, normalize, resolve, sep } from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -1037,6 +1037,27 @@ async function handleLeaderboardApi(req, res, url) {
   return true;
 }
 
+// Only the client bundle is public: never dotfiles (.git, .env, .tiny-strike
+// leaderboard data), server code, docs, or anything else in the repo root.
+const STATIC_FILES = new Set(['index.html', 'favicon.ico']);
+const STATIC_DIRS = ['src/', 'assets/', 'node_modules/three/', 'tools/', 'qa/'];
+
+function resolveStaticPath(rawPath) {
+  let pathname;
+  try {
+    pathname = rawPath === '/' ? '/index.html' : decodeURIComponent(rawPath);
+  } catch {
+    return null;
+  }
+  if (pathname.includes('\0')) return null;
+  const candidate = resolve(ROOT, '.' + normalize(pathname));
+  if (!candidate.startsWith(ROOT)) return null;
+  const rel = candidate.slice(ROOT.length).split(sep).join('/');
+  if (rel.split('/').some((segment) => segment.startsWith('.'))) return null;
+  if (!STATIC_FILES.has(rel) && !STATIC_DIRS.some((dir) => rel.startsWith(dir))) return null;
+  return candidate;
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || '/', 'http://localhost');
   if ((req.method === 'GET' || req.method === 'HEAD') && url.pathname === '/health') {
@@ -1053,10 +1074,8 @@ const server = createServer(async (req, res) => {
   }
   if (await handleRoomsApi(req, res, url)) return;
   if (await handleLeaderboardApi(req, res, url)) return;
-  const rawPath = url.pathname;
-  const pathname = rawPath === '/' ? '/index.html' : decodeURIComponent(rawPath);
-  const candidate = resolve(ROOT, '.' + normalize(pathname));
-  if (!candidate.startsWith(ROOT) || !existsSync(candidate) || !statSync(candidate).isFile()) {
+  const candidate = resolveStaticPath(url.pathname);
+  if (!candidate || !existsSync(candidate) || !statSync(candidate).isFile()) {
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Not found');
     return;

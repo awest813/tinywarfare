@@ -2,7 +2,7 @@
 //
 // The controller feeds the same Input facade used by keyboard and mouse, so
 // combat, networking, grenades, objectives, scoreboard, and spectating keep a
-// single gameplay path. Portrait is intentionally gated: Tiny Strike needs a
+// single gameplay path. Portrait is intentionally gated: Tiny Warfare needs a
 // wide field of view and enough room for two-thumb controls.
 
 const STICK_DEAD_ZONE = 0.12;
@@ -199,7 +199,7 @@ export default class TouchControls {
       <div class="tc-orientation" role="status" aria-live="polite">
         <span class="tc-phone" aria-hidden="true"><i></i></span>
         <strong>ROTATE TO LANDSCAPE</strong>
-        <small>Tiny Strike uses a wide tactical layout on phones and tablets.</small>
+        <small>Tiny Warfare uses a wide tactical layout on phones and tablets.</small>
       </div>
       <div class="tc-look" aria-label="Drag to aim"></div>
       <div class="tc-stick" aria-label="Movement joystick">

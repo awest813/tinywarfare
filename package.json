@@ -1,5 +1,5 @@
 {
-  "name": "tiny-strike",
+  "name": "tiny-warfare",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -20,14 +20,14 @@
   ],
   "author": "Guy Zyskind",
   "license": "ISC",
-  "description": "Open-source tactical browser FPS with solo, bot, and online multiplayer modes",
-  "homepage": "https://guyzyskind.com/tinystrike/",
+  "description": "Open-source browser FPS evolving from tactical bomb defusal toward fast-paced modern-warfare-style combat, with solo, bot, and online multiplayer modes",
+  "homepage": "https://github.com/awest813/tinywarfare#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/guyz/tinystrike.git"
+    "url": "git+https://github.com/awest813/tinywarfare.git"
   },
   "bugs": {
-    "url": "https://github.com/guyz/tinystrike/issues"
+    "url": "https://github.com/awest813/tinywarfare/issues"
   },
   "dependencies": {
     "three": "^0.166.1",

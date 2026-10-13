@@ -580,6 +580,16 @@ export default class Weapons {
   // ==========================================================================
   // Firing
   // ==========================================================================
+  /**
+   * Next shot time keeps the sub-frame remainder of a sustained burst, so the
+   * cyclic rate matches `rpm` instead of rounding every gap up to a frame.
+   */
+  _scheduleNextShot(def) {
+    const interval = 60 / def.rpm;
+    const late = this._now - this._nextFireAt;
+    this._nextFireAt = (late >= 0 && late < interval ? this._nextFireAt : this._now) + interval;
+  }
+
   _tryFire(def, player) {
     if (this._now < this._nextFireAt) return;
 
@@ -596,7 +606,7 @@ export default class Weapons {
     }
 
     ammo.mag -= 1;
-    this._nextFireAt = this._now + 60 / def.rpm;
+    this._scheduleNextShot(def);
     this._fireShot(def, player, false);
 
     // AWP: shot forces a brief unscope while the bolt cycles, then re-scopes.

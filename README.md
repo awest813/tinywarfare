@@ -1,10 +1,12 @@
-# Tiny Strike
+# Tiny Warfare
 
-A fast, Counter-Strike-inspired bomb-defusal FPS that runs entirely in the browser.
-Three.js rendering, procedural textures, synthesized WebAudio, bot AI — no
-build step.
+A fast browser FPS that runs entirely in the browser — Three.js rendering,
+procedural textures, synthesized WebAudio, bot AI, no build step.
 
-**[Play Tiny Strike](https://guyzyskind.com/tinystrike/)**
+Tiny Warfare is a fork of [Tiny Strike](https://github.com/guyz/tinystrike) by
+Guy Zyskind. It currently plays as a tactical bomb-defusal shooter and is being
+taken toward fast-paced, modern-military arcade combat (respawn modes,
+loadouts, killstreaks). See [docs/ROADMAP.md](docs/ROADMAP.md) for the plan.
 
 Soldier character models are from the
 [Quaternius "Toon Shooter Game Kit"](https://quaternius.com/packs/toonshootergamekit.html)
@@ -131,9 +133,11 @@ balanced teams, match start, state replication, and shot forwarding.
 
 ## License
 
-Tiny Strike's source code is open source under the [ISC License](LICENSE).
-Third-party and original asset terms are documented in [ASSETS.md](ASSETS.md).
+Tiny Warfare's source code is open source under the [ISC License](LICENSE),
+which retains the original Tiny Strike copyright notice. Third-party and
+original asset terms are documented in [ASSETS.md](ASSETS.md).
 
-Tiny Strike is an independent project inspired by tactical shooters. It is not
-affiliated with or endorsed by Valve Corporation; Counter-Strike is a trademark
-of Valve Corporation.
+Tiny Warfare is an independent project inspired by tactical and military
+shooters. It is not affiliated with or endorsed by Valve Corporation or
+Activision; Counter-Strike and Call of Duty / Modern Warfare are trademarks of
+their respective owners.

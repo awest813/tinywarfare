@@ -145,7 +145,10 @@ export default class Rounds {
       this._resetBombState();
       const spawn = this._pickPlayerSpawn(this.game.player.team, mp.localTeamIndex());
       this.game.player.resetForRound(spawn);
-      if (died) this.game.player.hasKit = false;
+      if (died) {
+        this.game.player.hasKit = false;
+        this.game.player.armor = 0;
+      }
       if (this.game.weapons && typeof this.game.weapons.resetForRound === 'function') {
         this.game.weapons.resetForRound({ died });
       }
@@ -190,7 +193,9 @@ export default class Rounds {
     if (s.phase !== previousPhase) {
       if (s.phase === 'roundEnd') {
         const result = remote.roundResult || {};
-        if (result.winner) this._applyRoundEconomy(result.winner, result.reason, result.defuserId || null);
+        // A replayed roundEnd (duplicate snapshot, authority handoff) must
+        // not pay the same round twice.
+        if (result.winner && s.round > this._economyRound) this._applyRoundEconomy(result.winner, result.reason, result.defuserId || null);
         this.game.events.emit('round:end', result);
       } else if (s.phase === 'gameEnd') {
         this.game.events.emit('game:end', {
@@ -542,8 +547,11 @@ export default class Rounds {
     if (player && typeof player.resetForRound === 'function') {
       player.resetForRound(spawn);
     }
-    // Dying loses the defuse kit (CS rule); armor persistence is player's.
-    if (player && died) player.hasKit = false;
+    // Dying loses the defuse kit and armor (CS rule); survivors keep both.
+    if (player && died) {
+      player.hasKit = false;
+      player.armor = 0;
+    }
 
     // Weapons: keep guns if survived; back to pistol if died last round.
     const weapons = this.game.weapons;

@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please report security vulnerabilities through
-[GitHub private vulnerability reporting](https://github.com/guyz/tinystrike/security/advisories/new).
+[GitHub private vulnerability reporting](https://github.com/awest813/tinywarfare/security/advisories/new).
 Do not disclose a suspected vulnerability in a public issue.
 
 Include the affected version or commit, reproduction steps, impact, and any

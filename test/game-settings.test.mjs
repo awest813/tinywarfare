@@ -171,6 +171,29 @@ test('input remaps hardware before gameplay while semantic touch actions stay fi
   input.setVirtualAction('moveForward', false);
 });
 
+test('the digit row survives Shift and Cmd release never leaves keys held', (t) => {
+  installInputGlobals(t);
+  const events = eventBus();
+  const game = { debug: false, canvas: {}, events };
+  game.settings = new GameSettings(game, null);
+  const input = new Input(game);
+  game.input = input;
+
+  input._onKeyDown({ key: '1', code: 'Digit1', repeat: false });
+  input._onKeyDown({ key: 'Shift', code: 'ShiftLeft', repeat: false, shiftKey: true });
+  input._onKeyUp({ key: '!', code: 'Digit1', shiftKey: true });
+  assert.equal(input.isDown('1'), false, 'a shifted keyup releases the digit');
+  input._onKeyDown({ key: '@', code: 'Digit2', repeat: false, shiftKey: true });
+  assert.equal(input.isDown('2'), true, 'weapon slots work while walking');
+  input._onKeyUp({ key: 'Shift', code: 'ShiftLeft' });
+  input._onKeyUp({ key: '2', code: 'Digit2' });
+
+  input._onKeyDown({ key: 'w', code: 'KeyW', repeat: false });
+  input._onKeyDown({ key: 'Meta', code: 'MetaLeft', repeat: false, metaKey: true });
+  input._onKeyUp({ key: 'Meta', code: 'MetaLeft' });
+  assert.equal(input.isDown('w'), false, 'releasing Cmd drops keys whose keyup macOS swallows');
+});
+
 test('key capture consumes the assignment, Escape cancels, and Tab navigates while unlocked', (t) => {
   installInputGlobals(t);
   const events = eventBus();

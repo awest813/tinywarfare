@@ -71,6 +71,22 @@ test('production origins and persistent data directories are normalized safely',
   );
 });
 
+test('static serving exposes only the client bundle and survives malformed URLs', async (t) => {
+  startServer(0);
+  await once(server, 'listening');
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const { port } = server.address();
+  const status = async (path) => (await fetch(`http://127.0.0.1:${port}${path}`)).status;
+  for (const path of ['/', '/index.html', '/src/main.js', '/node_modules/three/build/three.module.js']) {
+    assert.equal(await status(path), 200, path);
+  }
+  for (const path of ['/.git/config', '/server.mjs', '/package.json', '/.tiny-strike/leaderboard.json',
+    '/node_modules/ws/package.json', '/src/%2e%2e/server.mjs', '/%E0%A4%A']) {
+    assert.equal(await status(path), 404, path);
+  }
+  assert.equal(await status('/index.html'), 200, 'server still up after a malformed URL');
+});
+
 test('a resumed mobile tab takes over its live socket and receives canonical state on demand', async (t) => {
   startServer(0);
   await once(server, 'listening');

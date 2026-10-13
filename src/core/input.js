@@ -495,6 +495,12 @@ export default class Input {
   _onKeyUp(e) {
     const physicalKey = this._normalizePhysicalKey(e);
     if (physicalKey === null) return;
+    // macOS sends no keyup for keys released while Cmd is held, so releasing
+    // Cmd drops every held hardware key rather than leaving W stuck.
+    if (physicalKey === 'meta') {
+      this._releaseHardwareKeys();
+      return;
+    }
     const key = this._resolveHardwareKey(physicalKey);
     if (key === null) return;
     this._down.delete(key);
@@ -511,6 +517,11 @@ export default class Input {
   }
 
   _normalizePhysicalKey(e) {
+    // The digit row is matched by position: with Shift held (walk) or on
+    // AZERTY, e.key is a symbol ('!'), which would block weapon slots and
+    // leave a key pressed before Shift stuck when its keyup arrives as '!'.
+    const digit = /^Digit([0-9])$/.exec(e?.code || '');
+    if (digit) return digit[1];
     return normalizePhysicalKey(e?.key);
   }
 

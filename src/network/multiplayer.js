@@ -915,7 +915,7 @@ export default class Multiplayer {
     this._ui.refresh.disabled = true;
     this._ui.roomsMeta.textContent = 'SCANNING…';
     if (!this._ui.rooms.children.length) {
-      this._ui.rooms.innerHTML = '<div class="mp-room-state"><i></i><strong>SCANNING LIVE ROOMS</strong><small>Contacting Tiny Strike Network…</small></div>';
+      this._ui.rooms.innerHTML = '<div class="mp-room-state"><i></i><strong>SCANNING LIVE ROOMS</strong><small>Contacting Tiny Warfare Network…</small></div>';
     }
     try {
       const result = await fetchRoomDirectory({ signal: this._roomDirectoryController?.signal });
