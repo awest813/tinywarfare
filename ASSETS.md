@@ -1,12 +1,27 @@
 # Asset licenses
 
+## Marine soldier model
+
+`assets/models/source/marine.glb` is the low-poly Marine character supplied by
+the project owner for Tiny Warfare (`SoldierCharacter.glb` with its two
+embedded camouflage atlases). `tools/build-operatives.mjs` derives the in-game
+soldiers from it:
+
+- `assets/models/operative_us.glb` (multicam atlas)
+- `assets/models/operative_ru.glb` (grey atlas through a green filter)
+
+Both carry the animation set of the Quaternius kit below, retargeted onto the
+Marine's rig. Check the Marine's original licence terms before redistributing
+the source model outside this project.
+
 ## Quaternius Toon Shooter Game Kit
 
 The following files are derived from the
 [Quaternius Toon Shooter Game Kit](https://quaternius.com/packs/toonshootergamekit.html),
 which Quaternius released under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/):
 
-- `assets/models/soldier_ct.glb`
+- `assets/models/soldier_ct.glb` (now the animation source for the operatives
+  and the reference for the body-merge tests; no longer drawn in game)
 - `assets/models/soldier_t.glb`
 - `assets/models/viewmodels/npc-arms-ct.glb` (a body-stripped derivative of
   `soldier_ct.glb`)

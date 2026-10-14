@@ -55,12 +55,14 @@ const GUN = {
 };
 const GUN_FALLBACK = GUN.usp;
 
-// Skinned soldier bodies (Quaternius "Toon Shooter Game Kit", CC0), processed
-// in Blender to keep only the body + the four held-weapon meshes we toggle.
-// bodyHeight = measured body-only height of each source model (feet at y=0).
+// Skinned soldier bodies: the low-poly Marine (assets/models/source/marine.glb)
+// carrying the original pack's 17 clips, retargeted by
+// tools/build-operatives.mjs, which also writes the Russian variant's tint and
+// the four held-weapon seats. Rebuild with `node tools/build-operatives.mjs`.
+// bodyHeight = measured height of the source model, helmet on (feet at y=0).
 const CHAR_MODELS = {
-  ct: { url: 'assets/models/soldier_ct.glb', bodyHeight: 2.2699 },
-  t: { url: 'assets/models/soldier_t.glb', bodyHeight: 2.1358 },
+  ct: { url: 'assets/models/operative_us.glb', bodyHeight: 1.965 },
+  t: { url: 'assets/models/operative_ru.glb', bodyHeight: 1.965 },
 };
 const CHAR_TARGET_HEIGHT = 1.83;
 const CHAR_GUN_MESH_NAMES = new Set(['AK', 'SMG', 'Sniper', 'Pistol']);
