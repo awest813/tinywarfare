@@ -131,11 +131,17 @@ export default class AudioSys {
     ev.on('weapon:equip', (p) => this._onEquip(p));
     ev.on('weapon:scope', (p) => this._onScope(p));
     ev.on('grenade:throw', (p) => this._onThrow(p));
+    // Gunfire the authority resolves for remote players (no bot:fire exists).
+    ev.on('audio:shot', (p) => this._onBotFire(p));
+    ev.on('grenade:stuck', (p) => this._onStuck(p));
 
     // Movement foley
     ev.on('player:footstep', (p) => this._onPlayerStep(p));
     ev.on('bot:footstep', (p) => this._onBotStep(p));
     ev.on('player:land', (p) => this._onLand(p));
+    ev.on('player:slide', () => this._onSlide());
+    ev.on('player:mantle', () => this._onMantle());
+    ev.on('player:respawn', () => this._onRespawn());
 
     // Damage / deaths
     ev.on('player:damage', (p) => this._onPlayerDamage(p));
@@ -153,8 +159,16 @@ export default class AudioSys {
     ev.on('fx:impact', (p) => this._onImpact(p));
     ev.on('fx:explosion', (p) => this._onExplosion(p));
     ev.on('streak:airstrike', () => this._jetFlyby());
-    ev.on('streak:activate', (p) => { if (p && p.id === 'uav') this._radioChirp(); });
+    ev.on('streak:activate', () => this._radioChirp());
     ev.on('streak:enemy', () => this._radioChirp(true));
+    ev.on('streak:ready', () => this._onStreakReady());
+    ev.on('streak:package-inbound', () => this._radioChirp());
+    ev.on('streak:package-landed', (p) => this._onPackageLanded(p));
+    ev.on('streak:package', () => this._onPackageOpened());
+    // Objectives
+    ev.on('objective:tag', (p) => this._onTag(p));
+    ev.on('objective:flag', (p) => this._onFlag(p));
+    ev.on('objective:hardpoint', () => this._radioChirp());
     ev.on('fx:flash', (p) => this._onFlash(p));
     ev.on('fx:smoke', (p) => this._onSmoke(p));
     ev.on('bomb:detonated', (p) => this._onDetonated(p));
@@ -174,6 +188,24 @@ export default class AudioSys {
     ev.on('progress:achievement', (p) => this._onAchievement(p));
     ev.on('progress:record', (p) => this._onPersonalRecord(p));
     ev.on('progress:level-up', (p) => this._onLevelUp(p));
+    // Leaving a match for the menu silences anything still scheduled.
+    ev.on('ui:menu', () => this._onMenu());
+    ev.on('settings:changed', () => this._applyVolume());
+  }
+
+  /** Master gain follows the VOLUME setting (0 mutes; 0.8 is the old level). */
+  _applyVolume() {
+    if (!this.master || !this.ctx) return;
+    const v = Number(this.game.settings?.volume ?? 0.8);
+    const gain = 0.5 * Math.max(0, Math.min(1, v)) / 0.8;
+    this.master.gain.setTargetAtTime(gain, this.ctx.currentTime, 0.03);
+  }
+
+  _onMenu() {
+    this._cancelReload();
+    this._pendingEliminationAt = -1;
+    this._nextBeep = 0;
+    this._nextDefTick = 0;
   }
 
   _ensureCtx() {
@@ -183,7 +215,8 @@ export default class AudioSys {
       this.ctx = new AC();
       this._buildGraph();
     }
-    if (this.ctx.state === 'suspended') {
+    // Safari reports 'interrupted' after a call or Siri; resume that too.
+    if (this.ctx.state === 'suspended' || this.ctx.state === 'interrupted') {
       const p = this.ctx.resume();
       if (p && p.catch) p.catch(() => {});
     }
@@ -193,7 +226,7 @@ export default class AudioSys {
     const ctx = this.ctx;
 
     this.master = ctx.createGain();
-    this.master.gain.value = 0.5;
+    this.master.gain.value = 0.5 * Math.max(0, Math.min(1, Number(this.game.settings?.volume ?? 0.8))) / 0.8;
     this.limiter = ctx.createDynamicsCompressor();
     this.limiter.threshold.value = -3;
     this.limiter.knee.value = 0;
@@ -899,7 +932,8 @@ export default class AudioSys {
     if (!grp) return;
     const id = p && p.id;
     const dur = (p && p.duration) || 2.4;
-    const heavy = id === 'awp' ? 0.62 : (id === 'ak47' || id === 'm4a1') ? 0.8 : id === 'mp5' ? 0.95 : 1.12;
+    const heavy = id === 'awp' || id === 'lmg' ? 0.62 : id === 'shotgun' ? 0.72
+      : (id === 'ak47' || id === 'm4a1') ? 0.8 : id === 'mp5' ? 0.95 : 1.12;
     const t = this._t();
 
     // mag release click
@@ -1140,6 +1174,10 @@ export default class AudioSys {
   _onFlash(p) {
     if (!this._ready() || !p || !p.pos) return;
     const pos = p.pos;
+    if (p.stun) {
+      this._onStunBang(pos);
+      return;
+    }
 
     // The bang itself, positional.
     this.play3D((g, t) => {
@@ -1279,6 +1317,13 @@ export default class AudioSys {
     const grp = this._critical(0.72);
     if (!grp) return;
     const t = this._t() + 0.25;
+    if (p.draw) {
+      // Neither triumph nor defeat: radio break and one level stamp.
+      this._noiseHit(grp, t, { type: 'highpass', f: 3150, fEnd: 1150, slideDur: 0.06, q: 0.7, dur: 0.075, vol: 0.3, a: 0.001 });
+      this._noiseHit(grp, t + 0.08, { type: 'lowpass', f: 600, fEnd: 160, slideDur: 0.2, q: 0.6, dur: 0.24, vol: 0.5, a: 0.002, rate: 0.7 });
+      this._tone(grp, t + 0.08, { f: 90, end: 70, slideDur: 0.2, dur: 0.24, vol: 0.34, a: 0.003 });
+      return;
+    }
     const playerTeam = (this.game && this.game.player && this.game.player.team) || 'ct';
     const won = p.winner === playerTeam;
     this._outcomeSound(grp, t, won, true);
@@ -1557,6 +1602,115 @@ export default class AudioSys {
     this._tone(grp, t + 0.11, { f: base * 1.33, type: 'square', vol: 0.5, a: 0.004, dur: 0.09, lp: 2600 });
   }
 
+  // --- movement / streak / objective cues ------------------------------------
+
+  _onSlide() {
+    const grp = this._direct(0.22);
+    if (!grp) return;
+    const t = this._t();
+    // Fabric and grit scraping along the ground.
+    this._noiseHit(grp, t, { type: 'bandpass', f: 1300, fEnd: 420, slideDur: 0.55, q: 0.6, dur: 0.6, vol: 0.6, a: 0.03, rate: 0.8 });
+    this._noiseHit(grp, t, { type: 'lowpass', f: 380, dur: 0.18, vol: 0.5, a: 0.004, rate: 0.7 });
+  }
+
+  _onMantle() {
+    const grp = this._direct(0.24);
+    if (!grp) return;
+    const t = this._t();
+    // Hands slap the ledge, then gear settles as the body comes over.
+    this._noiseHit(grp, t, { type: 'bandpass', f: 1800, q: 0.9, dur: 0.05, vol: 0.6, a: 0.002 });
+    this._tone(grp, t, { f: 120, end: 70, slideDur: 0.08, vol: 0.5, a: 0.003, dur: 0.1 });
+    this._noiseHit(grp, t + 0.16, { type: 'bandpass', f: 700, fEnd: 300, slideDur: 0.2, q: 0.8, dur: 0.22, vol: 0.4, a: 0.03 });
+  }
+
+  _onRespawn() {
+    const grp = this._direct(0.4, this.music);
+    if (!grp) return;
+    this._deploymentSound(grp, this._t() + 0.02, false);
+  }
+
+  _onStunBang(pos) {
+    // A low concussive thump with a brief muffle; no flashbang ringing.
+    this.play3D((g, t) => {
+      this._noiseHit(g, t, { type: 'lowpass', f: 900, fEnd: 120, slideDur: 0.3, dur: 0.35, vol: 1.0, a: 0.002, rate: 0.7 });
+      this._tone(g, t, { f: 70, end: 38, slideDur: 0.3, vol: 0.8, a: 0.003, dur: 0.34 });
+      this._noiseHit(g, t, { type: 'bandpass', f: 2200, q: 0.8, dur: 0.05, vol: 0.4, a: 0.001 });
+    }, pos, { refDist: 14, maxDist: 80, vol: 1.1, priority: true });
+    const cp = this.game.camera.position;
+    const d = Math.hypot(pos.x - cp.x, pos.y - cp.y, pos.z - cp.z);
+    if (d < 14) {
+      this._duckMaster(Math.min(0.8, 0.35 + d / 25), 1.2);
+      this._muffle(900 + d * 160, 1.4);
+    }
+  }
+
+  _onStuck(p) {
+    // Semtex: a sticky slap and a fast arming chirp from whoever wears it.
+    const victim = p && p.victim;
+    const pos = victim && (victim.pos || victim.position);
+    if (!this._ready() || !pos) return;
+    this.play3D((g, t) => {
+      this._noiseHit(g, t, { type: 'bandpass', f: 900, q: 1, dur: 0.05, vol: 0.6, a: 0.002 });
+      this._beepSound(g, t + 0.08, 2600);
+      this._beepSound(g, t + 0.22, 2600);
+      this._beepSound(g, t + 0.36, 2600);
+    }, pos, { refDist: 10, maxDist: 40, vol: 0.7, priority: true });
+  }
+
+  _onStreakReady() {
+    const grp = this._critical(0.32);
+    if (!grp) return;
+    const t = this._t();
+    this._noiseHit(grp, t, { type: 'highpass', f: 2800, fEnd: 1300, slideDur: 0.05, q: 0.7, dur: 0.06, vol: 0.25, a: 0.001 });
+    this._tone(grp, t + 0.05, { f: 880, type: 'square', vol: 0.35, a: 0.004, dur: 0.06, lp: 2600 });
+    this._tone(grp, t + 0.15, { f: 1320, type: 'square', vol: 0.35, a: 0.004, dur: 0.1, lp: 2600 });
+  }
+
+  _onPackageLanded(p) {
+    if (!this._ready() || !p || !p.pos) return;
+    this.play3D((g, t) => {
+      this._noiseHit(g, t, { type: 'lowpass', f: 500, fEnd: 120, slideDur: 0.25, dur: 0.3, vol: 1.0, a: 0.003, rate: 0.75 });
+      this._tone(g, t, { f: 85, end: 45, slideDur: 0.25, vol: 0.7, a: 0.003, dur: 0.28 });
+      this._mech(g, t + 0.12, 700, 0.4);
+    }, p.pos, { refDist: 12, maxDist: 70, vol: 0.9 });
+  }
+
+  _onPackageOpened() {
+    const grp = this._critical(0.4);
+    if (!grp) return;
+    const t = this._t();
+    this._mech(grp, t, 1100, 0.6);
+    this._mech(grp, t + 0.07, 1500, 0.5);
+    this._noiseHit(grp, t + 0.05, { type: 'bandpass', f: 800, fEnd: 400, slideDur: 0.15, q: 0.8, dur: 0.18, vol: 0.4, a: 0.01 });
+  }
+
+  _onTag(p) {
+    if (!p || !p.byPlayer) return;
+    const grp = this._critical(0.36);
+    if (!grp) return;
+    const t = this._t();
+    // Metal tag snatched: bright for a confirm, lower for a deny.
+    const f = p.confirmed ? 1760 : 1180;
+    this._mech(grp, t, f, 0.6);
+    this._tone(grp, t + 0.03, { f, vol: 0.28, a: 0.002, dur: 0.12, type: 'triangle' });
+    this._tone(grp, t + 0.03, { f: f * 1.5, vol: 0.12, a: 0.002, dur: 0.08 });
+  }
+
+  _onFlag(p) {
+    if (!p) return;
+    const team = (this.game.player && this.game.player.team) || 'ct';
+    const gained = p.owner === team;
+    const lost = p.previous === team && p.owner !== team;
+    if (!gained && !lost) return;
+    const grp = this._critical(0.3);
+    if (!grp) return;
+    const t = this._t();
+    const a = gained ? 660 : 990;
+    const b = gained ? 990 : 590;
+    this._tone(grp, t, { f: a, type: 'square', vol: 0.3, a: 0.004, dur: 0.08, lp: 2400 });
+    this._tone(grp, t + 0.12, { f: b, type: 'square', vol: 0.3, a: 0.004, dur: 0.14, lp: 2400 });
+  }
+
   _uiClick(f, vol) {
     const grp = this._direct(vol || 0.12);
     if (!grp) return;
@@ -1580,12 +1734,16 @@ export default class AudioSys {
       this._playEliminationCue(false);
     }
 
-    // Bomb beeps: cadence accelerates as the fuse runs down.
-    if (st && st.phase === 'planted' && st.bomb && st.bomb.pos) {
+    // Bomb beeps: cadence accelerates as the fuse runs down. A bomb that
+    // outlives its round (elimination win after a plant) keeps beeping.
+    const rounds = this.game.rounds;
+    const cosmetic = !!(rounds && rounds._cosmeticArmed);
+    if (st && (st.phase === 'planted' || cosmetic) && st.bomb && st.bomb.pos) {
       if (now >= this._nextBeep) {
-        const iv = Math.min(1, Math.max(0.12, st.timer / 40));
+        const fuse = cosmetic && st.phase !== 'planted' ? Number(rounds._cosmeticFuse) || 0 : st.timer;
+        const iv = Math.min(1, Math.max(0.12, fuse / 40));
         this._nextBeep = now + iv;
-        const f = st.timer < 8 ? 2320 : 2080;
+        const f = fuse < 8 ? 2320 : 2080;
         this.play3D((g, t) => this._beepSound(g, t, f), st.bomb.pos, {
           refDist: 16, maxDist: 100, vol: 0.65, priority: true,
         });
@@ -1594,13 +1752,22 @@ export default class AudioSys {
       this._nextBeep = 0;
     }
 
-    // Defuse ticks while the player works on the bomb.
-    if (st && st.bomb && st.bomb.planted && st.bomb.defuseProgress > 0) {
+    // Defuse ticks while someone works on the bomb: in your ears when it is
+    // you, positional at the bomb otherwise (no information leak).
+    if (st && st.phase === 'planted' && st.bomb && st.bomb.planted && st.bomb.defuseProgress > 0) {
       if (now >= this._nextDefTick) {
         this._nextDefTick = now + 0.13;
         this._defTickAlt = !this._defTickAlt;
-        const grp = this._direct(0.16);
-        if (grp) this._mech(grp, now + 0.002, this._defTickAlt ? 1650 : 1250, 0.8);
+        const f = this._defTickAlt ? 1650 : 1250;
+        const by = st.bomb.defusingBy;
+        const mp = this.game.multiplayer;
+        const mine = by === 'player' || (mp && mp.localId && by === mp.localId);
+        if (mine) {
+          const grp = this._direct(0.16);
+          if (grp) this._mech(grp, now + 0.002, f, 0.8);
+        } else if (st.bomb.pos) {
+          this.play3D((g, t) => this._mech(g, t, f, 0.8), st.bomb.pos, { refDist: 6, maxDist: 30, vol: 0.4 });
+        }
       }
     } else {
       this._nextDefTick = 0;

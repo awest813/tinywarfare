@@ -15,7 +15,7 @@ import { GAME_MODES, TDM, isRespawnMode, modeRules, normalizeModeId } from '../g
 import { STREAKS, STREAK_IDS } from '../game/streaks.js';
 import { ATTACHMENTS, ATTACHMENT_IDS, LETHALS, PRIMARIES, SECONDARIES, TACTICALS, PERKS, PERK1_IDS, PERK2_IDS } from '../game/loadouts.js';
 import { ATTACHMENT_LEVEL } from '../game/progression.js';
-import { hostile, isFfa } from '../game/hostility.js';
+import { hostile, hostileTeams, isFfa } from '../game/hostility.js';
 import { resolveHumanPlayerName } from '../player/profile.js';
 import {
   KEY_BINDING_DEFINITIONS,
@@ -440,6 +440,10 @@ export default class HUD {
       settingsOpen: $('hud-settings-open'),
       settingsPanel: $('hud-menu-settings'),
       lookSensitivity: $('hud-look-sensitivity'),
+      volume: $('hud-volume'),
+      volumeOutput: $('hud-volume-output'),
+      fov: $('hud-fov'),
+      fovOutput: $('hud-fov-output'),
       lookSensitivityOutput: $('hud-look-sensitivity-output'),
       brightness: $('hud-brightness'),
       announcer: $('hud-announcer'),
@@ -765,6 +769,14 @@ export default class HUD {
       settings.setBrightnessEv(event.currentTarget.value);
       this._syncSettingsUi();
     });
+    this._el.volume?.addEventListener('input', (event) => {
+      settings.setVolume(event.currentTarget.value);
+      this._syncSettingsUi();
+    });
+    this._el.fov?.addEventListener('input', (event) => {
+      settings.setFov(event.currentTarget.value);
+      this._syncSettingsUi();
+    });
     this._el.announcer?.addEventListener('change', (event) => {
       settings.setAnnouncer(event.currentTarget.checked);
       this._syncSettingsUi();
@@ -841,6 +853,12 @@ export default class HUD {
     if (this._el.settingsStatus) this._el.settingsStatus.textContent = String(message || '');
   }
 
+  /** Keys that pick classes 1-5 while dead (the weapon keys plus streak 1). */
+  _classKeysLabel() {
+    const labels = ['weapon1', 'weapon2', 'weapon3', 'weapon4', 'streak1'].map((id) => this._bindingLabel(id));
+    return labels.join('') === '12345' ? '1–5' : labels.join('/');
+  }
+
   _bindingLabel(actionId) {
     const settings = this.game?.settings;
     if (settings && typeof settings.getLabel === 'function') return settings.getLabel(actionId);
@@ -859,6 +877,13 @@ export default class HUD {
     }
     if (this._el.brightness) this._el.brightness.value = String(settings.brightnessEv);
     if (this._el.announcer) this._el.announcer.checked = settings.announcer !== false;
+    if (this._el.volume) this._el.volume.value = String(settings.volume);
+    if (this._el.volumeOutput) {
+      const label = settings.volume > 0 ? Math.round(settings.volume * 100) + '%' : 'MUTED';
+      this._el.volumeOutput.value = this._el.volumeOutput.textContent = label;
+    }
+    if (this._el.fov) this._el.fov.value = String(settings.fov);
+    if (this._el.fovOutput) this._el.fovOutput.value = this._el.fovOutput.textContent = settings.fov + '°';
     if (this._el.brightnessOutput) {
       const value = Number(settings.brightnessEv);
       const label = (value > 0 ? '+' : '') + value.toFixed(2) + ' EV';
@@ -1739,7 +1764,8 @@ export default class HUD {
     ev.on('objective:flag', (d) => {
       const mine = (this.game.player && this.game.player.team) || 'ct';
       if (d?.owner === mine) this._showMsg('FLAG ' + d.name + ' SECURED', '', 1.4);
-      else if (d?.owner) this._showMsg('FLAG ' + d.name + ' LOST', '', 1.4);
+      else if (d?.owner && d.previous === mine) this._showMsg('FLAG ' + d.name + ' LOST', '', 1.4);
+      else if (d?.owner) this._showMsg('ENEMY TOOK FLAG ' + d.name, '', 1.4);
       else if (d?.previous === mine) this._showMsg('FLAG ' + d.name + ' NEUTRALIZED', 'RETAKE IT', 1.4);
     });
     ev.on('hud:hitmarker', (d) => this._onHitmarker(d || {}));
@@ -2288,12 +2314,12 @@ export default class HUD {
     if (ct !== c.scoreCt) {
       c.scoreCt = ct;
       if (this._el.scoreCt) this._el.scoreCt.textContent = String(ct);
-      if (this._el.sbScore) this._el.sbScore.textContent = scoreLine(ct, tt, '  :  ');
+      if (this._el.sbScore) this._el.sbScore.textContent = this._sbScoreText(ct, tt);
     }
     if (tt !== c.scoreT) {
       c.scoreT = tt;
       if (this._el.scoreT) this._el.scoreT.textContent = String(tt);
-      if (this._el.sbScore) this._el.sbScore.textContent = scoreLine(ct, tt, '  :  ');
+      if (this._el.sbScore) this._el.sbScore.textContent = this._sbScoreText(ct, tt);
     }
 
     const round = st.round | 0;
@@ -2346,10 +2372,14 @@ export default class HUD {
     if (!flags) { root.innerHTML = ''; return; }
     root.innerHTML = flags.map((f) => {
       // Hardpoint's bar is the time left on the zone, in the holder's colour.
+      // Colours are relative: blue is your side, red the enemy's.
+      const mine = this.game.player?.team || 'ct';
+      const side = (team) => (!team ? '' : team === mine ? 'ours' : 'theirs');
+      const color = { ours: '#5f9fe0', theirs: '#e0603c', '': '#d8dccd' };
       const toward = f.name === 'HP'
-        ? (f.owner === 'ct' ? '#5f9fe0' : f.owner === 't' ? '#e0603c' : '#d8dccd')
-        : (f.control >= 0 ? '#5f9fe0' : '#e0603c');
-      return '<span class="obj-flag ' + (f.owner || '') + (f.contested ? ' contested' : '') + '" ' +
+        ? color[side(f.owner)]
+        : color[side(f.control >= 0 ? 'ct' : 't')];
+      return '<span class="obj-flag ' + side(f.owner) + (f.contested ? ' contested' : '') + '" ' +
         'style="--cap:' + Math.round(Math.abs(f.control) * 100) + '%;--capc:' + toward + '">' + esc(f.name) + '<i></i></span>';
     }).join('');
   }
@@ -2540,12 +2570,17 @@ export default class HUD {
     if (!this._el.feed) return;
     const row = document.createElement('div');
     row.className = 'kf-entry';
-    if (d.victimName === 'You') row.classList.add('kf-death');
-    else if (d.killerName === 'You') row.classList.add('kf-mine');
+    // Online your name is a callsign; the ids say whether a row is yours.
+    const mp = this.game.multiplayer;
+    const localId = mp && mp.active ? mp.localId : null;
+    if (d.victimName === 'You' || (localId && d.victimId === localId)) row.classList.add('kf-death');
+    else if (d.killerName === 'You' || (localId && d.killerId === localId)) row.classList.add('kf-mine');
 
     const wname = this._names[d.weaponId] || d.weaponId || '?';
-    const kTeam = d.killerTeam === 't' ? 't' : 'ct';
-    const vTeam = d.victimTeam === 't' ? 't' : 'ct';
+    // FFA has no sides: names stay neutral instead of implying teams.
+    const ffa = isFfa(this.game);
+    const kTeam = ffa ? 'ffa' : d.killerTeam === 't' ? 't' : 'ct';
+    const vTeam = ffa ? 'ffa' : d.victimTeam === 't' ? 't' : 'ct';
     row.innerHTML =
       '<span class="kf-name kf-' + kTeam + '">' + esc(d.killerName || '?') + '</span>' +
       '<span class="kf-weap">' + esc(wname) + '</span>' +
@@ -2672,7 +2707,7 @@ export default class HUD {
 
     // bomb sites (label + zone outline)
     const world = g.world;
-    if (world && Array.isArray(world.bombSites) && st.mode !== 'dom') {
+    if (world && Array.isArray(world.bombSites) && !isRespawnMode(st.mode)) {
       for (const site of world.bombSites) {
         if (!site || !site.center) continue;
         const sx = (site.center.x - px) * RADAR_SCALE;
@@ -2715,7 +2750,9 @@ export default class HUD {
       for (const m of markers) {
         const bl = this._clampBlip((m.x - px) * RADAR_SCALE, (m.z - pz) * RADAR_SCALE);
         if (m.kind === 'flag') {
-          const color = m.owner === 'ct' ? '95,159,224' : m.owner === 't' ? '224,96,60' : '216,220,205';
+          // Relative to you, like every other radar blip.
+          const mine = (p && p.team) || 'ct';
+          const color = !m.owner ? '216,220,205' : m.owner === mine ? '95,159,224' : '224,96,60';
           c.save();
           c.translate(bl.x, bl.y);
           c.rotate(-yaw);
@@ -2759,7 +2796,8 @@ export default class HUD {
         if (!bp || bp.alive === false) continue;
         const dx = bp.x - px;
         const dz = bp.z - pz;
-        const friendly = bp.team === ((p && p.team) || 'ct');
+        // FFA bots keep a uniform team but everyone is an enemy.
+        const friendly = !hostileTeams(g, bp.team, (p && p.team) || 'ct');
         if (!friendly) {
           // enemies: only when spotted — within 25 m OR fired within last 2 s
           const near = (dx * dx + dz * dz) <= ENEMY_SPOT_DIST * ENEMY_SPOT_DIST;
@@ -2798,7 +2836,7 @@ export default class HUD {
         if (!rp || !rp.alive || !rp.position) continue;
         const dx = rp.position.x - px;
         const dz = rp.position.z - pz;
-        const friendly = rp.team === ((p && p.team) || 'ct');
+        const friendly = !hostileTeams(g, rp.team, (p && p.team) || 'ct');
         if (!friendly && dx * dx + dz * dz > ENEMY_SPOT_DIST * ENEMY_SPOT_DIST) continue;
         const bl = this._clampBlip(dx * RADAR_SCALE, dz * RADAR_SCALE);
         c.beginPath();
@@ -3048,7 +3086,7 @@ export default class HUD {
           const recap = this._deathRecap ? ' · ' + this._deathRecap : '';
           this._el.deathKiller.textContent = (this._deathKiller
             ? 'ELIMINATED BY ' + this._deathKiller.toUpperCase() + recap
-            : 'ELIMINATED') + (next && !touch ? '  ·  NEXT CLASS: ' + next.name + ' [1–5]' : '');
+            : 'ELIMINATED') + (next && !touch ? '  ·  NEXT CLASS: ' + next.name + ' [' + this._classKeysLabel() + ']' : '');
         }
         if (this._el.deathClass) {
           this._el.deathClass.hidden = !(touch && next);
@@ -3120,6 +3158,11 @@ export default class HUD {
     this._sbDirty = true;
   }
 
+  /** Scoreboard header: team score, or in FFA your kills vs the leader's. */
+  _sbScoreText(ct, tt) {
+    return isFfa(this.game) ? 'YOU ' + ct + '  ·  LEADER ' + Math.max(ct, tt) : scoreLine(ct, tt, '  :  ');
+  }
+
   _rebuildScoreboard() {
     this._sbDirty = false;
     if (!this._el.sbBody) return;
@@ -3175,20 +3218,28 @@ export default class HUD {
       row.order = i;
     }
     let html = '';
-    for (const team of ['ct', 't']) {
-      const label = faction(team).name;
+    // FFA has no sides: one table ranked by kills. Respawn modes say a
+    // fallen soldier is RESPAWNING, not DEAD.
+    const ffa = isFfa(this.game);
+    const respawning = isRespawnMode(this.game.state?.mode);
+    const groups = ffa ? [['ffa', 'FREE-FOR-ALL · FIRST TO ' + modeRules('ffa').scoreLimit]] : ['ct', 't'].map((team) => [team, faction(team).name]);
+    for (const [team, label] of groups) {
       html += '<div class="sb-team sb-' + team + '"><div class="sb-team-h">' + label + '</div>' +
-      '<table><thead><tr><th class="sb-n">OPERATIVE</th><th>K</th><th>D</th><th class="sb-s">STATUS</th></tr></thead><tbody>';
-      const teamRows = rows.filter((row) => row.team === team).sort(compareScoreboardRows);
-      for (const r of teamRows) {
+      '<table><thead><tr>' + (ffa ? '<th>#</th>' : '') + '<th class="sb-n">OPERATIVE</th><th>K</th><th>D</th><th class="sb-s">STATUS</th></tr></thead><tbody>';
+      const teamRows = ffa
+        ? [...rows].sort((a, b) => b.stats.k - a.stats.k || a.stats.d - b.stats.d || compareScoreboardRows(a, b))
+        : rows.filter((row) => row.team === team).sort(compareScoreboardRows);
+      for (const [place, r] of teamRows.entries()) {
         const s = r.stats;
         const status = r.alive
           ? '<span class="sb-alive">ALIVE</span>'
-          : '<span class="sb-kia">' + SVG_SKULL + ' DEAD</span>';
+          : respawning
+            ? '<span class="sb-kia">RESPAWNING</span>'
+            : '<span class="sb-kia">' + SVG_SKULL + ' DEAD</span>';
         const rowClass = [r.alive ? '' : 'sb-dead', r.local ? 'sb-you' : ''].filter(Boolean).join(' ');
         const current = r.local ? ' aria-current="true"' : '';
         const ownTag = r.local ? '<span class="sb-self-tag">YOU</span>' : '';
-        html += '<tr class="' + rowClass + '"' + current + '>' +
+        html += '<tr class="' + rowClass + '"' + current + '>' + (ffa ? '<td>' + (place + 1) + '</td>' : '') +
           '<td class="sb-n"><span class="sb-name-wrap"><span class="sb-callsign">' + esc(r.name) +
           '</span>' + ownTag + '</span></td><td>' + s.k + '</td><td>' + s.d + '</td>' +
           '<td class="sb-s">' + status + '</td></tr>';
@@ -3624,6 +3675,14 @@ export default class HUD {
     return chips;
   }
 
+  /** This seat's K/D: keyed by 'You' solo, by network id or callsign online. */
+  _localEndStats() {
+    const multiplayer = this.game?.multiplayer;
+    if (!multiplayer?.active) return this._stat('You');
+    return this._networkStatsById.get(String(multiplayer.localId || '')) ||
+      this._stat(humanCallsign(this.game, multiplayer.localName, multiplayer.localId));
+  }
+
   _fillEndScreen() {
     const st = (this.game && this.game.state) || {};
     const info = this._endInfo || {};
@@ -3643,7 +3702,7 @@ export default class HUD {
           (won ? ((info.scores && info.scores.t) | 0) : (info.ffa.leaderKills | 0));
       }
       if (this._el.endKd) {
-        const s = this._stat('You');
+        const s = this._localEndStats();
         this._el.endKd.textContent = 'YOUR RECORD — ' + s.k + ' KILLS  /  ' + s.d + ' DEATHS';
       }
       this._configureEndPrimaryAction();
@@ -3670,10 +3729,7 @@ export default class HUD {
       this._el.endScore.textContent = scoreLine(scores.ct, scores.t, '  :  ');
     }
     if (this._el.endKd) {
-      const multiplayer = this.game?.multiplayer;
-      const s = multiplayer?.active
-        ? (this._networkStatsById.get(String(multiplayer.localId || '')) || this._stat(multiplayer.localName || 'You'))
-        : this._stat('You');
+      const s = this._localEndStats();
       this._el.endKd.textContent = 'YOUR RECORD — ' + s.k + ' KILLS  /  ' + s.d + ' DEATHS';
     }
     this._configureEndPrimaryAction();
@@ -3743,6 +3799,8 @@ export default class HUD {
     ).join('');
     const lookSensitivity = Number(settings?.lookSensitivity ?? SETTINGS_LIMITS.lookSensitivity.default);
     const brightnessEv = Number(settings?.brightnessEv ?? SETTINGS_LIMITS.brightnessEv.default);
+    const volume = Number(settings?.volume ?? SETTINGS_LIMITS.volume.default);
+    const fov = Number(settings?.fov ?? SETTINGS_LIMITS.fov.default);
     const useKey = bindingLabel('use');
     const buyKey = bindingLabel('buy');
     const maps = MAP_CATALOG.map((map) =>
@@ -3964,6 +4022,16 @@ export default class HUD {
       '<input id="hud-brightness" type="range" min="' + SETTINGS_LIMITS.brightnessEv.min +
       '" max="' + SETTINGS_LIMITS.brightnessEv.max + '" step="' + SETTINGS_LIMITS.brightnessEv.step +
       '" value="' + brightnessEv + '"></label>' +
+      '<label class="mn-setting" for="hud-volume"><span><strong>VOLUME</strong>' +
+      '<output id="hud-volume-output" for="hud-volume">' + Math.round(volume * 100) + '%</output></span>' +
+      '<input id="hud-volume" type="range" min="' + SETTINGS_LIMITS.volume.min +
+      '" max="' + SETTINGS_LIMITS.volume.max + '" step="' + SETTINGS_LIMITS.volume.step +
+      '" value="' + volume + '"></label>' +
+      '<label class="mn-setting" for="hud-fov"><span><strong>FIELD OF VIEW</strong>' +
+      '<output id="hud-fov-output" for="hud-fov">' + fov + '°</output></span>' +
+      '<input id="hud-fov" type="range" min="' + SETTINGS_LIMITS.fov.min +
+      '" max="' + SETTINGS_LIMITS.fov.max + '" step="' + SETTINGS_LIMITS.fov.step +
+      '" value="' + fov + '"></label>' +
       '<label class="mn-setting mn-setting-toggle" for="hud-announcer"><span><strong>ANNOUNCER VOICE</strong>' +
       '<output>RADIO CALLOUTS</output></span>' +
       '<input id="hud-announcer" type="checkbox"' + (settings?.announcer === false ? '' : ' checked') + '></label>' +
@@ -3973,7 +4041,7 @@ export default class HUD {
       '<span>SELECT AN ACTION, THEN PRESS A KEY</span></div>' +
       '<div class="mn-bindings">' + bindings + '</div>' +
       '</section>' +
-      '<div class="mn-settings-foot"><span class="mn-settings-mouse">MOUSE — AIM · LMB — FIRE · RMB — SCOPE · WHEEL — CYCLE</span>' +
+      '<div class="mn-settings-foot"><span class="mn-settings-mouse">MOUSE — AIM · LMB — FIRE · RMB — AIM DOWN SIGHTS / SCOPE · WHEEL — CYCLE</span>' +
       '<button id="hud-settings-reset" type="button">RESET DEFAULTS</button>' +
       '<span id="hud-settings-status" role="status" aria-live="polite" aria-atomic="true"></span></div>' +
       '</section>' +
@@ -4080,7 +4148,7 @@ export default class HUD {
   -webkit-font-smoothing: antialiased;
   --olive: #9ab26b;
   --olive-bright: #d6e5b8;
-  --olive-dim: #6a7850;
+  --olive-dim: #8a9a6a; /* ~6:1 on the dark panels (was 3.9:1) */
   --panel-border: rgba(154, 178, 107, 0.34);
   --ct: #7fa8d6;
   --t: #d98a4a;
@@ -4224,8 +4292,8 @@ export default class HUD {
 .obj-flag { position:relative; width:26px; height:22px; display:grid; place-items:center; overflow:hidden;
   font-size:12px; font-weight:900; color:#eef5e5; background:rgba(216,220,205,.12); border:1px solid rgba(216,220,205,.4); }
 .obj-flag i { position:absolute; left:0; bottom:0; height:3px; width:var(--cap); background:var(--capc); }
-.obj-flag.ct { background:rgba(95,159,224,.35); border-color:#5f9fe0; }
-.obj-flag.t { background:rgba(224,96,60,.35); border-color:#e0603c; }
+.obj-flag.ours { background:rgba(95,159,224,.35); border-color:#5f9fe0; }
+.obj-flag.theirs { background:rgba(224,96,60,.35); border-color:#e0603c; }
 .obj-flag.contested { animation:obj-pulse .6s ease-in-out infinite alternate; }
 @keyframes obj-pulse { to { border-color:#f7d27a; box-shadow:0 0 8px rgba(247,210,122,.5); } }
 @media (prefers-reduced-motion: reduce) { .obj-flag.contested { animation:none; border-color:#f7d27a; } }
@@ -4285,6 +4353,7 @@ export default class HUD {
 .kf-mine .kf-name { text-shadow: 0 0 8px rgba(190, 220, 150, 0.5), 0 1px 3px #000; }
 .kf-ct { color: var(--ct); }
 .kf-t { color: var(--t); }
+.kf-ffa { color: #e8eedc; }
 .kf-weap {
   color: var(--olive-bright); font-size: 12px; font-weight: 700; letter-spacing: .18em;
   text-transform: uppercase; padding: 3px 9px;

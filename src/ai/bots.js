@@ -2020,6 +2020,8 @@ export default class Bots {
       const blend = 1 - Math.exp(-18 * dt);
       for (const b of this.all) {
         if (b.netPos) b.pos.lerp(b.netPos, blend);
+        // Replicated bots do not run movement, so step sounds come from motion.
+        if (typeof mp._replicaFootstep === 'function') mp._replicaFootstep(b, dt);
         if (Number.isFinite(b.netYaw)) b.yaw += angleDiff(b.netYaw, b.yaw) * blend;
         if (Number.isFinite(b.netAimPitch)) b.aimPitch += (b.netAimPitch - b.aimPitch) * blend;
         if (!b.alive) this._animateDeath(b, dt);

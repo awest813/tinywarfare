@@ -173,6 +173,15 @@ game.post =
 // Trailer capture is deterministic and must not inherit this browser's personal
 // brightness, sensitivity or keyboard layout.
 game.settings = new GameSettings(game, TRAILER ? null : undefined);
+// Field of view is a device preference; every FOV reader uses CONFIG.
+const applyFov = () => {
+  CONFIG.PLAYER.FOV = game.settings.fov;
+  const weapons = game.weapons;
+  if (!weapons) { camera.fov = CONFIG.PLAYER.FOV; camera.updateProjectionMatrix(); }
+  else if (!(weapons.scopeLevel > 0)) weapons._fovTarget = CONFIG.PLAYER.FOV; // eases there
+};
+applyFov();
+game.events.on('settings:changed', applyFov);
 game.profile = new PlayerProfile(game);
 game.input = new Input(game);
 game.world = new World(game);

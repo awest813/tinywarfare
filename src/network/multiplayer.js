@@ -1406,7 +1406,9 @@ export default class Multiplayer {
             ? (this._unrankedIdentityConflict
                 ? 'Room joined as an unranked guest; your other window keeps leaderboard credit.'
                 : 'Room joined unranked because leaderboard identity is unavailable; the match remains playable.')
-            : 'Room joined. Choose a side and wait for the host.');
+            : this.gameMode === 'ffa'
+              ? 'Room joined. Free-for-all: wait for the host to start.'
+              : 'Room joined. Choose a side and wait for the host.');
         break;
       case 'lobby':
         if (!this._handleHostChanged(message, {
@@ -2056,6 +2058,7 @@ export default class Multiplayer {
       }
       remote.mesh.position.copy(remote.position);
       remote.mesh.rotation.y = remote.yaw;
+      this._replicaFootstep(remote, dt);
       const standingTop = Number(this.game.config?.PLAYER?.HEIGHT_STAND) || 1.83;
       remote.spectatorVisualTop = remote.crouching ? standingTop * 0.8 : standingTop;
       const visuals = this.game.bots;
@@ -2063,6 +2066,22 @@ export default class Multiplayer {
         visuals.updateOperativeVisual(remote, dt);
       }
       remote.mesh.visible = this.active && remote.hasNetworkPose && !remote.spectating;
+    }
+  }
+
+  /** Footsteps for a networked body, from how far it actually moved. */
+  _replicaFootstep(actor, dt) {
+    const pos = actor.position || actor.pos;
+    if (!pos) return;
+    if (!actor._stepFrom) actor._stepFrom = pos.clone();
+    const moved = Math.hypot(pos.x - actor._stepFrom.x, pos.z - actor._stepFrom.z);
+    actor._stepFrom.copy(pos);
+    // Ignore teleports and quiet movement (walking, crouching, airborne).
+    if (!actor.alive || moved > 2 || actor.walking || actor.crouching || actor.onGround === false || dt <= 0) return;
+    actor._stepAccum = (actor._stepAccum || 0) + moved;
+    if (actor._stepAccum >= 2.4) {
+      actor._stepAccum = 0;
+      this.game.events.emit('bot:footstep', { pos: pos.clone(), replica: true });
     }
   }
 
@@ -2355,7 +2374,7 @@ export default class Multiplayer {
     };
     this._networkEvent = true;
     try {
-      if (eventName === 'fx:tracer' && data.from && data.to && data.shooterId !== this.localId) {
+      if (eventName === 'fx:tracer' && data.from && data.to && data.shooterId !== this.localId && !data.pellet) {
         const shooter = this._remoteById.get(data.shooterId);
         if (shooter) shooter.fireAnim = 1;
         const direction = new THREE.Vector3(
@@ -2518,7 +2537,7 @@ export default class Multiplayer {
             <label class="mp-field-label" for="mp-name">CALLSIGN</label>
             <div class="mp-row"><input id="mp-name" maxlength="20" value="${savedName.replace(/[<&\"]/g, '')}" placeholder="Callsign" autocomplete="nickname"></div>
             <div class="mp-row">
-              <select id="mp-mode" aria-label="Room mode"><option value="mixed">HUMANS + BOTS</option><option value="humans">HUMANS ONLY</option></select>
+              <select id="mp-mode" aria-label="Room fill"><option value="mixed">HUMANS + BOTS</option><option value="humans">HUMANS ONLY</option></select>
               <input id="mp-room" maxlength="6" placeholder="ROOM CODE" aria-label="Room code" autocomplete="off">
             </div>
             <div class="mp-actions"><button id="mp-create" type="button">CREATE ROOM</button><button id="mp-join" type="button">JOIN CODE</button></div>
@@ -2673,6 +2692,12 @@ export default class Multiplayer {
       return `<div class="mp-player ${p.team}"><span>${String(name).replace(/[<&]/g, '')}${p.host ? ' ★' : ''}${unranked}</span><span>${faction(p.team).short}</span></div>`;
     }).join('');
     this._ui.start.style.display = this.isHost ? 'block' : 'none';
+    // Sides only matter for spawns and uniforms in FFA: hide the choice.
+    const ffa = this.gameMode === 'ffa';
+    for (const id of ['#mp-ct', '#mp-t']) {
+      const button = this._ui.panel?.querySelector(id);
+      if (button) button.style.display = ffa ? 'none' : '';
+    }
     const roomStatus = this.isHost
       ? 'You are host. Pick the mode and map above, then start when the teams are ready.'
       : 'Waiting for the host to start.';

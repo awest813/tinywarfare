@@ -45,14 +45,20 @@ export default class Announcer {
       const mine = (game.player && game.player.team) || 'ct';
       if (!d) return;
       if (d.owner === mine) this.say('We have taken flag ' + d.name + '.');
-      else if (d.owner) this.say('We have lost flag ' + d.name + '.', true);
+      else if (d.previous === mine) this.say('We have lost flag ' + d.name + '.', true);
+      else if (d.owner) this.say('Enemy has taken flag ' + d.name + '.');
     });
     ev.on('objective:hardpoint', () => this.say('Hardpoint moving.'));
+    // Leaving for the menu (or hiding the tab) ends any line mid-sentence.
+    ev.on('ui:menu', () => this.stop());
+    globalThis.document?.addEventListener?.('visibilitychange', () => {
+      if (globalThis.document.visibilityState === 'hidden') this.stop();
+    });
     ev.on('game:end', (d) => {
       const mine = (game.player && game.player.team) || 'ct';
       if (!d) return;
-      if (d.ffa) this.say(d.ffa.place === 1 ? 'Victory.' : 'Match over.', true);
-      else if (d.draw) this.say('Stalemate.', true);
+      if (d.draw) this.say('Stalemate.', true);
+      else if (d.ffa) this.say(d.ffa.place === 1 ? 'Victory.' : 'Match over.', true);
       else this.say(d.winner === mine ? 'Mission accomplished.' : 'Mission failed.', true);
     });
   }
@@ -63,22 +69,32 @@ export default class Announcer {
     return !(globalThis.document && globalThis.document.visibilityState === 'hidden');
   }
 
-  /** Speak a line; `urgent` skips the minimum gap and cuts the current one. */
+  stop() {
+    try { this.synth?.cancel(); } catch { /* unsupported */ }
+  }
+
+  /**
+   * Speak a line. An ordinary line never talks over one still playing;
+   * `urgent` skips the minimum gap and cuts the current one.
+   */
   say(text, urgent = false) {
     if (!text || !this.enabled()) return false;
     const now = Date.now();
-    if (!urgent && now - this._last < MIN_GAP_MS) return false;
+    if (!urgent && (now - this._last < MIN_GAP_MS || this.synth.speaking)) return false;
     this._last = now;
     const Utterance = globalThis.SpeechSynthesisUtterance;
     if (typeof Utterance !== 'function') return false;
     const line = new Utterance(String(text));
     line.rate = 1.08;
     line.pitch = 0.85;
-    line.volume = 0.8;
+    // Follows the master VOLUME setting (0.8 is the default level).
+    const volume = Number(this.game.settings?.volume ?? 0.8);
+    if (!(volume > 0)) return false;
+    line.volume = Math.min(1, volume);
     const voice = this._pickVoice();
     if (voice) line.voice = voice;
     try {
-      this.synth.cancel();
+      if (urgent) this.synth.cancel();
       this.synth.speak(line);
       return true;
     } catch {

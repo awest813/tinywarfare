@@ -714,7 +714,8 @@ export default class Player {
   // ---- footsteps ----------------------------------------------------------
 
   _updateFootsteps(dt) {
-    if (this.onGround && this.moveSpeed2D > FOOTSTEP_MIN_SPEED) {
+    // A slide is one scrape (player:slide), not a run of footsteps.
+    if (this.onGround && !this.sliding && this.moveSpeed2D > FOOTSTEP_MIN_SPEED) {
       this._stepAccum += this.moveSpeed2D * dt;
       if (this._stepAccum >= STRIDE) {
         this._stepAccum -= STRIDE;

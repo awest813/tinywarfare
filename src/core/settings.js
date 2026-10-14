@@ -7,7 +7,13 @@ export const SETTINGS_STORAGE_KEY = 'tiny-strike-settings-v1';
 export const SETTINGS_LIMITS = Object.freeze({
   lookSensitivity: Object.freeze({ min: 0.25, max: 3, step: 0.05, default: 1 }),
   brightnessEv: Object.freeze({ min: -0.5, max: 0.5, step: 0.05, default: 0 }),
+  volume: Object.freeze({ min: 0, max: 1, step: 0.05, default: 0.8 }),
+  fov: Object.freeze({ min: 65, max: 100, step: 1, default: 74 }),
 });
+
+// v2 moved Crouch off Ctrl: holding Ctrl while pressing W closes the browser
+// tab. Layouts still on the v1 defaults are migrated once.
+const BINDINGS_VERSION = 2;
 
 export const KEY_BINDING_DEFINITIONS = Object.freeze([
   Object.freeze({ id: 'moveForward', label: 'Move Forward', canonicalKey: 'w', defaultKey: 'w' }),
@@ -17,8 +23,8 @@ export const KEY_BINDING_DEFINITIONS = Object.freeze([
   // Sprint precedes Walk so a saved v1 layout (Walk on Shift) migrates to
   // Sprint on Shift with Walk falling back to its new default.
   Object.freeze({ id: 'sprint', label: 'Sprint', canonicalKey: 'shift', defaultKey: 'shift' }),
-  Object.freeze({ id: 'walk', label: 'Walk', canonicalKey: 'c', defaultKey: 'c' }),
-  Object.freeze({ id: 'crouch', label: 'Crouch', canonicalKey: 'control', defaultKey: 'control' }),
+  Object.freeze({ id: 'walk', label: 'Walk', canonicalKey: 'c', defaultKey: 'x' }),
+  Object.freeze({ id: 'crouch', label: 'Crouch / Slide', canonicalKey: 'control', defaultKey: 'c' }),
   Object.freeze({ id: 'jump', label: 'Jump / Next View', canonicalKey: ' ', defaultKey: ' ' }),
   Object.freeze({ id: 'use', label: 'Use / Objective', canonicalKey: 'e', defaultKey: 'e' }),
   Object.freeze({ id: 'reload', label: 'Reload', canonicalKey: 'r', defaultKey: 'r' }),
@@ -139,6 +145,8 @@ export default class GameSettings {
     this.storage = storage;
     this.lookSensitivity = SETTINGS_LIMITS.lookSensitivity.default;
     this.brightnessEv = SETTINGS_LIMITS.brightnessEv.default;
+    this.volume = SETTINGS_LIMITS.volume.default;
+    this.fov = SETTINGS_LIMITS.fov.default;
     this.announcer = true;
     this.bindings = defaultBindings();
     this._physicalToCanonical = new Map();
@@ -172,6 +180,24 @@ export default class GameSettings {
     if (next === this.brightnessEv) return next;
     this.brightnessEv = next;
     this._commit('brightnessEv');
+    return next;
+  }
+
+  /** Master volume, 0 (muted) to 1. */
+  setVolume(value) {
+    const next = clampStep(value, SETTINGS_LIMITS.volume);
+    if (next === this.volume) return next;
+    this.volume = next;
+    this._commit('volume');
+    return next;
+  }
+
+  /** Horizontal-ish camera field of view in degrees (hip fire). */
+  setFov(value) {
+    const next = clampStep(value, SETTINGS_LIMITS.fov);
+    if (next === this.fov) return next;
+    this.fov = next;
+    this._commit('fov');
     return next;
   }
 
@@ -230,6 +256,8 @@ export default class GameSettings {
   reset() {
     this.lookSensitivity = SETTINGS_LIMITS.lookSensitivity.default;
     this.brightnessEv = SETTINGS_LIMITS.brightnessEv.default;
+    this.volume = SETTINGS_LIMITS.volume.default;
+    this.fov = SETTINGS_LIMITS.fov.default;
     this.announcer = true;
     this.bindings = defaultBindings();
     this._rebuildLookup();
@@ -240,6 +268,8 @@ export default class GameSettings {
     return Object.freeze({
       lookSensitivity: this.lookSensitivity,
       brightnessEv: this.brightnessEv,
+      volume: this.volume,
+      fov: this.fov,
       announcer: this.announcer,
       bindings: Object.freeze({ ...this.bindings }),
     });
@@ -257,8 +287,19 @@ export default class GameSettings {
         SETTINGS_LIMITS.lookSensitivity
       );
       this.brightnessEv = clampStep(parsed.brightnessEv, SETTINGS_LIMITS.brightnessEv);
+      this.volume = clampStep(parsed.volume ?? SETTINGS_LIMITS.volume.default, SETTINGS_LIMITS.volume);
+      this.fov = clampStep(parsed.fov ?? SETTINGS_LIMITS.fov.default, SETTINGS_LIMITS.fov);
       this.announcer = parsed.announcer !== false;
-      this.bindings = sanitizeBindings(parsed.bindings);
+      const stored = parsed.bindings && typeof parsed.bindings === 'object' ? { ...parsed.bindings } : parsed.bindings;
+      if (stored && !(parsed.bindingsVersion >= BINDINGS_VERSION) &&
+        normalizePhysicalKey(stored.crouch) === 'control') {
+        // Walk leaves C for X when it sat on the old default; Crouch then
+        // takes C unless the player gave C to something else.
+        if (normalizePhysicalKey(stored.walk) === 'c') stored.walk = 'x';
+        const cTaken = Object.entries(stored).some(([id, key]) => id !== 'crouch' && normalizePhysicalKey(key) === 'c');
+        if (!cTaken) stored.crouch = 'c';
+      }
+      this.bindings = sanitizeBindings(stored);
     } catch {
       // Privacy modes and corrupted JSON both fall back to safe defaults.
     }
@@ -278,7 +319,10 @@ export default class GameSettings {
         this.storage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({
           lookSensitivity: this.lookSensitivity,
           brightnessEv: this.brightnessEv,
+          volume: this.volume,
+          fov: this.fov,
           announcer: this.announcer,
+          bindingsVersion: BINDINGS_VERSION,
           bindings: this.bindings,
         }));
       } catch {

@@ -149,9 +149,10 @@ test('a saved layout with Walk on Shift migrates to Sprint on Shift', () => {
   const storage = { getItem: () => stored, setItem() {} };
   const settings = new GameSettings(null, storage);
   assert.equal(settings.get('sprint'), 'shift');
-  assert.equal(settings.get('walk'), 'c');
+  assert.equal(settings.get('walk'), 'x');
+  assert.equal(settings.get('crouch'), 'c', 'and Crouch leaves Ctrl');
   assert.equal(settings.resolveInputKey('shift'), 'shift');
-  assert.equal(settings.resolveInputKey('c'), 'c');
+  assert.equal(settings.resolveInputKey('x'), 'c');
 });
 
 function ledgeWorld(height) {

@@ -123,9 +123,9 @@ also provides live look-sensitivity (`0.25×–3.00×`) and brightness
 | LMB | Fire / throw grenade |
 | RMB (hold) | Aim down sights (AWP: cycle scope zoom) |
 | Space | Jump (mantles low crates) |
-| Ctrl | Crouch (while sprinting: slide) |
+| C | Crouch (while sprinting: slide) |
 | Shift (hold, moving forward) | Sprint — no firing until you stop |
-| C | Walk (silent) |
+| X | Walk (silent) |
 | R | Reload |
 | B | Buy menu (during buy time) |
 | E (hold) | Defuse the bomb |

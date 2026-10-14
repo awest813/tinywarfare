@@ -18,8 +18,13 @@ test('the announcer voices streaks, flags, and results, and respects the toggle'
 
   events.emit('round:phase', { phase: 'freeze' });
   assert.match(synth.spoken.at(-1), /Domination/);
-  events.emit('objective:flag', { name: 'B', owner: 't' });
+  events.emit('objective:flag', { name: 'B', owner: 't', previous: 'ct' });
   assert.equal(synth.spoken.at(-1), 'We have lost flag B.');
+  synth.speaking = true;
+  announcer._last = 0;
+  assert.equal(announcer.say('UAV ready.'), false, 'an ordinary line never talks over another');
+  assert.equal(announcer.say('Enemy UAV spotted.', true), true, 'urgent lines cut in');
+  synth.speaking = false;
   events.emit('game:end', { winner: 'ct' });
   assert.equal(synth.spoken.at(-1), 'Mission accomplished.');
 

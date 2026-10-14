@@ -199,6 +199,8 @@ export default class Combat {
   fireRemote(e, shooter) {
     if (!e || !shooter || !shooter.alive || !e.origin || !e.dir) return;
     shooter.spawnProtection = 0; // firing ends a fresh spawn's immunity
+    // The authority hears the shot here; replicas hear it from the tracer.
+    this.game.events.emit('audio:shot', { origin: e.origin, weaponId: e.melee ? 'knife' : e.weaponId });
     const weaponId = e.weaponId || 'usp';
     const def = this._def(weaponId);
     this._sOrigin.set(e.origin.x, e.origin.y, e.origin.z);
@@ -355,7 +357,13 @@ export default class Combat {
       this._sDir.set(d.x, d.y, d.z);
       if (this._sDir.lengthSq() < 1e-10) continue;
       this._sDir.normalize();
-      this._fireBullet(weaponId, def, shooter, team, byPlayer, null);
+      // Extra pellets still draw tracers, but one blast is one sound.
+      this._pelletTracer = true;
+      try {
+        this._fireBullet(weaponId, def, shooter, team, byPlayer, null);
+      } finally {
+        this._pelletTracer = false;
+      }
     }
   }
 
@@ -409,6 +417,7 @@ export default class Combat {
         weaponId,
         shooterId: shooter && shooter.networkId ? shooter.networkId
           : (shooter === this.game.player ? this.game.player.networkId : null),
+        pellet: this._pelletTracer || undefined,
       });
     }
   }

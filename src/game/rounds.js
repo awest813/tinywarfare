@@ -312,6 +312,7 @@ export default class Rounds {
    */
   returnToMenu() {
     const s = this.game.state;
+    this._resetBombState(); // a defused/planted bomb must not keep ticking
     this._removeBombMesh();
     this._cosmeticArmed = false;
     this._matchStarted = false;

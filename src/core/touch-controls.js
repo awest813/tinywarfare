@@ -183,7 +183,16 @@ export default class TouchControls {
 
     const weapon = this.game.weapons?.current?.();
     const weaponId = weapon?.id || this.game.weapons?.currentId || '';
-    this._el.scope?.toggleAttribute('hidden', !weapon?.zoomFov || dead);
+    // Every gun can aim down sights; snipers cycle their scope instead.
+    const weapons = this.game.weapons;
+    const canAim = !!weapon && (weapon.zoomFov || (typeof weapons?._canAds === 'function' && weapons._canAds(weapon)));
+    this._el.scope?.toggleAttribute('hidden', !canAim || dead);
+    if (weaponId !== this._lastWeapon || dead) this._setAim(false);
+    if (this._el.scope) {
+      const label = weapon?.zoomFov ? 'SCOPE' : 'AIM';
+      if (this._el.scope.textContent !== label) this._el.scope.textContent = label;
+      this._el.scope.setAttribute('aria-label', weapon?.zoomFov ? 'Cycle sniper scope' : 'Aim down sights');
+    }
     if (weaponId !== this._lastWeapon) {
       this._lastWeapon = weaponId;
       this._syncWeaponButtons(weapon);
@@ -216,7 +225,7 @@ export default class TouchControls {
         <button type="button" class="tc-button tc-score" aria-label="Toggle scoreboard">SCORE</button>
         <button type="button" class="tc-button tc-buy" aria-label="Open buy menu">$ BUY</button>
         <button type="button" class="tc-button tc-reload" aria-label="Reload weapon">RELOAD</button>
-        <button type="button" class="tc-button tc-scope" aria-label="Toggle sniper scope">SCOPE</button>
+        <button type="button" class="tc-button tc-scope" aria-label="Aim down sights">AIM</button>
         <button type="button" class="tc-button tc-streak" aria-label="Call in scorestreak" hidden>STREAK</button>
       </div>
       <div class="tc-weapons" aria-label="Weapon slots">
@@ -267,8 +276,13 @@ export default class TouchControls {
       () => this.game.input?.setVirtualAction?.('use', true),
       () => this.game.input?.setVirtualAction?.('use', false));
     this._bindTap(this._el.scope, () => {
-      this.game.input?.setVirtualButton?.(2, true);
-      this.game.input?.setVirtualButton?.(2, false);
+      const weapon = this.game.weapons?.current?.();
+      if (weapon?.zoomFov) {
+        this.game.input?.setVirtualButton?.(2, true);
+        this.game.input?.setVirtualButton?.(2, false);
+        return;
+      }
+      this._setAim(!this._aiming); // a latch: holding a button while aiming is awkward on glass
     });
     this._bindTap(this._el.reload, () => this.game.input?.pulseVirtualAction?.('reload'));
     this._bindTap(this._el.streak, () => this.game.streaks?.activateFirstReady?.());
@@ -491,6 +505,15 @@ export default class TouchControls {
     });
   }
 
+  _setAim(on) {
+    const next = !!on;
+    if (next === !!this._aiming) return;
+    this._aiming = next;
+    this.game.input?.setVirtualButton?.(2, next);
+    this._el.scope?.classList.toggle('latched', next);
+    this._el.scope?.setAttribute('aria-pressed', next ? 'true' : 'false');
+  }
+
   _bindTap(element, action) {
     if (!element) return;
     let pointer = null;
@@ -576,6 +599,8 @@ export default class TouchControls {
     this._el.look?.classList.remove('pressed');
     if (this._el.knob) this._el.knob.style.transform = 'translate(0px, 0px)';
     this.game.input?.releaseVirtualControls?.();
+    this._aiming = false; // the virtual RMB was just released with the rest
+    this._el.scope?.classList.remove('latched');
     this._setCrouch(false);
     this._setScore(false);
     for (const element of this.root?.querySelectorAll('.pressed') || []) {

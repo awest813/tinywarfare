@@ -40,6 +40,17 @@ export const DOM = Object.freeze({
 });
 
 const TEAM_COLOR = Object.freeze({ ct: 0x5f9fe0, t: 0xe0603c, neutral: 0xd8dccd });
+const SIDE_COLOR = Object.freeze({ ours: 0x5f9fe0, theirs: 0xe0603c, neutral: 0xd8dccd });
+
+/**
+ * Objective colours are relative to the viewer, like the radar: your side
+ * is blue and the enemy red, whichever faction you play.
+ */
+function sideColor(game, owner) {
+  if (owner !== 'ct' && owner !== 't') return SIDE_COLOR.neutral;
+  const mine = (game.player && game.player.team) || 'ct';
+  return owner === mine ? SIDE_COLOR.ours : SIDE_COLOR.theirs;
+}
 
 function horizontalDistance(a, b) {
   return Math.hypot(a.x - b.x, a.z - b.z);
@@ -214,9 +225,11 @@ export class KillConfirmed {
       const mat = (color) => new THREE.MeshStandardMaterial({
         color, emissive: color, emissiveIntensity: 1.6, metalness: 0.6, roughness: 0.35,
       });
-      this._mats = { ct: mat(TEAM_COLOR.ct), t: mat(TEAM_COLOR.t) };
+      // Your side's tags (deny them) blue; enemy tags (confirm them) gold.
+      this._mats = { ours: mat(TEAM_COLOR.ct), theirs: mat(0xf7d27a) };
     }
-    const mesh = new THREE.Mesh(this._geo, this._mats[tag.team]);
+    const mine = (this.game.player && this.game.player.team) || 'ct';
+    const mesh = new THREE.Mesh(this._geo, this._mats[tag.team === mine ? 'ours' : 'theirs']);
     mesh.position.set(tag.pos.x, tag.pos.y + 0.75, tag.pos.z);
     scene.add(mesh);
     return mesh;
@@ -474,7 +487,7 @@ export class Domination {
   _paintFlag(flag) {
     const ud = flag.group && flag.group.userData;
     if (!ud || !ud.clothMat) return;
-    const color = TEAM_COLOR[flag.owner || 'neutral'];
+    const color = sideColor(this.game, flag.owner);
     ud.clothMat.color.setHex(color);
     ud.clothMat.emissive.setHex(color);
     ud.ringMat.color.setHex(color);
@@ -658,7 +671,7 @@ export class Hardpoint {
   _paint() {
     const ud = this._group && this._group.userData;
     if (!ud) return;
-    const color = TEAM_COLOR[this.owner || 'neutral'];
+    const color = sideColor(this.game, this.owner);
     ud.ringMat.color.setHex(color);
     ud.beamMat.color.setHex(color);
   }

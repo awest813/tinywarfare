@@ -103,7 +103,7 @@ test('a displaced default key is disabled and corrupt storage repairs safely', (
   settings.rebind('moveForward', 'i');
   assert.equal(settings.resolveInputKey('i'), 'w');
   assert.equal(settings.resolveInputKey('w'), null, 'the old W binding must not keep moving');
-  assert.equal(settings.resolveInputKey('x'), 'x', 'unrelated keys still pass through');
+  assert.equal(settings.resolveInputKey('k'), 'k', 'unrelated keys still pass through');
 
   const corrupt = new MemoryStorage({
     [SETTINGS_STORAGE_KEY]: JSON.stringify({
@@ -273,4 +273,36 @@ test('the default menu keeps Settings collapsed and uses its existing quick-acti
   assert.match(html, /id="hud-menu-settings"[^>]*hidden/);
   assert.equal((html.match(/data-binding-action=/g) || []).length, KEY_BINDING_DEFINITIONS.length);
   assert.doesNotMatch(html, /id="hud-controls-open"/);
+});
+
+test('v1 layouts move Crouch off Ctrl (Ctrl+W closes the tab)', () => {
+  const v1 = new GameSettings(null, new MemoryStorage({
+    [SETTINGS_STORAGE_KEY]: JSON.stringify({ bindings: { walk: 'c', crouch: 'control', sprint: 'shift' } }),
+  }));
+  assert.equal(v1.get('crouch'), 'c');
+  assert.equal(v1.get('walk'), 'x');
+  assert.equal(v1.resolveInputKey('c'), 'control', 'C crouches (and slides)');
+  assert.equal(v1.resolveInputKey('control'), null, 'Ctrl is no longer bound');
+
+  const custom = new GameSettings(null, new MemoryStorage({
+    [SETTINGS_STORAGE_KEY]: JSON.stringify({ bindings: { walk: 'v', crouch: 'control', reload: 'c' } }),
+  }));
+  assert.equal(custom.get('crouch'), 'control', 'a player who gave C away keeps their layout');
+
+  const v2 = new GameSettings(null, new MemoryStorage({
+    [SETTINGS_STORAGE_KEY]: JSON.stringify({ bindingsVersion: 2, bindings: { crouch: 'control', walk: 'c' } }),
+  }));
+  assert.equal(v2.get('crouch'), 'control', 'a deliberate v2 choice of Ctrl is respected');
+});
+
+test('volume and field of view are clamped and persisted', () => {
+  const storage = new MemoryStorage();
+  const settings = new GameSettings(null, storage);
+  assert.equal(settings.volume, 0.8);
+  assert.equal(settings.fov, 74);
+  assert.equal(settings.setVolume(2), 1);
+  assert.equal(settings.setFov(40), 65);
+  const reloaded = new GameSettings(null, storage);
+  assert.equal(reloaded.volume, 1);
+  assert.equal(reloaded.fov, 65);
 });
