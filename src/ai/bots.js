@@ -52,7 +52,7 @@ const GUN = {
   m4a1: { rpm: 666, mag: 30, reload: 3.0, auto: true, burst: [3, 7], pause: [0.2, 0.4], spread: 0.010, prefer: 34 },
   awp: { rpm: 41, mag: 10, reload: 3.6, auto: false, burst: [1, 1], pause: [1.45, 1.7], spread: 0.004, prefer: 55, bolt: 1.4 },
   shotgun: { rpm: 75, mag: 7, reload: 3.0, auto: false, burst: [1, 2], pause: [0.75, 1.0], spread: 0.03, prefer: 9, pellets: 8 },
-  lmg: { rpm: 750, mag: 100, reload: 5.2, auto: true, burst: [6, 12], pause: [0.25, 0.45], spread: 0.013, prefer: 34 },
+  lmg: { rpm: 650, mag: 100, reload: 5.2, auto: true, burst: [6, 12], pause: [0.25, 0.45], spread: 0.013, prefer: 34 },
 };
 const GUN_FALLBACK = GUN.usp;
 
@@ -1910,7 +1910,7 @@ export default class Bots {
     if (bot.perk === 'flakjacket' && BOT_EXPLOSIVES.has(weaponId)) amount *= 0.45;
     let dmg = amount;
     if (bot.armor > 0) {
-      // Headshots punch through helmets (0.85) so AK/M4 one-taps stay lethal.
+      // Headshots mostly punch through helmets (0.85 of the damage lands).
       dmg = amount * (info.headshot ? 0.85 : (this.game.config.ARMOR_DAMAGE_SCALE || 0.5));
       bot.armor = Math.max(0, bot.armor - amount * 0.5);
     }
@@ -1997,6 +1997,15 @@ export default class Bots {
         w && typeof w.current === 'function' && w.current().slot === 1;
       this._hearSound(p.origin, (this.game.player && this.game.player.team) || 'ct',
         this._cfg.HEAR_RANGE * 1.6 * (suppressed ? SUPPRESSED_HEARING : 1));
+    });
+
+    // A non-host human's shot, resolved on the authority (combat.fireRemote).
+    // Bots only heard the local player and each other before, so a remote
+    // human could fire next to one without it ever turning round.
+    ev.on('remote:fire', (p) => {
+      if (!p || !p.origin) return;
+      this._hearSound(p.origin, p.team || null,
+        this._cfg.HEAR_RANGE * 1.6 * (p.suppressed ? SUPPRESSED_HEARING : 1));
     });
 
     ev.on('bot:fire', (p) => {
@@ -2477,7 +2486,10 @@ export default class Bots {
   // -------------------------------------------------------------------------
 
   _combatFrame(bot, dt) {
-    bot.fireCooldown = Math.max(0, bot.fireCooldown - dt);
+    // Carry the overshoot of a RUNNING cooldown into the next one (an idle
+    // trigger rests at 0): clamping every expiry to the frame dropped the
+    // remainder, so a bot AK cycled at 514 rpm on a 60 fps host, not 600.
+    bot.fireCooldown = bot.fireCooldown > 0 ? bot.fireCooldown - dt : 0;
     if (bot.reloadTimer > 0) {
       bot.reloadTimer -= dt;
       if (bot.reloadTimer <= 0) {
@@ -2548,7 +2560,7 @@ export default class Bots {
     this._fireShot(bot, dist, blind);
     bot.mag--;
     bot.burstLeft--;
-    bot.fireCooldown = 60 / stats.rpm;
+    bot.fireCooldown += 60 / stats.rpm;
     if (stats.bolt) bot.fireCooldown = Math.max(bot.fireCooldown, stats.bolt);
     if (bot.burstLeft <= 0) {
       bot.pauseTimer = rand(stats.pause[0], stats.pause[1]);

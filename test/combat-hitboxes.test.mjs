@@ -97,6 +97,7 @@ test('stationary scoped AWP fires through reticle despite prior recoil drift', (
   });
   weapons.currentId = 'awp';
   weapons.scopeLevel = 1;
+  weapons._scopeT = 1; // scope fully settled (see SCOPE_SETTLE)
   weapons._driftP = 0.08;
   weapons._driftY = -0.06;
 
@@ -164,4 +165,56 @@ test('a demoted host retires its grenade and replicas cannot advance projectile 
 
   assert.equal(oldHostProjectile.fuse, 0.01);
   assert.equal(detonations, 0);
+});
+
+test('a freshly raised AWP scope is not yet accurate (no same-frame quickscope)', () => {
+  const events = new EventBus();
+  const player = {
+    alive: true, moveSpeed2D: 0, onGround: true, crouching: false,
+    eyePos: () => new THREE.Vector3(0, 1.62, 0), addViewPunch() {},
+  };
+  const camera = { fov: 74, getWorldDirection(out) { return out.set(0, 0, -1); }, updateProjectionMatrix() {} };
+  const weapons = new Weapons({
+    events, config: CONFIG, player, camera,
+    state: { phase: 'live', buyOpen: false },
+    input: { locked: true, firing: false },
+  });
+  weapons.currentId = 'awp';
+  weapons.scopeLevel = 1;
+  weapons._scopeT = 0;
+  assert.ok(weapons.currentSpread() > WEAPONS.awp.spreadUnscoped * 0.9, 'just scoped: still the unscoped cone');
+  weapons._scopeT = 1;
+  assert.ok(weapons.currentSpread() < 1e-9, 'settled scope: exactly on the reticle');
+});
+
+test('a ray that enters the chest first is a body hit, even if it would carry on into the head', () => {
+  const { combat } = combatWithBot();
+  // From 2.5 m below and 4 m out, climbing through the chest toward the helmet.
+  const origin = new THREE.Vector3(0, -1.0, -6);
+  const target = new THREE.Vector3(0, 1.7, -10);
+  const dir = target.clone().sub(origin).normalize();
+  assert.ok(combat._testCharacters(origin, dir, 100, null) >= 0);
+  assert.equal(combat._hitPartBest, 'body');
+});
+
+test('a level shot at the helmet (1.70 m on the 1.83 m operative) is a headshot', () => {
+  const { combat } = combatWithBot();
+  assert.ok(castAt(combat, 0, 1.70) >= 0);
+  assert.equal(combat._hitPartBest, 'head');
+  assert.ok(castAt(combat, 0, 1.52) >= 0, 'the neck / collar line');
+  assert.equal(combat._hitPartBest, 'body');
+});
+
+test('crouched remote humans use the visible crouch height, like bots', () => {
+  const events = new EventBus();
+  const remote = {
+    alive: true, team: 't', position: new THREE.Vector3(0, 0, -10),
+    radius: 0.35, height: 1.25, crouching: true,
+  };
+  const combat = new Combat({
+    events, config: CONFIG, player: null, bots: { all: [] },
+    multiplayer: { remotePlayers: [remote] },
+  });
+  assert.ok(castAt(combat, 0, 1.35) >= 0, 'the visible crouched head is hittable');
+  assert.equal(combat._hitHeight, 1.83 * 0.78);
 });

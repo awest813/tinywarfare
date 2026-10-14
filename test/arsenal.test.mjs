@@ -144,3 +144,72 @@ test('Scavenger refills reserve on kills; Hardline discounts streaks; old classe
   assert.equal(migrated.perk2, 'ghost');
   assert.equal(migrated.perk, DEFAULT_CLASSES[0].perk);
 });
+
+test('a semi-auto clicked shortly after its cooldown does not get an early follow-up shot', async () => {
+  const { default: Weapons } = await import('../src/weapons/weapons.js');
+  const { EventBus } = await import('../src/shared/events.js');
+  const THREE = await import('three');
+  const events = new EventBus();
+  const shots = [];
+  const player = {
+    alive: true, moveSpeed2D: 0, onGround: true, crouching: false,
+    eyePos: () => new THREE.Vector3(0, 1.62, 0), addViewPunch() {},
+  };
+  const camera = { fov: 74, getWorldDirection(out) { return out.set(0, 0, -1); }, updateProjectionMatrix() {} };
+  const input = { locked: true, firing: false };
+  const weapons = new Weapons({ events, config: { PLAYER: { FOV: 74, RUN_SPEED: 5.2 } }, player, camera, state: { phase: 'live', buyOpen: false }, input });
+  events.on('weapon:fire', () => shots.push(weapons._now));
+  weapons.slots[2] = 'deagle';
+  weapons.ammo.deagle = { mag: 7, reserve: 35 };
+  weapons.currentId = 'deagle';
+  weapons._state = 'idle';
+  const interval = 60 / WEAPONS.deagle.rpm;
+  const click = () => { weapons._onMouseDown({ button: 0 }); weapons.update(1 / 144); };
+  click();
+  // wait past the cooldown by most of an interval, then click twice quickly
+  for (let t = 0; t < interval * 1.8; t += 1 / 144) weapons.update(1 / 144);
+  click();
+  for (let t = 0; t < interval * 1.2; t += 1 / 144) click();
+  assert.ok(shots.length >= 3, `shots fired: ${shots.length}`);
+  const gap = shots[2] - shots[1];
+  assert.ok(gap >= interval - 1 / 144, `follow-up came ${gap.toFixed(3)} s after, interval ${interval.toFixed(3)}`);
+});
+
+test('recoil moves the aim and bullets follow the crosshair (no hidden offset)', async () => {
+  const { default: Weapons } = await import('../src/weapons/weapons.js');
+  const { EventBus } = await import('../src/shared/events.js');
+  const THREE = await import('three');
+  const events = new EventBus();
+  const shots = [];
+  const kicks = [];
+  const player = {
+    alive: true, moveSpeed2D: 0, onGround: true, crouching: false,
+    eyePos: () => new THREE.Vector3(0, 1.62, 0), addViewPunch() {},
+    applyRecoil(p, y) { kicks.push([p, y]); },
+  };
+  const camera = { fov: 74, getWorldDirection(out) { return out.set(0, 0, -1); }, updateProjectionMatrix() {} };
+  const weapons = new Weapons({ events, config: { PLAYER: { FOV: 74, RUN_SPEED: 5.2 } }, player, camera, state: { phase: 'live', buyOpen: false }, input: { locked: true } });
+  events.on('weapon:fire', (e) => shots.push(e.dir.clone()));
+  weapons.currentId = 'ak47';
+  weapons.ammo.ak47 = { mag: 30, reserve: 90 };
+  weapons._bloom = 0;
+  for (let i = 0; i < 6; i++) weapons._fireShot(WEAPONS.ak47, player, false);
+  assert.equal(kicks.length, 6, 'every shot kicks the aim');
+  assert.ok(kicks.every(([p]) => p > 0), 'the kick climbs');
+  assert.equal(weapons._driftP, 0, 'no hidden drift accumulates');
+  // With the camera held still, every bullet stays inside the base spread cone
+  // around the crosshair: none of the climb is a hidden offset.
+  const cone = WEAPONS.ak47.spreadBase + WEAPONS.ak47.bloomMax;
+  for (const d of shots) assert.ok(Math.acos(-d.z) <= cone * 1.42 + 1e-9, `shot ${Math.acos(-d.z).toFixed(4)} off the crosshair`);
+
+  // Aimed down sights the same shot kicks less.
+  kicks.length = 0;
+  weapons._recoilIndexF = 0;
+  weapons._fireShot(WEAPONS.ak47, player, false);
+  const hip = kicks[0][0];
+  kicks.length = 0;
+  weapons._recoilIndexF = 0;
+  weapons.adsT = 1;
+  weapons._fireShot(WEAPONS.ak47, player, false);
+  assert.ok(kicks[0][0] < hip * 0.85, 'ADS cuts the kick');
+});

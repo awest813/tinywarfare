@@ -64,10 +64,12 @@ passing), and boots cleanly in a headless browser with no console errors.
 | Deploy config still points at the upstream author's domain and Worker | `wrangler.jsonc`, `worker/index.mjs:30`, `server.mjs` origins | Pick a host first |
 | Upstream's open visual defects: grey backdrop boxes, tiling concrete stains, low-quality dressing LOD | see `HANDOFF.md` | Content pass |
 
-Not a bug: a ray that touches the head sphere counts as a headshot even if it
-also crosses the body capsule first. The body capsule rises into the head on
-purpose (`combat.js:694`). "Fixing" this would turn most level headshots into
-body hits.
+Headshots: the head sphere now sits a quarter-radius below the top of the
+capsule (centre ~1.69 m, the operative's helmet), and a ray scores a headshot
+only if it reaches the head no later than the body (2 cm grace). Level shots
+from ~1.58 m up to the helmet top stay headshots; a shot through the neck, or
+one climbing up through the chest from below, is a body hit
+(`combat.js` `_rayCharacter`, covered by `test/combat-hitboxes.test.mjs`).
 
 ## Architecture moves that unlock everything
 
@@ -153,9 +155,11 @@ Shipped:
 - Fixed-step simulation and exact jump integration (see the audit section).
 
 Also shipped:
-- **Visible recoil**: the camera shows 60% of the spray drift, so the view
-  climbs with the spray. Bullets carry the other 40% as an offset, so the
-  total deviation is unchanged. The cosmetic kick is lighter to match.
+- **Recoil moves the aim** (Modern Warfare style): each shot's pattern kick
+  goes into the player's pitch/yaw, eased in over ~40 ms, and bullets fly
+  where the crosshair is. Pulling down compensates exactly, nothing springs
+  back on release, and ADS trims the kick by 20%. (It used to show 60% of the
+  drift on the camera and keep 40% as a hidden bullet offset.)
 - **Input buffer**: semi-auto clicks during the fire cooldown, and AWP scope
   clicks during a raise, wait up to 80 ms (scope up to 320 ms) instead of
   being dropped.

@@ -18,6 +18,9 @@ import { SpectatorCamera } from './spectator.js';
 export const BASE_LOOK_SENSITIVITY = 0.0022; // rad per input pixel at 1.00×
 const PITCH_CLAMP = 1.45;        // rad
 const PUNCH_DECAY = 8;           // 1/s exponential decay toward zero
+// Gun recoil moves the AIM (applyRecoil), eased in at this rate (1/s) so a
+// kick is a fast climb over a few frames rather than a one-frame snap.
+const RECOIL_EASE = 40;
 const PUNCH_CLAMP = 0.5;         // rad, sanity cap on accumulated punch
 const SHAKE_DECAY = 4.2;         // 1/s
 const SHAKE_MAX = 1.5;           // accumulated shake amplitude cap
@@ -112,6 +115,8 @@ export default class Player {
 
     // ---- internal state ----
     this._heightCur = P.HEIGHT_STAND;  // current hitbox height (lerps)
+    this._recoilQueueP = 0;            // aim recoil still to be eased in, rad
+    this._recoilQueueY = 0;
     this._punchPitch = 0;              // view punch (recoil) offsets, rad
     this._punchYaw = 0;
     this._shakeAmp = 0;                // camera shake amplitude 0..SHAKE_MAX
@@ -171,6 +176,17 @@ export default class Player {
   addViewPunch(pitchRad, yawRad) {
     this._punchPitch = THREE.MathUtils.clamp(this._punchPitch + (pitchRad || 0), -PUNCH_CLAMP, PUNCH_CLAMP);
     this._punchYaw = THREE.MathUtils.clamp(this._punchYaw + (yawRad || 0), -PUNCH_CLAMP, PUNCH_CLAMP);
+  }
+
+  /**
+   * Gun recoil, Modern Warfare style: the kick moves where the player is
+   * aiming, permanently, and the bullets go where the crosshair is. Pulling
+   * the mouse down compensates exactly; nothing springs back on release to
+   * undo that correction. (+pitch = up, +yaw = the bullet-yaw convention.)
+   */
+  applyRecoil(pitchRad, yawRad) {
+    this._recoilQueueP += pitchRad || 0;
+    this._recoilQueueY += yawRad || 0;
   }
 
   /** Brief camera shake (explosions). strength ~0..1, stacks with a cap. */
@@ -326,6 +342,8 @@ export default class Player {
     this.eyeHeight = P.EYE_STAND;
     this._punchPitch = 0;
     this._punchYaw = 0;
+    this._recoilQueueP = 0;
+    this._recoilQueueY = 0;
     this._shakeAmp = 0;
     this._dipY = 0;
     this._dipVel = 0;
@@ -394,6 +412,18 @@ export default class Player {
     this._punchYaw *= decay;
     if (Math.abs(this._punchPitch) < 1e-5) this._punchPitch = 0;
     if (Math.abs(this._punchYaw) < 1e-5) this._punchYaw = 0;
+
+    if (this._recoilQueueP !== 0 || this._recoilQueueY !== 0) {
+      const k = 1 - Math.exp(-RECOIL_EASE * dt);
+      const dp = this._recoilQueueP * k;
+      const dy = this._recoilQueueY * k;
+      this._recoilQueueP -= dp;
+      this._recoilQueueY -= dy;
+      this.pitch = THREE.MathUtils.clamp(this.pitch + dp, -PITCH_CLAMP, PITCH_CLAMP);
+      this.yaw += dy;
+      if (Math.abs(this._recoilQueueP) < 1e-6) this._recoilQueueP = 0;
+      if (Math.abs(this._recoilQueueY) < 1e-6) this._recoilQueueY = 0;
+    }
 
     this._shakeAmp *= Math.exp(-SHAKE_DECAY * dt);
     if (this._shakeAmp < 1e-3) this._shakeAmp = 0;

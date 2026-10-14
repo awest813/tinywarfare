@@ -82,8 +82,8 @@ export const WEAPONS = {
     name: 'Knife',
     slot: 3,
     price: 0,
-    damage: 34,
-    damageBack: 65,          // backstab damage (combat may use)
+    damage: 55,              // two slashes; MW2-lite, not CS's three
+    damageBack: 120,         // backstab: one hit
     headshotMult: 1.0,
     rpm: 120,
     magSize: 0,
@@ -122,7 +122,7 @@ export const WEAPONS = {
     slot: 2,
     price: 200,
     damage: 26,
-    headshotMult: 4,
+    headshotMult: 2.5,
     rpm: 400,
     magSize: 20,
     reserve: 120,
@@ -157,7 +157,7 @@ export const WEAPONS = {
     slot: 2,
     price: 200,
     damage: 34,
-    headshotMult: 4,
+    headshotMult: 2.5,
     rpm: 352,
     magSize: 12,
     reserve: 100,
@@ -193,7 +193,7 @@ export const WEAPONS = {
     slot: 2,
     price: 700,
     damage: 58,
-    headshotMult: 4,
+    headshotMult: 2.5,
     rpm: 160,                // heavy, deliberate
     magSize: 7,
     reserve: 35,
@@ -229,7 +229,7 @@ export const WEAPONS = {
     slot: 1,
     price: 1500,
     damage: 26,
-    headshotMult: 4,
+    headshotMult: 2,
     rpm: 750,
     magSize: 30,
     reserve: 120,
@@ -264,7 +264,7 @@ export const WEAPONS = {
     slot: 1,
     price: 2700,
     damage: 36,
-    headshotMult: 4,         // one-tap headshot vs armored and unarmored
+    headshotMult: 2,
     rpm: 600,
     magSize: 30,
     reserve: 90,
@@ -299,8 +299,8 @@ export const WEAPONS = {
     name: 'M4-A1',
     slot: 1,
     price: 3100,
-    damage: 33,
-    headshotMult: 4,
+    damage: 34,              // 3 x 34 = 102: a three-shot kill like the AK, not 99
+    headshotMult: 2,
     rpm: 666,
     magSize: 30,
     reserve: 90,
@@ -371,7 +371,7 @@ export const WEAPONS = {
     name: 'HE Grenade',
     slot: 4,
     price: 300,
-    damage: 98,              // max, radial falloff (combat resolves)
+    damage: 150,             // max, (1 - d/9)^1.6 from chest centre: kills inside ~2 m
     radius: 9,
     headshotMult: 1,
     rpm: 0,
@@ -514,8 +514,8 @@ export const WEAPONS = {
     slot: 1,
     price: 5200,
     damage: 32,
-    headshotMult: 3.5,
-    rpm: 750,
+    headshotMult: 2,
+    rpm: 650,                // a heavy weapon: four shots, slower cycle
     magSize: 100,
     reserve: 200,
     reloadTime: 5.2,
@@ -548,7 +548,7 @@ export const WEAPONS = {
     name: 'Semtex',
     slot: 4,
     price: 300,
-    damage: 98,
+    damage: 150,
     headshotMult: 1,
     rpm: 0,
     magSize: 1,

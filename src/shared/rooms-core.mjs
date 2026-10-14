@@ -53,6 +53,7 @@ const PLAYER_STATE_NUMBER_FIELDS = Object.freeze([
   'armor',
   'moveSpeed2D',
   'reloadLeft',
+  'damageSeq',
 ]);
 const PLAYER_STATE_BOOLEAN_FIELDS = Object.freeze([
   'hasKit',

@@ -41,8 +41,8 @@ const BOT_CROUCH_VISUAL_SCALE = 0.78;
 
 // --- Penetration -----------------------------------------------------------
 const PEN_PROBE = 0.4;             // max wall thickness probe (m)
-const PEN_MAX_THICKNESS = 0.35;    // walls thicker than this stop the bullet
-const PEN_DMG_SCALE = 0.55;        // damage retained after penetrating
+const PEN_MAX_THICKNESS = 0.35;    // wall a penetration-1.0 round beats (m)
+const PEN_DMG_SCALE = 0.55;        // damage a penetration-1.0 round keeps
 
 // --- Grenades --------------------------------------------------------------
 const GRENADE_RADIUS = 0.07;
@@ -201,6 +201,9 @@ export default class Combat {
     shooter.spawnProtection = 0; // firing ends a fresh spawn's immunity
     // The authority hears the shot here; replicas hear it from the tracer.
     this.game.events.emit('audio:shot', { origin: e.origin, weaponId: e.melee ? 'knife' : e.weaponId });
+    if (!e.melee) {
+      this.game.events.emit('remote:fire', { origin: e.origin, team: shooter.team, suppressed: !!e.suppressed });
+    }
     const weaponId = e.weaponId || 'usp';
     const def = this._def(weaponId);
     this._sOrigin.set(e.origin.x, e.origin.y, e.origin.z);
@@ -209,8 +212,13 @@ export default class Combat {
     this._sDir.normalize();
     if (e.melee) this._resolveMelee(shooter, shooter.team, false, weaponId, def);
     else {
-      this._fireBullet(weaponId, def, shooter, shooter.team, false, null);
-      this._firePellets(e, weaponId, def, shooter, shooter.team, false);
+      this._suppressedShot = !!e.suppressed;
+      try {
+        this._fireBullet(weaponId, def, shooter, shooter.team, false, null);
+        this._firePellets(e, weaponId, def, shooter, shooter.team, false);
+      } finally {
+        this._suppressedShot = false;
+      }
     }
   }
 
@@ -368,8 +376,19 @@ export default class Combat {
     if (e.melee) {
       this._resolveMelee(shooter, team, true, weaponId, def);
     } else {
-      this._fireBullet(weaponId, def, shooter, team, true, null);
-      this._firePellets(e, weaponId, def, shooter, team, true);
+      // One trigger pull is one hitmarker, however many pellets connect: the
+      // shotgun used to flash and tick up to eight of them per blast.
+      const agg = this._markerAgg = { hit: false, headshot: false, kill: false };
+      // A suppressed round draws the faint tracer effects.js has for it.
+      this._suppressedShot = !!e.suppressed;
+      try {
+        this._fireBullet(weaponId, def, shooter, team, true, null);
+        this._firePellets(e, weaponId, def, shooter, team, true);
+      } finally {
+        this._markerAgg = null;
+        this._suppressedShot = false;
+      }
+      if (agg.hit) this.game.events.emit('hud:hitmarker', { headshot: agg.headshot, kill: agg.kill });
     }
   }
 
@@ -446,6 +465,7 @@ export default class Combat {
         shooterId: shooter && shooter.networkId ? shooter.networkId
           : (shooter === this.game.player ? this.game.player.networkId : null),
         pellet: this._pelletTracer || undefined,
+        suppressed: this._suppressedShot || undefined,
       });
     }
   }
@@ -551,7 +571,12 @@ export default class Combat {
       }
       if (!back) return;
       const thickness = PEN_PROBE - back.distance;
-      if (thickness <= 0 || thickness > PEN_MAX_THICKNESS) return;
+      // The weapon's penetration rating decides how much wall it beats and how
+      // much damage survives: it used to be a bare on/off switch, so a Glock
+      // (0.25) wallbanged exactly like the LMG (1.1). Now the Glock gets through
+      // a door or a fence (~9 cm), a rifle most interior walls.
+      const pen = Math.min(1.1, Math.max(0, def.penetration || 0));
+      if (thickness <= 0 || thickness > PEN_MAX_THICKNESS * pen) return;
 
       this._exitPoint.copy(back.point);
       this._exitNormal.copy(back.normal);
@@ -569,7 +594,7 @@ export default class Combat {
       traveled += wallDist + thickness;
       remaining -= wallDist + thickness;
       if (remaining <= 0.25) return;
-      dmgScale *= PEN_DMG_SCALE;
+      dmgScale *= Math.min(0.75, PEN_DMG_SCALE * (0.5 + 0.5 * pen));
       this._sOrigin.copy(this._exitPoint).addScaledVector(this._sDir, 0.01);
     }
   }
@@ -642,7 +667,14 @@ export default class Combat {
     // Player hit feedback — bot targets only ('bot:death' fires synchronously
     // inside takeDamage, so `alive` is already settled here).
     if (byPlayer && !isPlayer) {
-      this.game.events.emit('hud:hitmarker', { headshot, kill: !target.alive });
+      const agg = this._markerAgg;
+      if (agg) {
+        agg.hit = true;
+        agg.headshot = agg.headshot || !!headshot;
+        agg.kill = agg.kill || !target.alive;
+      } else {
+        this.game.events.emit('hud:hitmarker', { headshot, kill: !target.alive });
+      }
     }
   }
 
@@ -677,6 +709,10 @@ export default class Combat {
         radius = (cfg.PLAYER && cfg.PLAYER.RADIUS) || 0.35;
         height = (cfg.PLAYER && cfg.PLAYER.HEIGHT_STAND) || 1.83;
       }
+      // Seen by everyone else the player is the operative's crouch clip, which
+      // stands ~78% of full height, not the 1.25 m movement capsule — and bots
+      // aim 1.35 m above the feet, so a crouched player was nearly unhittable.
+      if (pl.crouching) height = Math.max(height, ((cfg.PLAYER && cfg.PLAYER.HEIGHT_STAND) || 1.83) * BOT_CROUCH_VISUAL_SCALE);
       if (radius > 0) {
         const t = this._rayCharacter(
           o.x, o.y, o.z, d.x, d.y, d.z, maxDist,
@@ -733,7 +769,10 @@ export default class Combat {
         const r = remotes[i];
         if (!r || r === shooter || !r.alive || !r.position) continue;
         const radius = r.radius != null ? r.radius : defRadius;
-        const height = r.height != null ? r.height : defHeight;
+        let height = r.height != null ? r.height : defHeight;
+        // Same rule as bots: a crouched (or sliding) remote is drawn with the
+        // operative crouch clip, taller than its movement capsule.
+        if (r.crouching) height = Math.max(height, defHeight * BOT_CROUCH_VISUAL_SCALE);
         const t = this._rayCharacter(
           o.x, o.y, o.z, d.x, d.y, d.z, maxDist,
           r.position.x, r.position.y, r.position.z, radius, height
@@ -764,7 +803,10 @@ export default class Combat {
       HEAD_RADIUS_MIN,
       Math.min(HEAD_RADIUS_MAX, radius * HEAD_RADIUS_RATIO)
     );
-    const headY = fy + height - headRadius;
+    // The sphere's centre sits a quarter-radius below the top of the capsule:
+    // on the 1.83 m operative that is the helmet's centre (~1.69 m). At a full
+    // radius down it sat at 1.65 and its lower half reached the shoulder line.
+    const headY = fy + height - headRadius * 0.75;
     // Let the body's rounded shoulder volume rise to the center of the head.
     // The dedicated sphere still exclusively decides headshot classification;
     // this overlap preserves forgiving shoulder/upper-torso hits.
@@ -780,7 +822,11 @@ export default class Combat {
       fx, headY, fz, headRadius, maxDist
     );
 
-    if (headT >= 0) {
+    // A headshot is a ray that reaches the head FIRST (2 cm of grace for the
+    // two volumes' shared surface). One that enters the chest and would carry
+    // on up into the head — a shot from below, or through the neck — is a body
+    // hit, as the shooter can see it was.
+    if (headT >= 0 && (bodyT < 0 || headT <= bodyT + 0.02)) {
       this._capY = oy + dy * headT;
       this._capPart = 'head';
       return bodyT >= 0 ? Math.min(bodyT, headT) : headT;

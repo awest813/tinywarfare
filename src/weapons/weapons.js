@@ -19,12 +19,23 @@ import * as THREE from 'three';
 import { WEAPONS, GEAR, BUY_MENU } from './data.js';
 import { PERK_TUNING, hasAttachment, hasPerk } from '../game/loadouts.js';
 
-const SWITCH_TIME = 0.6;        // standard raise time
+// Raise time by slot. Matches the viewmodel's own raise (the event carries the
+// duration), so the gun is ready to fire the moment it looks ready — at 0.6 s
+// against a 0.28 s animation, a click in between was simply eaten.
+const SWITCH_TIME = { 1: 0.45, 2: 0.32, 3: 0.28, 4: 0.3 };
 const FAST_SWITCH_TIME = 0.35;  // post-throw / round-start raise
 const THROW_DUR = 0.5;          // full throw animation length
 const THROW_RELEASE = 0.11;     // seconds into the throw when grenade leaves hand
 const DRYFIRE_INTERVAL = 0.35;  // min gap between dry-fire clicks
 const RESCOPE_DELAY = 1.05;     // AWP: bolt time before auto re-scope
+// A scope is not accurate the instant RMB goes down: spread blends from the
+// unscoped cone to the scoped one over this long, so a same-frame
+// right-click + left-click is no longer a perfect shot.
+const SCOPE_SETTLE = 0.24;
+// Longest the drift waits after a shot before it starts to recover. Without a
+// cap the bolt-action AWP waited 2.4 s — longer than its own 1.46 s cycle — so
+// its view kick only ever came back down long after the follow-up shot.
+const RECOVERY_WAIT_MAX = 0.3;
 const FOV_LERP_RATE = 12;       // per-second exponential fov approach
 const DRIFT_CLAMP = 0.22;       // max accumulated aim drift (rad)
 const SCOPED_MOVE_SCALE = 0.55; // extra move slowdown while scoped (feel)
@@ -40,6 +51,7 @@ const LAND_RECOVER = 0.3;       // s for the landing penalty to fade
 // Aim down sights (every gun without a scope). Hip fire keeps the original
 // tuning; ADS tightens it, zooms the view, and slows the walk.
 const ADS_SPREAD_SCALE = 0.55;  // spread multiplier at full ADS
+const ADS_RECOIL_CUT = 0.2;     // recoil kick removed at full ADS
 const ADS_MOVE_SCALE = 0.72;    // move speed multiplier at full ADS
 const ADS_ZOOM = { 1: 0.2, 2: 0.12 }; // fov reduction by slot at full ADS
 const ADS_TIME = { 1: 0.22, 2: 0.15 }; // s from hip to full ADS by slot
@@ -101,6 +113,7 @@ export default class Weapons {
     this._fovCurrent = baseFov;
     this._rescopeAt = -1;
     this._rescopeLevel = 0;
+    this._scopeT = 0;            // 0..1 settle since the scope went up
 
     this._everReset = false;
     this._wasSprinting = false;
@@ -189,7 +202,7 @@ export default class Weapons {
   /** Magazine size including an extended-mag attachment on the primary. */
   magSizeOf(def) {
     if (!def) return 0;
-    if (def.slot === 1 && hasAttachment(this.game.player, 'extmag')) {
+    if (def.slot === 1 && hasAttachment(this.game && this.game.player, 'extmag')) {
       return Math.round(def.magSize * PERK_TUNING.EXTMAG_SCALE);
     }
     return def.magSize;
@@ -212,7 +225,10 @@ export default class Weapons {
   /** Look sensitivity multiplier that keeps ADS tracking speed constant. */
   adsSensitivityScale() {
     if (this.scopeLevel > 0) return 1;
-    return clamp(this._fovCurrent / this._baseFov(), 0.5, 1);
+    // On-screen speed goes with tan(fov/2), not with the angle itself: the
+    // linear ratio left aimed turning ~6% fast at the rifle's 20% zoom.
+    const half = (deg) => Math.tan((deg * Math.PI) / 360);
+    return clamp(half(this._fovCurrent) / half(this._baseFov()), 0.5, 1);
   }
 
   /** True when the trigger, aim, or a throw should stop the player sprinting. */
@@ -244,8 +260,10 @@ export default class Weapons {
     const scoped = this.scopeLevel > 0;
 
     let spread;
-    if (def.zoomFov && !scoped) {
-      spread = def.spreadUnscoped !== undefined ? def.spreadUnscoped : 0.05;
+    if (def.zoomFov) {
+      const unscoped = def.spreadUnscoped !== undefined ? def.spreadUnscoped : 0.05;
+      const k = scoped ? this._scopeT * this._scopeT * (3 - 2 * this._scopeT) : 0;
+      spread = unscoped + (def.spreadBase - unscoped) * k;
     } else {
       spread = def.spreadBase;
     }
@@ -257,6 +275,10 @@ export default class Weapons {
       const frac = clamp(p.moveSpeed2D / run, 0, 1);
       let movePen = def.spreadMove * Math.pow(frac, 1.35);
       if (scoped) movePen *= 0.5; // scoped halves the move penalty
+      // Aimed down sights the gun is shouldered: strafing while aimed is how
+      // this kind of game is played, so ADS keeps only 30% of the move penalty
+      // (an aimed-walk AK went from a 0.73 deg cone to ~0.27).
+      movePen *= 1 - 0.7 * this.adsT;
       spread += movePen;
     }
     // Jump inaccuracy ramps in over AIR_RAMP and leaves a short landing tail.
@@ -341,7 +363,7 @@ export default class Weapons {
       if (!def) continue;
       const counts = rawAmmo[id] || {};
       this.ammo[id] = {
-        mag: Math.max(0, Math.min(Number.isFinite(def.magSize) ? def.magSize : 999,
+        mag: Math.max(0, Math.min(Number.isFinite(def.magSize) ? this.magSizeOf(def) : 999,
           Math.floor(Number(counts.mag) || 0))),
         reserve: Math.max(0, Math.min(Number.isFinite(def.reserve) ? def.reserve : 9999,
           Math.floor(Number(counts.reserve) || 0))),
@@ -361,7 +383,7 @@ export default class Weapons {
     if (!id || !WEAPONS[id] || !this.owns(id)) return false;
     if (id === this.currentId && this._state !== 'throwing') return false;
     const swap = hasPerk(this.game.player, 'quickhands') ? PERK_TUNING.QUICKHANDS_SWAP : 1;
-    this._forceEquip(id, SWITCH_TIME * swap, true);
+    this._forceEquip(id, (SWITCH_TIME[WEAPONS[id].slot] || 0.45) * swap, true);
     return true;
   }
 
@@ -441,7 +463,7 @@ export default class Weapons {
       if (old === id) return false; // already own this exact weapon
       if (old) delete this.ammo[old];
       this.slots[def.slot] = id;
-      this.ammo[id] = { mag: def.magSize, reserve: def.reserve };
+      this.ammo[id] = { mag: this.magSizeOf(def), reserve: def.reserve };
       // CS-style: a freshly bought gun goes straight into your hands (this
       // also covers the spec's "auto-equip if slot empty" case).
       this._forceEquip(id, SWITCH_TIME, true);
@@ -471,15 +493,15 @@ export default class Weapons {
       this.slots = { 1: null, 2: pistolId, 3: 'knife', 4: [] };
       this.ammo = {};
       const pistol = WEAPONS[pistolId];
-      this.ammo[pistolId] = { mag: pistol.magSize, reserve: pistol.reserve };
+      this.ammo[pistolId] = { mag: this.magSizeOf(pistol), reserve: pistol.reserve };
     } else {
       const s1 = this.slots[1];
       const s2 = this.slots[2];
       if (s1 && WEAPONS[s1]) {
-        this.ammo[s1] = { mag: WEAPONS[s1].magSize, reserve: WEAPONS[s1].reserve };
+        this.ammo[s1] = { mag: this.magSizeOf(WEAPONS[s1]), reserve: WEAPONS[s1].reserve };
       }
       if (s2 && WEAPONS[s2]) {
-        this.ammo[s2] = { mag: WEAPONS[s2].magSize, reserve: WEAPONS[s2].reserve };
+        this.ammo[s2] = { mag: this.magSizeOf(WEAPONS[s2]), reserve: WEAPONS[s2].reserve };
       }
       for (const id of GRENADE_ORDER) this._syncGrenadeAmmo(id);
     }
@@ -534,6 +556,7 @@ export default class Weapons {
     }
 
     this._updateFov(dt);
+    this._scopeT = this.scopeLevel > 0 ? Math.min(1, this._scopeT + dt / SCOPE_SETTLE) : 0;
 
     const def = this.current();
     const phase = state ? state.phase : 'menu';
@@ -738,7 +761,11 @@ export default class Weapons {
   _scheduleNextShot(def) {
     const interval = 60 / def.rpm;
     const late = this._now - this._nextFireAt;
-    this._nextFireAt = (late >= 0 && late < interval ? this._nextFireAt : this._now) + interval;
+    // Only a SUB-FRAME remainder carries (a step is at most 0.05 s). Carrying
+    // anything up to a whole interval meant a semi-auto clicked shortly after
+    // its cooldown ended had its next shot scheduled from the stale time — the
+    // AWP's second bolt came 0.24 s early at 144 fps, a pistol's could double-tap.
+    this._nextFireAt = (late >= 0 && late < Math.min(interval, 0.05) ? this._nextFireAt : this._now) + interval;
   }
 
   _tryFire(def, player) {
@@ -763,12 +790,12 @@ export default class Weapons {
 
     // AWP: shot forces a brief unscope while the bolt cycles, then re-scopes.
     if (def.zoomFov && this.scopeLevel > 0) {
+      this._rescopeLevel = this.scopeLevel; // back to the zoom the player chose
       this.scopeLevel = 0;
       const base = this._baseFov();
       this._fovTarget = base;
       this.game.events.emit('weapon:scope', { level: 0, fov: base });
       this._rescopeAt = this._now + RESCOPE_DELAY;
-      this._rescopeLevel = 1;
     }
   }
 
@@ -854,8 +881,21 @@ export default class Weapons {
       kp *= PERK_TUNING.GRIP_RECOIL;
       ky *= PERK_TUNING.GRIP_RECOIL;
     }
-    this._driftP = Math.min(DRIFT_CLAMP, this._driftP + kp);
-    this._driftY = clamp(this._driftY + ky, -DRIFT_CLAMP, DRIFT_CLAMP);
+    // Shouldered, the gun climbs less.
+    const steady = 1 - ADS_RECOIL_CUT * this.adsT;
+    kp *= steady;
+    ky *= steady;
+    if (typeof player.applyRecoil === 'function') {
+      // The kick goes into the player's aim (player.applyRecoil): what you see
+      // is what you shoot. The old model kept 40% of the climb as a hidden
+      // bullet offset no amount of pulling down could correct, then sprang
+      // the view back on release against the player's own compensation.
+      player.applyRecoil(kp, ky);
+    } else {
+      // Actors without an aim to kick (tests, tools) keep the drift model.
+      this._driftP = Math.min(DRIFT_CLAMP, this._driftP + kp);
+      this._driftY = clamp(this._driftY + ky, -DRIFT_CLAMP, DRIFT_CLAMP);
+    }
     this._recoilIndexF = Math.min(pat && pat.length ? pat.length : 30, this._recoilIndexF + 1);
     this._bloom = Math.min(def.bloomMax, this._bloom + def.bloomPerShot);
 
@@ -876,7 +916,7 @@ export default class Weapons {
     const interval = def && def.rpm > 0 ? 60 / def.rpm : 0.2;
     const idleFor = this._now - this._lastShotAt;
 
-    if (idleFor > interval * 1.6 + 0.06) {
+    if (idleFor > Math.min(interval * 1.6 + 0.06, RECOVERY_WAIT_MAX)) {
       const rate = rec ? rec.recovery : 8;
       const k = Math.exp(-rate * dt);
       this._driftP *= k;
@@ -982,7 +1022,7 @@ export default class Weapons {
     this._driftP = 0;
     this._driftY = 0;
     this._bloom = 0;
-    this.game.events.emit('weapon:equip', { id: id });
+    this.game.events.emit('weapon:equip', { id: id, duration: dur });
   }
 
   _cancelActivity() {

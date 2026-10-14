@@ -1124,7 +1124,11 @@ export default class ViewModel {
   // Event handlers — flags and timers only
   // ==========================================================================
   _onEquip(p) {
-    if (p && p.id && WEAPONS[p.id]) this._beginEquip(p.id);
+    if (!p || !p.id || !WEAPONS[p.id]) return;
+    this._beginEquip(p.id);
+    // The raise lasts exactly as long as the gameplay lockout it shows, so the
+    // gun never looks ready before it can fire (or the other way round).
+    if (Number.isFinite(p.duration) && p.duration > 0) this._equipDur = p.duration;
   }
 
   _onFire(p) {

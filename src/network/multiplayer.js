@@ -1063,10 +1063,14 @@ export default class Multiplayer {
     const died = target.health <= 0;
     if (died) this._setRemoteAlive(target, false);
     const attacker = info.from || null;
+    // Numbered so the target's own state packets can say which hits they have
+    // already seen (see _applyPlayerState).
+    target.damageSeq = (target.damageSeq || 0) + 1;
     const result = {
       health: target.health,
       armor: target.armor,
       alive: target.alive,
+      damageSeq: target.damageSeq,
       amount: healthDamage,
       weapon: info.weapon || 'world',
       headshot: !!info.headshot,
@@ -1102,6 +1106,10 @@ export default class Multiplayer {
         origin: vec(data.origin),
         dir: vec(data.dir),
         melee: !!data.melee,
+        // Without these the host resolved a client's shotgun as ONE pellet
+        // (22 damage a blast) and drew its suppressed rounds at full tracer.
+        pellets: Array.isArray(data.pellets) ? data.pellets.slice(0, 15).map(vec) : undefined,
+        suppressed: !!data.suppressed || undefined,
       });
     });
     ev.on('grenade:throw', (data) => {
@@ -2030,11 +2038,18 @@ export default class Multiplayer {
     if (state.pos) remote.targetPosition.set(state.pos.x || 0, state.pos.y || 0, state.pos.z || 0);
     if (Number.isFinite(state.yaw)) remote.targetYaw = state.yaw;
     if (Number.isFinite(state.pitch)) remote.pitch = state.pitch;
-    if (Number.isFinite(state.health)) {
+    // A client's 20 Hz state can be older than the host's latest hit on it:
+    // copying its health back used to UNDO that hit, so under automatic fire
+    // about every other hit inside ~2x one-way latency was erased. The host
+    // only takes a client's health/armor once the client has seen every hit
+    // dealt so far (round resets and armor purchases still come through).
+    const stale = this.isAuthority() &&
+      (Number(state.damageSeq) || 0) < (remote.damageSeq || 0);
+    if (Number.isFinite(state.health) && !stale) {
       if (state.health < remote.health && remote.alive !== false) remote.hitFlinch = 1;
       remote.health = state.health;
     }
-    if (Number.isFinite(state.armor)) remote.armor = state.armor;
+    if (Number.isFinite(state.armor) && !stale) remote.armor = state.armor;
     remote.hasKit = !!state.hasKit;
     const wasAlive = remote.alive;
     if (typeof state.alive === 'boolean') this._setRemoteAlive(remote, state.alive);
@@ -2145,6 +2160,9 @@ export default class Multiplayer {
       sliding: !!p.sliding,
       moveSpeed2D: p.moveSpeed2D,
       reloadLeft: this._localReloadLeft(),
+      // The last authoritative hit this client has applied; the host ignores
+      // this packet's health/armor if it predates a hit it has since dealt.
+      damageSeq: this._damageSeq || 0,
       onGround: p.onGround,
       useDown: !!(input && typeof input.isDown === 'function' && input.isDown('e')),
       weaponId: this.game.weapons ? this.game.weapons.currentId : 'knife',
@@ -2346,6 +2364,7 @@ export default class Multiplayer {
     }
     if (message.targetId === this.localId) {
       if (this.isHost) return;
+      if (Number.isFinite(result.damageSeq)) this._damageSeq = Math.max(this._damageSeq || 0, result.damageSeq);
       const attacker = result.attackerId ? this._remoteById.get(result.attackerId) : null;
       if (this.game.player && typeof this.game.player.applyNetworkDamage === 'function') {
         this.game.player.applyNetworkDamage(result, attacker || {
