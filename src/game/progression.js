@@ -193,7 +193,9 @@ export default class Progression {
     if (!e || !e.killerIsLocal || e.victimIsLocal) return;
     if (this.game?.state?.mode !== 'ffa' && e.killerTeam && e.victimTeam && e.killerTeam === e.victimTeam) return;
     const id = String(e.weaponId || '');
-    if (!id) return;
+    // Weapon levels unlock attachments, which only primaries take: a knife,
+    // grenade or airstrike kill must not end on "KNIFE LEVEL 2 · LASER".
+    if (!PRIMARIES.includes(id)) return;
     this._matchKills[id] = (this._matchKills[id] || 0) + 1;
   }
 

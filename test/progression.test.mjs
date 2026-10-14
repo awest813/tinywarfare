@@ -65,8 +65,16 @@ test('game:end awards the match from the live score and local kills', () => {
   const p = new Progression(game, memoryStorage());
   events.emit('kill', { killerIsLocal: true, weaponId: 'ak47', killerTeam: 'ct', victimTeam: 't' });
   events.emit('kill', { killerIsLocal: false, weaponId: 'ak47' });
+  // Only primaries level up (attachments): no "KNIFE LEVEL 2 · LASER".
+  for (const id of ['knife', 'hegrenade', 'airstrike', 'usp']) {
+    for (let i = 0; i < 4; i++) events.emit('kill', { killerIsLocal: true, weaponId: id, killerTeam: 'ct', victimTeam: 't' });
+  }
+  let breakdown = null;
+  events.on('progress:local', (b) => { breakdown = b; });
   events.emit('game:end', { winner: 't' });
   assert.equal(p.xp, 900 + MATCH_XP.LOSS);
   assert.equal(p.weaponXp.ak47, WEAPON_XP_PER_KILL);
+  assert.deepEqual(Object.keys(p.weaponXp), ['ak47']);
+  assert.deepEqual(breakdown.weaponUps, []);
   assert.ok(Object.values(UNLOCK_RANK).every((r) => r >= 2 && r <= 30));
 });

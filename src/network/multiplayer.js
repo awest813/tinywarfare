@@ -2396,6 +2396,8 @@ export default class Multiplayer {
       // The authority wrote these from its own seat; re-aim them at this one.
       data.killerIsLocal = !!data.killerId && data.killerId === this.localId;
       data.victimIsLocal = !!data.victimId && data.victimId === this.localId;
+      data.assistIsLocal = !!this.localId && Array.isArray(data.assistIds) &&
+        data.assistIds.map(String).includes(String(this.localId));
     }
     const hydrate = (obj) => {
       if (!obj || typeof obj !== 'object') return obj;

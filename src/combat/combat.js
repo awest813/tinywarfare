@@ -23,6 +23,9 @@ import * as THREE from 'three';
 import { resolveHumanPlayerName } from '../player/profile.js';
 import { WEAPONS } from '../weapons/data.js';
 
+// s: a wound this recent earns an assist when someone else lands the kill.
+export const ASSIST_WINDOW = 10;
+
 // --- Ballistics tuning -----------------------------------------------------
 const MAX_RANGE = 250;             // hitscan max travel (m)
 const LEG_ZONE = 0.5;              // bottom of capsule counted as legs (m)
@@ -95,6 +98,8 @@ export default class Combat {
     this._time = 0;
     this._shotCounter = 0;
     this._warned = new Set();
+    // Who wounded whom, for assist credit: victim -> Map(human key -> time).
+    this._hurtBy = new WeakMap();
 
     // Grenade projectile pool (meshes created lazily on first throw).
     this._projectiles = [];
@@ -662,6 +667,9 @@ export default class Combat {
   _applyDamage(target, isPlayer, dmg, shooter, weaponId, headshot, part, byPlayer) {
     if (!target || typeof target.takeDamage !== 'function') return;
     const shielded = target.spawnProtection > 0;
+    // Stamp the wound before takeDamage: a kill emits its 'kill' event from
+    // inside it, and the killer's own hit must not read as an assist.
+    this._noteWound(target, shooter);
     target.takeDamage(dmg, { from: shooter, weapon: weaponId, headshot, part });
     if (shielded) return; // no hit marker for a hit that did nothing
     // Player hit feedback — bot targets only ('bot:death' fires synchronously
@@ -1206,6 +1214,7 @@ export default class Combat {
     // A semtex stuck to someone is lethal to its host.
     const host = p.type === 'semtex' ? p.stuckTo : null;
     if (host && host.alive !== false && typeof host.takeDamage === 'function') {
+      this._noteWound(host, p.thrower);
       host.takeDamage(250, { from: p.thrower, weapon: weaponId, headshot: false, part: 'body' });
       if (this._isPlayer(p.thrower)) this.game.events.emit('hud:hitmarker', { headshot: false, kill: host.alive === false });
     }
@@ -1322,6 +1331,7 @@ export default class Combat {
         if (!(isSelf && sparesCaller) && (hurtTeammates || !friendly)
           && (!requireLOS || this._losClear(center, this._v6))) {
           const dmg = Math.max(1, Math.round(maxDmg * Math.pow(1 - d / radius, HE_FALLOFF_EXP)));
+          this._noteWound(pl, attacker);
           pl.takeDamage(dmg, { from: attacker, weapon: weaponId, headshot: false, part: 'body' });
         }
       }
@@ -1341,6 +1351,7 @@ export default class Combat {
         if (friendly && !hurtTeammates) continue;
         if (requireLOS && !this._losClear(center, this._v6)) continue;
         const dmg = Math.max(1, Math.round(maxDmg * Math.pow(1 - d / radius, HE_FALLOFF_EXP)));
+        this._noteWound(b, attacker);
         b.takeDamage(dmg, { from: attacker, weapon: weaponId, headshot: false, part: 'body' });
         if (byPlayer) ev.emit('hud:hitmarker', { headshot: false, kill: !b.alive });
       }
@@ -1361,6 +1372,7 @@ export default class Combat {
         if (friendly && !hurtTeammates) continue;
         if (requireLOS && !this._losClear(center, this._v6)) continue;
         const dmg = Math.max(1, Math.round(maxDmg * Math.pow(1 - d / radius, HE_FALLOFF_EXP)));
+        this._noteWound(r, attacker);
         r.takeDamage(dmg, { from: attacker, weapon: weaponId, headshot: false, part: 'body' });
       }
     }
@@ -1443,6 +1455,7 @@ export default class Combat {
       killerIsLocal,
       victimIsLocal: false,
       reward,
+      ...this._killCredit(bot, bot.pos, killer, bot.team || 't'),
     });
   }
 
@@ -1490,6 +1503,7 @@ export default class Combat {
       killerIsLocal,
       victimIsLocal: false,
       reward,
+      ...this._killCredit(victim, victim.position || victim.pos, killer, victim.team),
     });
   }
 
@@ -1533,6 +1547,8 @@ export default class Combat {
       killerIsLocal,
       victimIsLocal: true,
       reward,
+      ...this._killCredit(this.game.player, this.game.player && this.game.player.position, killer,
+        (this.game.player && this.game.player.team) || 'ct'),
     });
   }
 
@@ -1555,6 +1571,63 @@ export default class Combat {
     const bots = this.game.bots?.all || [];
     if (name) return bots.find((bot) => bot.name === name) || null;
     return null;
+  }
+
+  /** Remember that a human (the local player or a remote one) hurt `target`. */
+  _noteWound(target, shooter) {
+    const key = this._humanKey(shooter);
+    if (!key || !target || target === shooter || target.spawnProtection > 0) return;
+    if (!this._hurtBy) this._hurtBy = new WeakMap();
+    let hurt = this._hurtBy.get(target);
+    if (!hurt) { hurt = new Map(); this._hurtBy.set(target, hurt); }
+    hurt.set(key, this._time || 0);
+  }
+
+  _humanKey(actor) {
+    if (this._isPlayer(actor)) return 'local';
+    if (actor && actor.isRemotePlayer && actor.networkId) return String(actor.networkId);
+    return null;
+  }
+
+  /**
+   * Extra kill-event fields: how far the killer was from the victim, and the
+   * humans who wounded the victim within ASSIST_WINDOW without landing the
+   * kill (by network id, so every client can tell whether it assisted; the
+   * relay re-aims assistIsLocal like killerIsLocal).
+   */
+  _killCredit(victim, victimPos, killer, victimTeam) {
+    const credit = { distance: null, assistIds: [], assistIsLocal: false };
+    const killerPos = this._isPlayer(killer)
+      ? this.game.player && this.game.player.position
+      : killer && (killer.pos || killer.position);
+    if (killerPos && victimPos && Number.isFinite(killerPos.x) && Number.isFinite(victimPos.x)) {
+      credit.distance = Math.round(Math.hypot(killerPos.x - victimPos.x, killerPos.y - victimPos.y, killerPos.z - victimPos.z) * 10) / 10;
+    }
+    const hurt = this._hurtBy ? this._hurtBy.get(victim) : null;
+    if (hurt) this._hurtBy.delete(victim);
+    if (!hurt || isFfa(this.game)) return credit;
+    const killerKey = this._humanKey(killer);
+    const localTeam = (this.game.player && this.game.player.team) || 'ct';
+    for (const [key, at] of hurt) {
+      if (key === killerKey || (this._time || 0) - at > ASSIST_WINDOW) continue;
+      if (key === 'local') {
+        if (localTeam === victimTeam) continue;
+        credit.assistIsLocal = true;
+        const id = this.game.player && this.game.player.networkId;
+        if (id) credit.assistIds.push(String(id));
+      } else {
+        const remote = this._remoteById ? this._remoteById(key) : null;
+        if (remote && remote.team === victimTeam) continue;
+        credit.assistIds.push(key);
+      }
+    }
+    return credit;
+  }
+
+  _remoteById(id) {
+    const mp = this.game.multiplayer;
+    const list = mp && mp.active && Array.isArray(mp.remotePlayers) ? mp.remotePlayers : [];
+    return list.find((r) => r && String(r.networkId) === id) || null;
   }
 
   _isPlayer(x) {

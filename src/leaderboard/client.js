@@ -414,7 +414,7 @@ export class LeaderboardClient {
       if (event.victimId) this._stats.killsHumans++;
       else this._stats.killsBots++;
       this._killStreak++;
-      this._emitCombatMilestone(event);
+      this._emitCombatMilestone();
     }
     if (isVictim && !isKiller) {
       this._stats.deaths++;
@@ -617,24 +617,13 @@ export class LeaderboardClient {
     }
   }
 
-  _emitCombatMilestone(event) {
-    if (this._stats.kills === 1) {
-      this.game?.events?.emit('progress:achievement', {
-        provisional: true,
-        achievement: { id: 'match-first-kill', name: 'FIRST BLOOD', description: 'First elimination this match' },
-      });
-    }
-    const streakNames = { 2: 'DOUBLE KILL', 3: 'TRIPLE KILL', 4: 'QUAD KILL', 5: 'ACE STREAK' };
-    if (streakNames[this._killStreak]) {
-      this.game?.events?.emit('progress:achievement', {
-        provisional: true,
-        achievement: {
-          id: 'match-streak-' + this._killStreak,
-          name: streakNames[this._killStreak],
-          description: this._killStreak + ' eliminations without dying',
-        },
-      });
-    }
+  /**
+   * Mid-match career toasts: only provisional personal records. Kill-by-kill
+   * feats (multi-kills, streaks, first blood, headshots) belong to the score
+   * popups (game/score.js); toasting them too said "DOUBLE KILL" for two
+   * kills minutes apart while the popup used it for two kills in 3 s.
+   */
+  _emitCombatMilestone() {
     const records = this.progression?.records || {};
     const checks = [
       ['kills', this._stats.kills, finiteInt(records.kills?.value ?? records.kills ?? records.bestKills), 'NEW KILL RECORD'],
@@ -648,12 +637,6 @@ export class LeaderboardClient {
           record: { id, name, value, previous: prior, description: 'Finish the match to lock it in' },
         });
       }
-    }
-    if (event?.headshot && this._stats.headshots === 1) {
-      this.game?.events?.emit('progress:achievement', {
-        provisional: true,
-        achievement: { id: 'match-first-headshot', name: 'PRECISION HIT', description: 'First headshot this match' },
-      });
     }
   }
 

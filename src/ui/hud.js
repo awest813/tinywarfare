@@ -255,6 +255,7 @@ export default class HUD {
     this._lastReward = null;
     this._progressToasts = [];
     this._endUnranked = false;
+    this._scoreRows = new Map(); // award group -> its score popup line
 
     // combat feedback state
     this._dmg = 0;               // damage vignette energy
@@ -2501,15 +2502,50 @@ export default class HUD {
   }
 
   /** "+100 KILL" style popups under the crosshair; newest on top, max four. */
+  /**
+   * Score popups. Awards from one kill share a group and land on one line:
+   * the running total and the base label, with the bonuses (HEADSHOT, DOUBLE
+   * KILL, PAYBACK...) as a strip beneath it.
+   */
   _onScoreAward(d) {
     const root = this._el.scorePop;
     if (!root || !(d.points > 0)) return;
-    const row = document.createElement('div');
-    row.className = 'sp-row' + (d.label === 'KILL' ? '' : ' sp-bonus');
-    row.innerHTML = '<b>+' + (d.points | 0) + '</b><span>' + esc(String(d.label || '')) + '</span>';
-    root.prepend(row);
-    while (root.children.length > 4) root.lastElementChild.remove();
-    setTimeout(() => row.remove(), 1600);
+    const label = String(d.label || '');
+    const group = d.group != null ? String(d.group) : null;
+    if (!this._scoreRows) this._scoreRows = new Map();
+    let row = group ? this._scoreRows.get(group) : null;
+    if (row && !row.isConnected) row = null;
+    if (row) {
+      row._points += d.points | 0;
+      row.querySelector('b').textContent = '+' + row._points;
+      let tags = row.querySelector('.sp-tags');
+      if (!tags) {
+        tags = document.createElement('small');
+        tags.className = 'sp-tags';
+        row.appendChild(tags);
+      }
+      const tag = document.createElement('i');
+      tag.textContent = label;
+      tags.appendChild(tag);
+      row.classList.add('sp-rich');
+    } else {
+      row = document.createElement('div');
+      row.className = 'sp-row' + (label === 'KILL' ? '' : ' sp-bonus');
+      row._points = d.points | 0;
+      row.innerHTML = '<b>+' + row._points + '</b><span>' + esc(label) + '</span>';
+      root.prepend(row);
+      while (root.children.length > 3) root.lastElementChild.remove();
+      if (group) this._scoreRows.set(group, row);
+    }
+    // A bonus landing on a line restarts its clock (and its pop).
+    clearTimeout(row._timer);
+    row.style.animation = 'none';
+    void row.offsetWidth;
+    row.style.animation = '';
+    row._timer = setTimeout(() => {
+      row.remove();
+      if (group && this._scoreRows.get(group) === row) this._scoreRows.delete(group);
+    }, 1600);
   }
 
   _updateCrosshair(phase) {
@@ -3525,7 +3561,9 @@ export default class HUD {
   // --------------------------------------------------------------------------
 
   _moneyPop(reward) {
-    if (!this._el.moneyBox || !Number.isFinite(reward)) return;
+    // Respawn modes hide the wallet; a pop in a hidden box never animates, so
+    // its animationend never fires and it would never be removed.
+    if (!this._el.moneyBox || !Number.isFinite(reward) || this._el.moneyBox.style.display === 'none') return;
     const s = document.createElement('span');
     s.className = 'money-pop';
     s.textContent = '+$' + reward;
@@ -4409,7 +4447,7 @@ export default class HUD {
 
 /* ---------- centered kill confirmation banner ---------- */
 #hud-killcue {
-  position: absolute; left: 50%; top: 38%; z-index: 6;
+  position: absolute; left: 50%; top: 40%; z-index: 6;
   transform: translate(-50%, -50%); text-align: center;
   opacity: 0; pointer-events: none;
 }
@@ -4453,11 +4491,16 @@ export default class HUD {
   color:#bfe0ff; background:rgba(20,40,70,.45); border-bottom:2px solid #5f9fe0; white-space:nowrap; text-shadow:0 1px 2px #000; }
 #hud-score-pop { position:absolute; left:50%; top:calc(50% + 44px); transform:translateX(-50%); z-index:4;
   display:flex; flex-direction:column; align-items:center; gap:2px; pointer-events:none; }
-.sp-row { display:flex; align-items:baseline; gap:7px; font-weight:900; letter-spacing:.12em; white-space:nowrap;
+.sp-row { display:flex; flex-wrap:wrap; justify-content:center; align-items:baseline; column-gap:7px; row-gap:1px;
+  font-weight:900; letter-spacing:.12em; white-space:nowrap;
   color:#f3f7ec; text-shadow:0 1px 3px rgba(0,0,0,.85); animation:sp-pop 1.6s ease-out forwards; }
 .sp-row b { font-size:17px; color:#f7d27a; }
 .sp-row span { font-size:11px; }
 .sp-row.sp-bonus b { font-size:14px; color:#9fe0a0; }
+.sp-row.sp-rich b { font-size:20px; }
+.sp-tags { flex-basis:100%; display:flex; justify-content:center; flex-wrap:wrap; gap:3px 8px; }
+.sp-tags i { font-style:normal; font-size:10px; letter-spacing:.14em; color:#9fe0a0; }
+.sp-tags i + i::before { content:'·'; margin-right:8px; color:rgba(159,224,160,.55); }
 @keyframes sp-pop { 0% { opacity:0; transform:translateY(6px) scale(.9); } 10% { opacity:1; transform:none; }
   75% { opacity:1; } 100% { opacity:0; transform:translateY(-8px); } }
 @media (prefers-reduced-motion: reduce) { .sp-row { animation:none; } }
@@ -4534,7 +4577,7 @@ export default class HUD {
 
 /* ---------- center messages ---------- */
 #hud-msg {
-  position: absolute; left: 0; right: 0; top: 25%; text-align: center;
+  position: absolute; left: 0; right: 0; top: 20%; text-align: center;
   opacity: 0; transform: translateY(6px);
   transition: opacity .32s, transform .32s; z-index: 6; pointer-events: none;
 }

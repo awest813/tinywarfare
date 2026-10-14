@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 
-import Combat from '../src/combat/combat.js';
+import Combat, { ASSIST_WINDOW } from '../src/combat/combat.js';
 import Weapons from '../src/weapons/weapons.js';
 import Player from '../src/player/player.js';
 import Scorestreaks, { STREAKS } from '../src/game/streaks.js';
@@ -235,4 +235,49 @@ test('a gun bought in the freeze is raised and ready to fire (no stuck equip)', 
   weapons._onMouseDown({ button: 0 });
   weapons.update(1 / 60);
   assert.ok(shots >= 1, 'the bought gun fires');
+});
+
+test('kill events carry the killer\'s distance and credit the player\'s assist', () => {
+  const player = shooter();
+  const mate = { team: 'ct', alive: true, name: 'Falcon', pos: new THREE.Vector3(5, 0, 0) };
+  const events = new EventBus();
+  const mortal = (overrides) => makeBot({
+    ...overrides,
+    takeDamage(amount, info) {
+      this.health -= amount;
+      if (this.health <= 0 && this.alive) {
+        this.alive = false;
+        events.emit('bot:death', { bot: this, killer: info.from, weapon: info.weapon, headshot: !!info.headshot });
+      }
+    },
+  });
+  const viper = mortal({ name: 'Viper', pos: new THREE.Vector3(0, 0, -30) });
+  const havoc = mortal({ name: 'Havoc', pos: new THREE.Vector3(0, 0, -8) });
+  const game = { events, config: CONFIG, player, bots: { all: [viper, havoc] }, multiplayer: null, state: { mode: 'tdm' } };
+  const combat = new Combat(game);
+  const kills = [];
+  events.on('kill', (e) => kills.push(e));
+
+  // The player wounds Viper; a teammate finishes it: the player assisted.
+  combat._applyDamage(viper, false, 40, player, 'm4a1', false, 'body', true);
+  combat.update(3);
+  combat._applyDamage(viper, false, 100, mate, 'ak47', false, 'body', false);
+  assert.equal(kills[0].killerName, 'Falcon');
+  assert.equal(kills[0].assistIsLocal, true);
+  assert.equal(kills[0].distance, Math.round(Math.hypot(5, 30) * 10) / 10, 'killer-to-victim distance');
+
+  // The player's own kill is not also an assist, and carries its distance.
+  combat._applyDamage(havoc, false, 40, player, 'm4a1', false, 'body', true);
+  combat._applyDamage(havoc, false, 100, player, 'm4a1', false, 'body', true);
+  assert.equal(kills[1].killerIsLocal, true);
+  assert.equal(kills[1].assistIsLocal, false);
+  assert.equal(kills[1].distance, 8);
+
+  // A wound older than the window earns nothing.
+  const late = mortal({ name: 'Wolf', pos: new THREE.Vector3(0, 0, -10) });
+  game.bots.all.push(late);
+  combat._applyDamage(late, false, 40, player, 'm4a1', false, 'body', true);
+  combat.update(ASSIST_WINDOW + 1);
+  combat._applyDamage(late, false, 100, mate, 'ak47', false, 'body', false);
+  assert.equal(kills[2].assistIsLocal, false);
 });

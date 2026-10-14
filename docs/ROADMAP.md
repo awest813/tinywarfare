@@ -216,9 +216,24 @@ Also shipped:
 
 ### Phase 4: Scorestreaks
 Shipped for every respawn mode, solo and online (`src/game/score.js`, `src/game/streaks.js`):
-- Match score: +100 per kill, +50 headshot, multi-kill bonuses, and +100
-  every fifth kill without dying. "+100 KILL" popups appear under the
-  crosshair.
+- Match score: +100 per kill, plus bonuses on the same kill: +50 headshot,
+  +50 per chained kill inside 3 s (DOUBLE KILL, TRIPLE KILL...), +100 FIRST
+  BLOOD (the match's first kill by anyone), +50 PAYBACK (the enemy who last
+  killed you), +50 AVENGER (the enemy who killed a teammate in the last 5 s),
+  +50 LONGSHOT (past the weapon's range: 20 m shotgun, 30-35 m pistols and
+  SMG, 45 m rifles and LMG, 60 m AWP; never explosives or the knife), and +100
+  every fifth kill without dying. Wounding an enemy a teammate finishes within
+  10 s pays +50 ASSIST (not in free-for-all). Combat stamps who wounded whom
+  and puts `distance` and `assistIds` on each kill event; the relay re-aims
+  `assistIsLocal` per seat like `killerIsLocal`.
+- One kill is one popup under the crosshair: the running total with the base
+  label, and its bonuses as a strip beneath ("+250 KILL / HEADSHOT · DOUBLE
+  KILL"). The first version gave every bonus its own row, so a single
+  headshot double kill pushed the previous kill off the four-row stack.
+- Mid-match career toasts are only provisional personal records. The streak
+  toasts said "DOUBLE KILL" for two kills minutes apart while the popup used
+  it for two kills in 3 s, and "FIRST BLOOD" for your first kill whoever drew
+  first blood.
 - Score since the last death charges the streaks. Each one is earned once per
   life, and an unused streak survives death.
   - **UAV**, 500 points, key 5: every enemy shows on the radar for 30 s.
@@ -281,8 +296,10 @@ Also shipped (`src/game/progression.js`):
   Everything else is available from rank 1. Locked items never block play:
   at spawn, a class or streak pick holding something locked is swapped for an
   unlocked alternative.
-- **Weapon levels**: 100 XP per kill with a gun. Levels 2-5 unlock its Laser,
-  Foregrip, Extended Mag, and Suppressor.
+- **Weapon levels**: 100 XP per kill with a primary. Levels 2-5 unlock its
+  Laser, Foregrip, Extended Mag, and Suppressor. Pistol, knife, grenade and
+  airstrike kills earn no weapon XP, since only primaries take attachments
+  (they used to, which could end a match on "KNIFE LEVEL 2 · LASER").
 - **Menu**:
   - Locked options show "RANK N" or "GUN LV N".
   - Class cards flag classes that hold locked items.
