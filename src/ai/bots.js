@@ -16,6 +16,7 @@ import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { isRespawnMode } from '../game/tdm.js';
 import { hostile, isFfa } from '../game/hostility.js';
+import { getCharacterPalette } from '../player/profile.js';
 import {
   SSAO_PARS_FRAGMENT,
   ssaoUniforms,
@@ -930,11 +931,15 @@ export default class Bots {
     // leaner with a low beanie. Model faces -Z; rotation.y = bot.yaw.
     const ct = team === 'ct';
     const SKIN = 0xc9987a;
-    const torsoCol = ct ? 0x2e3f5c : 0x565b36; // navy vs olive
-    const limbCol = ct ? 0xb59d72 : 0x6b4a2f;  // tan vs brown
-    const legCol = ct ? 0x33415a : 0x4c4a30;
+    // Placeholder until the skinned soldier loads: same faction palette as
+    // the real uniforms (U.S. coyote tans, Russian greens), not the old navy.
+    const uniform = getCharacterPalette('vanguard', team);
+    const hex = (c) => parseInt(String(c).replace('#', ''), 16);
+    const torsoCol = hex(uniform.uniform);
+    const limbCol = hex(uniform.sleeve);
+    const legCol = hex(uniform.sleeve);
     const bootCol = 0x24211c;
-    const gearCol = ct ? 0x1d2a40 : 0x3c3524;
+    const gearCol = hex(uniform.dark);
 
     const g = new THREE.Group();
     g.userData.bot = bot;
@@ -1035,6 +1040,9 @@ export default class Bots {
           // vertex attribute, and before any team palette exists, so there is
           // never a question of whether a colour is still the pack's paint.
           this._correctOperativeAlbedo(gltf.scene);
+          // Bots wear their side's uniform: the pack's authored paint is the
+          // old cops-and-robbers navy/red, not U.S. tans vs Russian greens.
+          this._paintTeamUniform(gltf.scene, team);
           // Collapse the pack's sub-meshes ONCE, here, on the shared source —
           // every bot then clones an already-merged body.
           const merged = this._optimizeCharacterAsset(team, gltf.scene);
@@ -1064,6 +1072,33 @@ export default class Bots {
    * linear colour, so it is a pure VALUE move: `#66793e` olive stays that olive,
    * `#991c22` red stays that red, and the CT/T read stays intact.
    */
+  /**
+   * Repaint the shared source asset once in the side's default uniform
+   * (the 'vanguard' preset palette). Players' own operatives are still
+   * tinted per actor by _tintOperativeMaterials.
+   */
+  _paintTeamUniform(scene, team) {
+    const palette = getCharacterPalette('vanguard', team);
+    const done = new Set();
+    scene.traverse((object) => {
+      if (!object.isMesh) return;
+      for (let node = object; node; node = node.parent) {
+        if (CHAR_GUN_MESH_NAMES.has(node.name)) return;
+      }
+      for (const material of (Array.isArray(object.material) ? object.material : [object.material])) {
+        if (!material || !material.color || done.has(material)) continue;
+        const name = String(material.name || '').toLowerCase();
+        let tint;
+        if (name === 'character_main' || name === 'enemy_red') tint = palette.uniform;
+        else if (name === 'pants' || name === 'grey') tint = palette.sleeve || palette.dark;
+        else if (name === 'darkgrey' || name === 'black') tint = palette.dark;
+        if (tint === undefined) continue;
+        material.color.set(tint);
+        done.add(material);
+      }
+    });
+  }
+
   _correctOperativeAlbedo(scene) {
     scene.traverse((object) => {
       if (!object.isMesh) return;

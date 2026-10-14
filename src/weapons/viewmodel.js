@@ -242,6 +242,9 @@ export const GLB_POSES = {
 //      of pressed against the lens. We render the viewmodel in the world scene
 //      with the world camera, so the same effect is bought by scaling the whole
 //      wrapper — weapon AND hands together, so the grip never drifts.
+/** The field of view every viewmodel pose was framed at. */
+const VIEWMODEL_AUTHORED_FOV = 74;
+
 export const PROC_POSES = {
   m4a1: { pos: [0.126, -0.176, -0.375], rot: [-0.030, 0.062, 0.028], scale: 0.86 },
   ak47: { pos: [0.128, -0.178, -0.385], rot: [-0.030, 0.060, 0.026], scale: 0.84 },
@@ -895,6 +898,13 @@ export default class ViewModel {
     this.rig.visible = show;
     this.rig.position.copy(cam.position);
     this.rig.quaternion.copy(cam.quaternion);
+    // The field of view is a player setting (65-100). Poses are authored at
+    // 74 degrees; scaling camera-space x/y by the tangent ratio keeps the gun
+    // framed exactly as authored at any hip FOV (ADS zoom still reads, since
+    // it narrows the live FOV, not this base).
+    const baseFov = Number(g.config?.PLAYER?.FOV) || VIEWMODEL_AUTHORED_FOV;
+    const k = Math.tan(baseFov * Math.PI / 360) / Math.tan(VIEWMODEL_AUTHORED_FOV * Math.PI / 360);
+    if (this.rig.scale.x !== k) this.rig.scale.set(k, k, 1);
     if (!show) return; // hidden: skip pose composition + matrix flush
 
     // ---- compose pivot offsets --------------------------------------------

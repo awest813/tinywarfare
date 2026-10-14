@@ -41,7 +41,12 @@ const TOUCH_DEVICE = shouldEnableTouchControls();
 const TRAILER = new URLSearchParams(location.search).has('trailer');
 if (TRAILER) CONFIG.MATCH.BOTS_PER_TEAM = 6;
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+// When the HDR post chain runs it renders into its own multisampled target
+// and only composites to the canvas, so a multisampled canvas would be pure
+// waste (~150 MB at 1080p x1.5 plus a resolve per frame). Decide up front.
+const EARLY_SEARCH = new URLSearchParams(location.search);
+const WANT_POST = EARLY_SEARCH.get('post') !== 'off' && !TOUCH_DEVICE;
+const renderer = new THREE.WebGLRenderer({ antialias: !WANT_POST, powerPreference: 'high-performance' });
 
 function layoutViewportSize() {
   const root = document.documentElement;
@@ -92,6 +97,9 @@ renderer.setPixelRatio(targetPixelRatio(initialViewport.width, initialViewport.h
 renderer.setSize(initialViewport.width, initialViewport.height);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = TOUCH_DEVICE ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+// Phones: the arena's shadow map is re-rasterized every other frame, not
+// every frame (the world is static; moving shadows lag by one frame).
+if (TOUCH_DEVICE) renderer.shadowMap.autoUpdate = false;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
@@ -252,6 +260,7 @@ const UPDATE_ORDER = [
 ];
 
 const clock = new THREE.Clock();
+let shadowFrame = 0;
 let frames = 0;
 let fpsTime = 0;
 game.fps = 60;
@@ -284,5 +293,9 @@ renderer.setAnimationLoop(() => {
     }
   } while (remaining > 1e-6);
 
+  if (TOUCH_DEVICE) {
+    shadowFrame = (shadowFrame + 1) % 2;
+    if (shadowFrame === 0) renderer.shadowMap.needsUpdate = true;
+  }
   game.renderFrame();
 });

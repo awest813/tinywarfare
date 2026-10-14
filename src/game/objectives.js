@@ -218,6 +218,10 @@ export class KillConfirmed {
 
   stop() {
     for (let i = this.tags.length - 1; i >= 0; i--) this._removeTag(i);
+    if (this._geo) this._geo.dispose();
+    for (const m of Object.values(this._mats || {})) m.dispose();
+    this._geo = null;
+    this._mats = null;
   }
 
   _removeTag(i) {
@@ -232,7 +236,8 @@ export class KillConfirmed {
     if (!this._geo) {
       this._geo = new THREE.BoxGeometry(0.2, 0.28, 0.035);
       const mat = (color) => new THREE.MeshStandardMaterial({
-        color, emissive: color, emissiveIntensity: 1.6, metalness: 0.6, roughness: 0.35,
+        // Enough glow to spot a tag across a lane without flaring in the bloom.
+        color, emissive: color, emissiveIntensity: 0.6, metalness: 0.6, roughness: 0.35,
       });
       // Your side's tags (deny them) blue; enemy tags (confirm them) gold.
       this._mats = { ours: mat(TEAM_COLOR.ct), theirs: mat(0xf7d27a) };

@@ -99,7 +99,12 @@ export default class Rounds {
     this._bombGroup = null;        // built lazily on first plant
     this._bombLedMat = null;
     this._bombScreenMat = null;
-    this._bombLight = null;
+    // The C4's LED glow lives in the scene from boot at intensity 0: adding a
+    // PointLight on the first plant changed the light count and recompiled
+    // every lit material mid-round (a multi-frame hitch).
+    this._bombLight = new THREE.PointLight(0xff3a22, 0, 6, 2);
+    this._bombLight.castShadow = false;
+    if (game.scene && typeof game.scene.add === 'function') game.scene.add(this._bombLight);
     this._bombInScene = false;
     this._bombDefusedVisual = false;
     this._blinkT = 0;              // time since last blink
@@ -976,15 +981,9 @@ export default class Rounds {
 
     // Faint red glow synced to the LED (kept subtle — effects owns the big
     // pulsing site light).
-    const light = new THREE.PointLight(0xff3a22, 0, 6, 2);
-    light.position.set(0.1, 0.28, -0.05);
-    light.castShadow = false;
-    group.add(light);
-
     this._bombGroup = group;
     this._bombLedMat = ledMat;
     this._bombScreenMat = screenMat;
-    this._bombLight = light;
   }
 
   _placeBombMesh() {
@@ -1003,6 +1002,7 @@ export default class Rounds {
 
     group.position.set(this._bombPos.x, y + 0.004, this._bombPos.z);
     group.rotation.set(0, Math.random() * Math.PI * 2, 0);
+    this._bombLight.position.set(this._bombPos.x, y + 0.28, this._bombPos.z);
 
     // Re-arm visuals (materials persist across rounds).
     this._bombDefusedVisual = false;
@@ -1030,6 +1030,7 @@ export default class Rounds {
     }
     this._bombInScene = false;
     this._cosmeticArmed = false;
+    if (this._bombLight) this._bombLight.intensity = 0;
   }
 
   _setBombDefusedVisual() {
