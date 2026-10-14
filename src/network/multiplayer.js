@@ -1042,6 +1042,13 @@ export default class Multiplayer {
     }, 50);
   }
 
+  /** Seconds of reload left on the local player's weapon (0 when not reloading). */
+  _localReloadLeft() {
+    const weapons = this.game.weapons;
+    if (!weapons || weapons._state !== 'reloading') return 0;
+    return Math.max(0, (Number(weapons._stateDur) || 0) - (Number(weapons._stateT) || 0));
+  }
+
   applyDamageToRemote(target, amount, info = {}) {
     if (!this.active || !this.isAuthority() || !target || !target.alive || !(amount > 0)) return;
     if (target.spawnProtection > 0) return; // respawn modes: fresh spawns are briefly immune
@@ -1051,6 +1058,8 @@ export default class Multiplayer {
       target.armor = Math.max(0, target.armor - amount * 0.5);
     }
     target.health = Math.max(0, target.health - healthDamage);
+    target.hitFlinch = 1; // torso hit reaction on the operative visual
+    target.hitHeadshot = !!info.headshot;
     const died = target.health <= 0;
     if (died) this._setRemoteAlive(target, false);
     const attacker = info.from || null;
@@ -2021,7 +2030,10 @@ export default class Multiplayer {
     if (state.pos) remote.targetPosition.set(state.pos.x || 0, state.pos.y || 0, state.pos.z || 0);
     if (Number.isFinite(state.yaw)) remote.targetYaw = state.yaw;
     if (Number.isFinite(state.pitch)) remote.pitch = state.pitch;
-    if (Number.isFinite(state.health)) remote.health = state.health;
+    if (Number.isFinite(state.health)) {
+      if (state.health < remote.health && remote.alive !== false) remote.hitFlinch = 1;
+      remote.health = state.health;
+    }
     if (Number.isFinite(state.armor)) remote.armor = state.armor;
     remote.hasKit = !!state.hasKit;
     const wasAlive = remote.alive;
@@ -2031,6 +2043,7 @@ export default class Multiplayer {
     remote.crouching = !!state.crouching || remote.sliding; // a slide reads as a low crouch
     remote.walking = !!state.walking;
     remote.moveSpeed2D = Number(state.moveSpeed2D) || 0;
+    remote.reloadTimer = Math.max(0, Number(state.reloadLeft) || 0);
     remote.onGround = state.onGround !== false;
     remote.useDown = !!state.useDown;
     remote.weaponId = state.weaponId || remote.weaponId;
@@ -2131,6 +2144,7 @@ export default class Multiplayer {
       sprinting: !!p.sprinting,
       sliding: !!p.sliding,
       moveSpeed2D: p.moveSpeed2D,
+      reloadLeft: this._localReloadLeft(),
       onGround: p.onGround,
       useDown: !!(input && typeof input.isDown === 'function' && input.isDown('e')),
       weaponId: this.game.weapons ? this.game.weapons.currentId : 'knife',

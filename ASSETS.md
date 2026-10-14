@@ -10,9 +10,22 @@ soldiers from it:
 - `assets/models/operative_us.glb` (multicam atlas)
 - `assets/models/operative_ru.glb` (grey atlas through a green filter)
 
-Both carry the animation set of the Quaternius kit below, retargeted onto the
-Marine's rig. Check the Marine's original licence terms before redistributing
-the source model outside this project.
+Their animation comes from the two Quaternius packs below, retargeted onto
+the Marine's rig, plus weapon holds (aim, low ready, sprint carry, reload)
+authored in the same tool by inverse kinematics. Check the Marine's original
+licence terms before redistributing the source model outside this project.
+
+## Quaternius Universal Animation Library (Standard)
+
+`assets/models/source/ual_clips.glb` is a trimmed copy (skeleton plus the 14
+clips the soldiers use; `tools/extract-ual.mjs`) of the free Standard edition
+of Quaternius'
+[Universal Animation Library](https://quaternius.itch.io/universal-animation-library),
+released under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/),
+as mirrored at <https://github.com/J-Ponzo/gltf-universal-animation-library>.
+The operatives' locomotion (idle, walk, jog, sprint, crouch, jump), hit
+reactions and their first death are retargeted from it. Attribution is not
+required by CC0, but is included with thanks to Quaternius.
 
 ## Quaternius Toon Shooter Game Kit
 
@@ -20,7 +33,7 @@ The following files are derived from the
 [Quaternius Toon Shooter Game Kit](https://quaternius.com/packs/toonshootergamekit.html),
 which Quaternius released under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/):
 
-- `assets/models/soldier_ct.glb` (now the animation source for the operatives
+- `assets/models/soldier_ct.glb` (the source of the operatives' second death,
   and the reference for the body-merge tests; no longer drawn in game)
 - `assets/models/soldier_t.glb`
 - `assets/models/viewmodels/npc-arms-ct.glb` (a body-stripped derivative of

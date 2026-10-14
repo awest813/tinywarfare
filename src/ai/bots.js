@@ -17,6 +17,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { isRespawnMode } from '../game/tdm.js';
 import { hostile, isFfa } from '../game/hostility.js';
 import { getCharacterPalette } from '../player/profile.js';
+import { buildAnimationSet, OperativeAnimator, IK_FAR_SQ } from './operative-anim.js';
 import {
   SSAO_PARS_FRAGMENT,
   ssaoUniforms,
@@ -69,18 +70,6 @@ const CHAR_GUN_MESH_NAMES = new Set(['AK', 'SMG', 'Sniper', 'Pistol']);
 const CHAR_GUN_MESH = {
   ak47: 'AK', m4a1: 'AK', mp5: 'SMG', awp: 'Sniper', shotgun: 'AK', lmg: 'AK',
   glock: 'Pistol', usp: 'Pistol', deagle: 'Pistol',
-};
-
-/**
- * The quarter turn from our weapon convention (bore down -Z) to each held-mesh
- * group's own axis. Measured off the pack's geometry, not guessed: the AK,
- * Pistol and Sniper groups all run down their local +X, and the SMG down -X.
- */
-const FAMILY_AXIS_FIX = {
-  AK: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2),
-  Pistol: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2),
-  Sniper: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2),
-  SMG: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2),
 };
 
 const _gunScale = new THREE.Vector3();
@@ -412,12 +401,7 @@ export default class Bots {
       actor.mesh.rotation.x = 0;
       actor.mesh.rotation.z = 0;
     }
-    if (actor.mixer) {
-      actor.mixer.stopAllAction();
-      actor.actionName = null;
-      this._setBotAction(actor, 'Idle', 0);
-      actor.mixer.update(0);
-    }
+    this._resetOperativePose(actor);
     return true;
   }
 
@@ -448,12 +432,15 @@ export default class Bots {
           b.mesh.rotation.y = b.yaw;
         }
       }
+      if (nextAlive && Number.isFinite(s.health) && s.health < b.health) b.hitFlinch = 1;
       b.health = Number.isFinite(s.health) ? s.health : b.health;
       b.armor = Number.isFinite(s.armor) ? s.armor : b.armor;
       b.crouching = !!s.crouching;
       b.weaponId = s.weaponId || b.weaponId;
       b.moveSpeed = nextAlive ? (Number(s.moveSpeed) || 0) : 0;
       b.state = s.state || b.state;
+      // The host's aim blend is not replicated; its state says the same thing.
+      b.aimBlend = b.state === 'engage' ? 1 : 0;
       b.plan = typeof s.plan === 'string' ? s.plan : b.plan;
       b.postPlantRole = typeof s.postPlantRole === 'string' ? s.postPlantRole : null;
       b.anchorReached = !!s.anchorReached;
@@ -1051,6 +1038,7 @@ export default class Bots {
           this._charAssets[team] = {
             scene: gltf.scene,
             clips: gltf.animations,
+            animSet: buildAnimationSet(gltf.animations, gltf.scene.userData),
             sharedSkeleton: !!merged,
           };
           this._refreshCharacterVisuals();
@@ -1472,7 +1460,10 @@ export default class Bots {
     bot.visualAssetTeam = source.team;
     bot.mixer = new THREE.AnimationMixer(inst);
     bot.actions = {};
-    for (const clip of asset.clips) {
+    if (asset.animSet === undefined) asset.animSet = buildAnimationSet(asset.clips, asset.scene && asset.scene.userData);
+    bot.animator = asset.animSet ? new OperativeAnimator(inst, bot.mixer, asset.animSet) : null;
+    // Whole-clip fallback for rigs without the layered set.
+    for (const clip of bot.animator ? [] : asset.clips) {
       const key = clip.name.split('|').pop();
       const action = bot.mixer.clipAction(clip);
       if (key === 'Death' || key === 'HitReact') {
@@ -1489,7 +1480,7 @@ export default class Bots {
     // soldier in a solo match was drawn at the pack's authored roughness 0.5 with
     // no normal map and no AO. The response is not a palette feature.
     this._surfaceOperativeRig(bot);
-    this._setBotAction(bot, 'Idle', 0);
+    if (!bot.animator) this._setBotAction(bot, 'Idle', 0);
     bot.mesh.add(inst);
     // AFTER the rig is in the graph, and with world matrices current: the seat's
     // scale compensation reads the hand bone's WORLD scale, and reading it before
@@ -1500,11 +1491,15 @@ export default class Bots {
     // Assets can arrive mid-round: if this bot is already a corpse, snap the
     // death pose instead of standing the body back up.
     if (!bot.alive) {
-      this._setBotAction(bot, 'Death', 0);
       bot.deathPlayed = true;
-      const death = bot.actions.Death;
-      if (death) death.time = death.getClip().duration;
-      bot.mixer.update(0);
+      if (bot.animator) {
+        bot.animator.snapDead();
+      } else {
+        this._setBotAction(bot, 'Death', 0);
+        const death = bot.actions.Death;
+        if (death) death.time = death.getClip().duration;
+        bot.mixer.update(0);
+      }
       bot.mesh.rotation.x = 0;
       bot.mesh.rotation.z = 0;
     }
@@ -1704,9 +1699,23 @@ export default class Bots {
     actor.rig = null;
     actor.visualAssetTeam = null;
     actor.mixer = null;
+    actor.animator = null;
     actor.actions = {};
     actor.actionName = null;
     actor.gunMeshes = {};
+  }
+
+  /** Stand a (re)spawned operative back up with no animation history. */
+  _resetOperativePose(actor) {
+    if (!actor || !actor.mixer) return;
+    actor.actionName = null;
+    if (actor.animator) {
+      actor.animator.reset();
+      return;
+    }
+    actor.mixer.stopAllAction();
+    this._setBotAction(actor, 'Idle', 0);
+    actor.mixer.update(0);
   }
 
   _setBotAction(bot, name, fade = 0.16) {
@@ -1745,13 +1754,13 @@ export default class Bots {
   /**
    * Put the real weapon in the soldier's hand.
    *
-   * The seat comes from the character pack's own held-weapon group: it is
-   * parented to the index-finger bone with an artist-authored position and
-   * orientation that already works in every animation clip, so we reuse both
-   * and only correct for the two things that differ.
+   * The seat is a node on the right hand bone (AK / SMG / Sniper / Pistol),
+   * placed by tools/build-operatives.mjs from the weapons' own grip data so the
+   * authored holds put the gun exactly where they were solved for. Two things
+   * remain to handle here:
    *
-   *   axis   the pack's weapons point down their local +X (the SMG down -X);
-   *          ours point down -Z. FAMILY_AXIS_FIX is that quarter turn.
+   *   axis   none: tools/build-operatives.mjs authors the seats in our own
+   *          weapon convention (origin at the web of the hand, bore down -Z).
    *   scale  the character is scaled to 1.8 m, which scales anything parented
    *          into its skeleton with it. Our weapons are modelled at true size,
    *          so the local scale cancels the bone's world scale exactly — an
@@ -1780,7 +1789,7 @@ export default class Bots {
     const inv = 1 / Math.max(1e-6, _gunScale.x);
 
     weapon.position.copy(anchor.position);
-    weapon.quaternion.copy(anchor.quaternion).multiply(FAMILY_AXIS_FIX[family] ?? FAMILY_AXIS_FIX.AK);
+    weapon.quaternion.copy(anchor.quaternion);
     weapon.scale.setScalar(inv);
     weapon.name = `held:${bot.weaponId}`;
     anchor.parent.add(weapon);
@@ -1876,10 +1885,7 @@ export default class Bots {
     m.position.copy(bot.pos);
     if (bot.mixer) {
       bot.deathPlayed = false;
-      bot.mixer.stopAllAction();
-      bot.actionName = null;
-      this._setBotAction(bot, 'Idle', 0);
-      bot.mixer.update(0);
+      this._resetOperativePose(bot);
     }
     if (bot.parts) {
       bot.parts.legL.rotation.set(0, 0, 0);
@@ -1910,6 +1916,8 @@ export default class Bots {
     }
     bot.health -= dmg;
     bot.damageTime = this.time;
+    bot.hitFlinch = 1;
+    bot.hitHeadshot = !!info.headshot;
 
     // Remember roughly where the pain came from so the brain can react.
     const from = info.from;
@@ -3296,9 +3304,24 @@ export default class Bots {
     m.rotation.x = 0;
     m.rotation.z = 0;
 
+    if (bot.animator) {
+      // Layered soldier: legs and torso separately, plus strafe twist, aim
+      // pitch, recoil, flinch and support-hand IK (see operative-anim.js).
+      const family = CHAR_GUN_MESH[bot.weaponId];
+      const camera = this.game && this.game.camera;
+      const near = !camera || camera.position.distanceToSquared(bot.pos) < IK_FAR_SQ;
+      bot.animator.update(bot, dt, {
+        family: !family || family === 'Pistol' ? 'Pistol' : 'Rifle',
+        weapon: bot.heldWeapon || null,
+        ik: near && m.visible !== false,
+        root: m,
+      });
+      bot.fireAnim = Math.max(0, (bot.fireAnim || 0) - dt * 8);
+      return;
+    }
+
     if (bot.mixer) {
-      // GLB soldier: choose a clip from the pack's locomotion set and let the
-      // mixer drive the skeleton.
+      // Whole-clip fallback (a rig without the layered set).
       const firing = bot.burstLeft > 0 || (bot.fireAnim || 0) > 0;
       const speed = bot.moveSpeed;
       let name;
@@ -3369,8 +3392,22 @@ export default class Bots {
     const m = bot.mesh;
     if (!m || bot.deathTime < 0) return;
 
+    if (bot.animator) {
+      m.position.copy(bot.pos);
+      m.rotation.set(0, bot.yaw, 0);
+      if (!bot.deathPlayed) {
+        bot.deathPlayed = true;
+        bot.animator.die();
+      }
+      if (!bot.corpseSettled) {
+        bot.mixer.update(dt);
+        if (bot.animator.deathDone) bot.corpseSettled = true;
+      }
+      return;
+    }
+
     if (bot.mixer) {
-      // GLB soldier: the pack's Death clip does the falling; freeze when done.
+      // Whole-clip fallback: the Death clip does the falling; freeze when done.
       m.position.copy(bot.pos);
       m.rotation.set(0, bot.yaw, 0);
       if (!bot.deathPlayed) {
