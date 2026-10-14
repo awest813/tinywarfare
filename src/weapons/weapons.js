@@ -383,7 +383,7 @@ export default class Weapons {
     if (!id || !WEAPONS[id] || !this.owns(id)) return false;
     if (id === this.currentId && this._state !== 'throwing') return false;
     const swap = hasPerk(this.game.player, 'quickhands') ? PERK_TUNING.QUICKHANDS_SWAP : 1;
-    this._forceEquip(id, (SWITCH_TIME[WEAPONS[id].slot] || 0.45) * swap, true);
+    this._forceEquip(id, this._switchTime(id) * swap, true);
     return true;
   }
 
@@ -466,7 +466,7 @@ export default class Weapons {
       this.ammo[id] = { mag: this.magSizeOf(def), reserve: def.reserve };
       // CS-style: a freshly bought gun goes straight into your hands (this
       // also covers the spec's "auto-equip if slot empty" case).
-      this._forceEquip(id, SWITCH_TIME, true);
+      this._forceEquip(id, this._switchTime(id), true);
     } else {
       return false;
     }
@@ -1010,7 +1010,16 @@ export default class Weapons {
     return out;
   }
 
+  /** Raise time for a weapon (s), by its slot. */
+  _switchTime(id) {
+    const def = WEAPONS[id];
+    return (def && SWITCH_TIME[def.slot]) || SWITCH_TIME[1];
+  }
+
   _forceEquip(id, dur, trackLast) {
+    // A non-finite duration would leave the state machine 'equipping' forever
+    // (stateT >= NaN is never true) — a gun that can never fire.
+    if (!Number.isFinite(dur) || dur < 0) dur = SWITCH_TIME[1];
     this._cancelActivity();
     if (trackLast && id !== this.currentId) this.lastWeaponId = this.currentId;
     this.currentId = id;

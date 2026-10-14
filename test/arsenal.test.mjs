@@ -213,3 +213,26 @@ test('recoil moves the aim and bullets follow the crosshair (no hidden offset)',
   weapons._fireShot(WEAPONS.ak47, player, false);
   assert.ok(kicks[0][0] < hip * 0.85, 'ADS cuts the kick');
 });
+
+test('a gun bought in the freeze is raised and ready to fire (no stuck equip)', () => {
+  const events = new EventBus();
+  const player = {
+    alive: true, team: 'ct', moveSpeed2D: 0, onGround: true, crouching: false,
+    eyePos: () => new THREE.Vector3(0, 1.62, 0), addViewPunch() {},
+  };
+  const camera = { fov: 74, getWorldDirection(out) { return out.set(0, 0, -1); }, updateProjectionMatrix() {} };
+  const state = { mode: 'sd', phase: 'freeze', canBuy: true, money: 8000, buyOpen: false };
+  const weapons = new Weapons({ events, config: CONFIG, player, camera, state, input: { locked: true } });
+  assert.ok(weapons.buy('m4a1'), 'the buy goes through');
+  assert.equal(weapons.currentId, 'm4a1');
+  assert.ok(Number.isFinite(weapons._stateDur), `raise time ${weapons._stateDur}`);
+  for (let i = 0; i < 60; i++) weapons.update(1 / 60);
+  assert.equal(weapons._state, 'idle', 'the raise finishes');
+  state.phase = 'live';
+  state.canBuy = false;
+  let shots = 0;
+  events.on('weapon:fire', () => shots++);
+  weapons._onMouseDown({ button: 0 });
+  weapons.update(1 / 60);
+  assert.ok(shots >= 1, 'the bought gun fires');
+});
