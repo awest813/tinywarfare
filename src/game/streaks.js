@@ -81,6 +81,8 @@ export default class Scorestreaks {
     ev.on('input:keydown', (p) => this._onKey(p && p.key));
     ev.on('ui:start', () => this.reset());
     ev.on('ui:restart', () => this.reset());
+    // Crates and queued bombs must not outlive the match behind the menu.
+    ev.on('ui:menu', () => this.reset());
   }
 
   reset() {
@@ -313,6 +315,10 @@ export default class Scorestreaks {
   }
 
   _scheduleStrike(target, run, caller) {
+    // Red signal smoke marks the run for everyone (relayed online).
+    const mark = target.clone();
+    mark.y = this._surfaceY(target.x, target.z);
+    this.game.events.emit('fx:marker', { pos: mark, duration: AIRSTRIKE.DELAY + 2.5, color: { r: 0.85, g: 0.18, b: 0.12 } });
     for (let i = 0; i < AIRSTRIKE.BOMBS; i++) {
       this._strikes.push({
         at: this._time + AIRSTRIKE.DELAY + i * AIRSTRIKE.INTERVAL,
@@ -362,6 +368,7 @@ export default class Scorestreaks {
     };
     this._packages.push(pkg);
     this.game.events.emit('streak:package-inbound', { pos: pkg.pos.clone() });
+    this.game.events.emit('fx:marker', { pos: pkg.pos.clone(), duration: CARE_PACKAGE.FALL_TIME + 3, color: { r: 0.35, g: 0.8, b: 0.3 } });
     return true;
   }
 
@@ -371,10 +378,12 @@ export default class Scorestreaks {
       const fall = Math.max(0, (pkg.landAt - this._time) / CARE_PACKAGE.FALL_TIME);
       if (pkg.mesh) {
         pkg.mesh.position.set(pkg.pos.x, pkg.pos.y + 0.45 + fall * fall * 40, pkg.pos.z);
-        pkg.mesh.rotation.y += 0.01;
+        // Turns on the way down (time based, not per frame); settles on landing.
+        if (fall > 0) pkg.mesh.rotation.y = (pkg.landAt - this._time) * 0.9;
       }
       if (!pkg.landed && this._time >= pkg.landAt) {
         pkg.landed = true;
+        this.game.events.emit('fx:dust', { pos: pkg.pos.clone() });
         this.game.events.emit('streak:package-landed', { pos: pkg.pos.clone() });
       }
       if (this._time >= pkg.expires) {
@@ -440,7 +449,8 @@ export default class Scorestreaks {
       center.y = this._surfaceY(pos.x, pos.z);
     }
     center.y += 0.6;
-    g.events.emit('fx:explosion', { pos: center.clone(), radius: AIRSTRIKE.RADIUS });
+    // Bigger fireball than a frag of the same damage radius.
+    g.events.emit('fx:explosion', { pos: center.clone(), radius: AIRSTRIKE.RADIUS, scale: 1.5 });
     const combat = g.combat;
     const attacker = caller || g.player || null;
     if (combat && typeof combat._radialDamage === 'function') {

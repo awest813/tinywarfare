@@ -232,6 +232,26 @@ export default class Combat {
     if (pos) this._flashLocalPlayer(pos);
   }
 
+  /** Apply a host-replicated stun grenade (slows, never blinds). */
+  applyNetworkStun(pos) {
+    if (!pos) return;
+    this._v7.set(pos.x, pos.y, pos.z);
+    this._stunLocalPlayer(this._v7);
+  }
+
+  _stunLocalPlayer(pos) {
+    const pl = this.game.player;
+    if (!pl || !pl.alive || !pl.position || typeof pl.stun !== 'function') return;
+    this._v6.copy(pl.position);
+    this._v6.y += 1.4;
+    const d = this._v6.distanceTo(pos);
+    if (d <= STUN_RANGE && this._losClear(pos, this._v6)) {
+      const seconds = 1.2 + 2.6 * (1 - d / STUN_RANGE);
+      pl.stun(seconds);
+      this.game.events.emit('hud:stun', { duration: seconds });
+    }
+  }
+
   networkAuthoritySnapshot() {
     const mp = this.game.multiplayer;
     return {
@@ -304,12 +324,20 @@ export default class Combat {
     for (const state of smokes) {
       const remaining = Math.max(0, Number(state?.remaining) || 0);
       if (!state?.pos || remaining <= 0) continue;
+      const cloud = new THREE.Vector3(
+        Number(state.pos.x) || 0,
+        Number(state.pos.y) || 0,
+        Number(state.pos.z) || 0,
+      );
+      // A client resyncing mid-smoke must see the cloud that blocks vision.
+      const key = cloud.x.toFixed(1) + ',' + cloud.z.toFixed(1);
+      if (!this._shownSmokes) this._shownSmokes = new Map();
+      if (!(this._shownSmokes.get(key) > this._time)) {
+        this.game.events.emit('fx:smoke', { pos: cloud.clone().setY(cloud.y - SMOKE_LIFT), duration: remaining, _network: true });
+      }
+      this._shownSmokes.set(key, this._time + remaining);
       this.smokes.push({
-        pos: new THREE.Vector3(
-          Number(state.pos.x) || 0,
-          Number(state.pos.y) || 0,
-          Number(state.pos.z) || 0,
-        ),
+        pos: cloud,
         radius: Math.max(0.1, Number(state.radius) || SMOKE_RADIUS),
         until: this._time + remaining,
       });
@@ -482,10 +510,15 @@ export default class Combat {
             Math.round((def.damage != null ? def.damage : 25)
               * this._falloff(def, dist) * zone * dmgScale)
           );
-          ev.emit('fx:blood', {
-            point: this._hitPos.clone(),
-            dir: this._sDir.clone(),
-          });
+          if (target.spawnProtection > 0) {
+            // Fresh spawns are immune: a glancing spark, never false blood.
+            ev.emit('fx:impact', { point: this._hitPos.clone(), normal: this._sDir.clone().negate(), surface: 'metal', pellet: this._pelletTracer || undefined });
+          } else {
+            ev.emit('fx:blood', {
+              point: this._hitPos.clone(),
+              dir: this._sDir.clone(),
+            });
+          }
           this._applyDamage(target, this._hitIsPlayer, dmg, shooter, weaponId, headshot, part, byPlayer);
         }
         return;
@@ -498,6 +531,7 @@ export default class Combat {
         point: this._wallPoint.clone(),
         normal: this._wallNormal.clone(),
         surface: wallSurface,
+        pellet: this._pelletTracer || undefined,
       });
       if (seg === 0) this._sEnd.copy(this._wallPoint);
 
@@ -602,7 +636,9 @@ export default class Combat {
 
   _applyDamage(target, isPlayer, dmg, shooter, weaponId, headshot, part, byPlayer) {
     if (!target || typeof target.takeDamage !== 'function') return;
+    const shielded = target.spawnProtection > 0;
     target.takeDamage(dmg, { from: shooter, weapon: weaponId, headshot, part });
+    if (shielded) return; // no hit marker for a hit that did nothing
     // Player hit feedback — bot targets only ('bot:death' fires synchronously
     // inside takeDamage, so `alive` is already settled here).
     if (byPlayer && !isPlayer) {
@@ -975,8 +1011,15 @@ export default class Combat {
           const host = p.stuckTo;
           const at = host.pos || host.position;
           if (at && host.alive !== false) {
-            p.pos.set(at.x, at.y + 1.1, at.z);
+            // On the chest surface facing where it came from, blinking.
+            p.pos.set(at.x + (p.stickDx || 0), at.y + 1.2, at.z + (p.stickDz || 0));
             p.mesh.position.copy(p.pos);
+            p.blinkT = (p.blinkT || 0) + dt;
+            const on = Math.floor(p.blinkT * 8) % 2 === 0;
+            if (p.mesh.material && p.mesh.material.emissive) {
+              p.mesh.material.emissive.setHex(on ? 0xff3020 : 0x220000);
+              p.mesh.material.emissiveIntensity = on ? 2.4 : 0.4;
+            }
           }
           continue;
         }
@@ -985,6 +1028,16 @@ export default class Combat {
           if (victim) {
             p.stuckTo = victim;
             p.resting = true;
+            const at = victim.pos || victim.position;
+            const ox = p.pos.x - at.x;
+            const oz = p.pos.z - at.z;
+            const len = Math.hypot(ox, oz) || 1;
+            p.stickDx = (ox / len) * 0.36; // body radius: sits on the surface
+            p.stickDz = (oz / len) * 0.36;
+            if (p.mesh && p.mesh.material && !p.mesh.material._ownSemtex) {
+              p.mesh.material = p.mesh.material.clone(); // blink this one only
+              p.mesh.material._ownSemtex = true;
+            }
             p.vel.set(0, 0, 0);
             this.game.events.emit('grenade:stuck', { victim, thrower: p.thrower });
             continue;
@@ -1086,7 +1139,15 @@ export default class Combat {
     p.resting = false;
     p.grounded = false;
     p.thrower = null;
-    if (p.mesh) p.mesh.visible = false;
+    if (p.mesh) {
+      p.mesh.visible = false;
+      // A stuck semtex blinked on its own material copy; drop it.
+      if (p.mesh.material && p.mesh.material._ownSemtex) {
+        p.mesh.material.dispose();
+        p.mesh.material = this._grenAssets.mat.semtex || this._grenAssets.mat.hegrenade;
+      }
+    }
+    p.blinkT = 0;
   }
 
   // =========================================================================
@@ -1131,17 +1192,7 @@ export default class Combat {
     ev.emit('fx:flash', { pos: p.pos.clone(), stun: true });
     const bots = this.game.bots;
     if (bots && typeof bots.applyStun === 'function') bots.applyStun(p.pos, STUN_RANGE);
-    const pl = this.game.player;
-    if (pl && pl.alive && pl.position && typeof pl.stun === 'function') {
-      this._v6.copy(pl.position);
-      this._v6.y += 1.4;
-      const d = this._v6.distanceTo(p.pos);
-      if (d <= STUN_RANGE && this._losClear(p.pos, this._v6)) {
-        const seconds = 1.2 + 2.6 * (1 - d / STUN_RANGE);
-        pl.stun(seconds);
-        ev.emit('hud:stun', { duration: seconds });
-      }
-    }
+    this._stunLocalPlayer(p.pos);
   }
 
   _detonateFlash(p) {

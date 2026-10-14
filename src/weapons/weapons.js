@@ -815,6 +815,8 @@ export default class Weapons {
 
     const payload = { weaponId: def.id, origin: origin, dir: dir, byPlayer: true };
     if (melee) payload.melee = true;
+    // A suppressed primary hides its muzzle flash and dims its tracer.
+    if (!melee && def.slot === 1 && hasAttachment(player, 'suppressor')) payload.suppressed = true;
     if (!melee && def.pellets > 1) {
       // Extra pellets fan out around the aimed direction (uniform in a disc).
       payload.pellets = [];

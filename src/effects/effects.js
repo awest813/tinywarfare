@@ -373,8 +373,8 @@ const DECAL_MAX = 80;
 const TRACER_MAX = 32;
 const SHELL_MAX = 24;
 const STREAK_MAX = 32;
-const BURST_MAX = 20;
-const PUFF_MAX = 56;
+const BURST_MAX = 28;
+const PUFF_MAX = 96;
 const SHELL_PENDING_MAX = 8;
 
 // Light pool layout (fixed — lights never enter/leave the scene, so the
@@ -647,6 +647,9 @@ export default class Effects {
       ev.on('round:phase', (p) => this._onRoundPhase(p));
       ev.on('bomb:detonated', () => { this.bombLight.intensity = 0; this.bombGlow.visible = false; });
       ev.on('round:start', () => this._clearAll());
+      ev.on('ui:menu', () => this._clearAll());
+      ev.on('fx:marker', (p) => this._onMarker(p));
+      ev.on('fx:dust', (p) => this._onDust(p));
     }
   }
 
@@ -658,7 +661,8 @@ export default class Effects {
     if (!p || p.melee || !p.byPlayer) return;
     const id = p.weaponId;
     if (id === 'knife' || id === 'hegrenade' || id === 'flashbang' || id === 'smokegrenade') return;
-    this._pendingPlayerFlash = Math.min(this._pendingPlayerFlash + 1, 2);
+    // A suppressor kills the flash (shells still eject).
+    if (!p.suppressed) this._pendingPlayerFlash = Math.min(this._pendingPlayerFlash + 1, 2);
     // Shell eject; AWP ejects after the bolt cycle.
     if (this._shellPendingN < SHELL_PENDING_MAX) {
       this._shellPending[this._shellPendingN++] = (id === 'awp') ? 0.65 : 0.02;
@@ -666,7 +670,7 @@ export default class Effects {
   }
 
   _onBotFire(p) {
-    if (!p || !p.origin) return;
+    if (!p || !p.origin || p.suppressed) return;
     const o = p.origin, d = p.dir;
     // Push the flash out to roughly the gun tip.
     if (d) {
@@ -699,7 +703,8 @@ export default class Effects {
     e.fading = false;
     e.fade = 0;
     e.w = (p.weaponId === 'awp') ? 0.03 : 0.016;
-    e.baseA = (p.weaponId === 'awp') ? 1.0 : 0.85;
+    // Suppressed rounds and extra shotgun pellets draw faint tracers.
+    e.baseA = (p.weaponId === 'awp') ? 1.0 : p.suppressed ? 0.25 : p.pellet ? 0.45 : 0.85;
     e.mat.opacity = e.baseA;
     e.mesh.visible = true;
     e.mesh.quaternion.setFromUnitVectors(_Z, _vc);
@@ -707,6 +712,9 @@ export default class Effects {
 
   _onImpact(p) {
     if (!p || !p.point) return;
+    // Shotgun pellets: every other pellet's impact is enough detail (a full
+    // set per blast flushed the decal ring in a few shots).
+    if (p.pellet && (this._pelletSkip = !this._pelletSkip)) return;
     const surface = p.surface || 'concrete';
     const px = p.point.x, py = p.point.y, pz = p.point.z;
     let nx = 0, ny = 1, nz = 0;
@@ -851,7 +859,9 @@ export default class Effects {
   _onExplosion(p) {
     if (!p || !p.pos) return;
     const px = p.pos.x, py = p.pos.y, pz = p.pos.z;
-    const radius = p.radius || 9;
+    // `scale` grows the visual only (an airstrike bomb is bigger than a frag
+    // with the same damage radius).
+    const radius = (p.radius || 9) * (p.scale || 1);
     const rs = radius / 9; // scale factor relative to HE reference
 
     // --- fireball core + body ---
@@ -950,19 +960,27 @@ export default class Effects {
       }
     }
 
-    // --- camera shake ---
-    const player = this.game.player;
-    if (player && typeof player.addShake === 'function' && player.position) {
-      _va.set(px, py, pz);
-      const d = _vb.copy(player.position).sub(_va).length();
-      const strength = clamp(1 - d / (radius * 2.2), 0, 1) * 1.8 * Math.sqrt(rs);
-      if (strength > 0.02) player.addShake(strength);
-    }
+    // Camera shake is applied once by whoever owns the blast (combat /
+    // streaks); adding it here too doubled every explosion's kick.
   }
 
   _onFlash(p) {
     if (!p || !p.pos) return;
     const px = p.pos.x, py = p.pos.y, pz = p.pos.z;
+    if (p.stun) {
+      // Stun: a small cold concussion ring, not a flashbang's white star.
+      this._flashLight(L_FLASHBANG, px, py + 0.2, pz, 8, 0.25, 1.4, 14);
+      _va.set(px, py + 0.2, pz);
+      this._spawnBurst(_va, this.texFlash, 0x9fc8ff, 0.5, 2.2, 0.16, 0.85, 0, 1.6, rand(-4, 4));
+      this._spawnBurst(_va, this.texPuff, 0x9aa4b0, 0.6, 2.8, 0.5, 0.45, 0.4, 1.2, 0);
+      for (let i = 0; i < 12; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const sp = rand(4, 9);
+        this.sparks.spawn(px, py + 0.2, pz, Math.cos(ang) * sp, rand(0.5, 2), Math.sin(ang) * sp,
+          rand(0.12, 0.25), rand(0.015, 0.03), 0.7, 0.85, 1, 1, 6, 2, 0);
+      }
+      return;
+    }
     this._flashLight(L_FLASHBANG, px, py + 0.2, pz, 26, 0.3, 1.2, 24);
     _va.set(px, py + 0.2, pz);
     this._spawnBurst(_va, this.texFlash, 0xffffff, 0.8, 3.2, 0.18, 1, 0, 1.4, rand(-4, 4));
@@ -1047,6 +1065,37 @@ export default class Effects {
     }
   }
 
+  /** Coloured signal smoke (airstrike target, care-package drop). */
+  _onMarker(p) {
+    if (!p || !p.pos) return;
+    const c = p.color || { r: 0.9, g: 0.25, b: 0.18 };
+    const life = p.duration || 4;
+    for (let i = 0; i < 5; i++) {
+      this._spawnPuffSprite({
+        cx: p.pos.x, cy: p.pos.y, cz: p.pos.z,
+        orbitR: rand(0.1, 0.35), angle: rand(0, Math.PI * 2), angSpeed: rand(-0.4, 0.4),
+        h: 0.3 + i * 0.45, rise: 0.9, riseCap: 6,
+        size0: rand(0.5, 0.8), size1: rand(1.6, 2.4),
+        life: life - i * 0.25, fadeIn: 0.3, fadeOut: 1.4,
+        alphaMax: 0.7,
+        r: c.r, g: c.g, b: c.b,
+        spin: rand(-0.4, 0.4),
+      });
+    }
+  }
+
+  /** A ring of ground dust (crate landing). */
+  _onDust(p) {
+    if (!p || !p.pos) return;
+    for (let i = 0; i < 10; i++) {
+      const ang = (i / 10) * Math.PI * 2 + rand(-0.2, 0.2);
+      const sp = rand(2.5, 4.5);
+      this.puffs.spawn(p.pos.x, p.pos.y + 0.1, p.pos.z,
+        Math.cos(ang) * sp, rand(0.2, 0.7), Math.sin(ang) * sp,
+        rand(0.5, 0.9), 0.35, 0.6, 0.55, 0.47, 0.45, 0.8, 2.2, 3);
+    }
+  }
+
   _onRoundPhase(p) {
     if (p && p.phase === 'planted') {
       this._bombBeat = 0;
@@ -1073,9 +1122,27 @@ export default class Effects {
     }
   }
 
+  /** Next pool slot: a free one if any, else (optionally) one that is not
+   *  long-lived, else round-robin. Keeps fireballs and smoke clouds from
+   *  being recycled by a burst of muzzle flashes or explosion puffs. */
+  _slot(pool, max, idxKey, keepLongerThan = Infinity) {
+    const base = this[idxKey] % max;
+    let pick = -1;
+    for (let k = 0; k < max && pick < 0; k++) {
+      if (!pool[(base + k) % max].active) pick = (base + k) % max;
+    }
+    if (pick < 0 && keepLongerThan !== Infinity) {
+      for (let k = 0; k < max && pick < 0; k++) {
+        if (pool[(base + k) % max].life <= keepLongerThan) pick = (base + k) % max;
+      }
+    }
+    if (pick < 0) pick = base;
+    this[idxKey] = (pick + 1) % max;
+    return pool[pick];
+  }
+
   _spawnBurst(pos, tex, colorHex, size0, size1, life, alpha, vy, expo, rotSpeed) {
-    const e = this.bursts[this._burstIdx % BURST_MAX];
-    this._burstIdx++;
+    const e = this._slot(this.bursts, BURST_MAX, '_burstIdx');
     e.active = true;
     e.t = 0;
     e.life = life;
@@ -1109,8 +1176,8 @@ export default class Effects {
   }
 
   _spawnPuffSprite(o) {
-    const e = this.puffSprites[this._puffIdx % PUFF_MAX];
-    this._puffIdx++;
+    // Short-lived puffs never evict a vision-blocking smoke cloud (life 15 s).
+    const e = this._slot(this.puffSprites, PUFF_MAX, '_puffIdx', o.life < 6 ? 6 : Infinity);
     e.active = true;
     e.t = 0;
     e.life = o.life;

@@ -56,6 +56,15 @@ function horizontalDistance(a, b) {
   return Math.hypot(a.x - b.x, a.z - b.z);
 }
 
+/** Free a match's objective meshes (each match builds its own). */
+function disposeGroup(group) {
+  if (!group) return;
+  group.traverse((o) => {
+    if (o.geometry) o.geometry.dispose();
+    if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => m.dispose());
+  });
+}
+
 /** Personal objective points for whoever earned them (local or remote human). */
 function awardActor(game, entry, points, label) {
   if (entry.isPlayer) game.events.emit('objective:score', { points, label });
@@ -453,6 +462,8 @@ export class Domination {
   stop() {
     for (const flag of this.flags) {
       if (flag.group && flag.group.parent) flag.group.parent.remove(flag.group);
+      disposeGroup(flag.group);
+      flag.group = null;
     }
   }
 
@@ -639,6 +650,8 @@ export class Hardpoint {
 
   stop() {
     if (this._group && this._group.parent) this._group.parent.remove(this._group);
+    disposeGroup(this._group);
+    this._group = null;
   }
 
   _buildZone() {

@@ -1776,6 +1776,15 @@ export default class HUD {
       this._cache.spectatorKey = null;
     });
     ev.on('hud:flash', (d) => this._onFlash(d || {}));
+    ev.on('hud:stun', (d) => {
+      const dur = Math.max(0.3, Number(d && d.duration) || 2);
+      this._stun = { dur, t: 0 };
+      this._showMsg('STUNNED', '', Math.min(1.2, dur));
+    });
+    // Semtex stuck to you: the one warning that matters.
+    ev.on('grenade:stuck', (d) => {
+      if (d && d.victim && d.victim === this.game.player) this._showMsg('STUCK!', 'SEMTEX — NOWHERE TO RUN', 1.6);
+    });
     ev.on('weapon:scope', (d) => { if (d) { this._scopeFov = d.fov || 0; } });
     ev.on('weapon:reload:start', () => this._setReloading(true));
     ev.on('weapon:reload:end', () => this._setReloading(false));
@@ -2887,6 +2896,20 @@ export default class HUD {
   // --------------------------------------------------------------------------
 
   _updateOverlays(dt) {
+    // spawn protection: a quiet cue while fresh-spawn immunity lasts
+    const protectEl = this._protectEl || (this._protectEl = document.getElementById('hud-protect'));
+    const prot = Number(this.game.player?.spawnProtection) || 0;
+    const protOp = prot > 0 && this.game.player?.alive !== false ? Math.min(1, prot * 2).toFixed(2) : '0';
+    if (protectEl && protectEl.style.opacity !== protOp) protectEl.style.opacity = protOp;
+    // stun vignette: fades over the stun with a slow pulse
+    const stunEl = this._stunEl || (this._stunEl = document.getElementById('hud-stun'));
+    if (this._stun) {
+      this._stun.t += dt;
+      const left = 1 - this._stun.t / this._stun.dur;
+      if (left <= 0 || this.game.player?.alive === false) this._stun = null;
+      if (stunEl) stunEl.style.opacity = this._stun ? (Math.min(1, left * 1.6) * (0.75 + 0.25 * Math.sin(this._time * 9))).toFixed(3) : '0';
+    }
+
     // damage vignette (+ persistent low-HP pulse)
     this._dmg = Math.max(0, this._dmg - dt * (1.1 + this._dmg));
     let base = 0;
@@ -3924,6 +3947,8 @@ export default class HUD {
       '</div></div>' +
 
       // flash whiteout — over everything in the game layer
+      '<div id="hud-stun" aria-hidden="true"></div>' +
+      '<div id="hud-protect" aria-hidden="true">SPAWN PROTECTION</div>' +
       '<div id="hud-flash"></div>' +
       '</div>' + // /hud-game
 
@@ -4461,6 +4486,12 @@ export default class HUD {
   background: linear-gradient(to bottom, rgba(255, 62, 40, 0.95), rgba(255, 62, 40, 0));
 }
 #hud-flash { position: absolute; inset: 0; background: #fff; opacity: 0; z-index: 30; }
+#hud-protect { position: absolute; left: 50%; top: calc(50% + 44px); transform: translateX(-50%); opacity: 0;
+  font-size: 10px; font-weight: 900; letter-spacing: .28em; color: #bfe0ff; text-shadow: 0 0 10px rgba(110,170,255,.7), 0 1px 2px #000;
+  pointer-events: none; z-index: 8; }
+/* Stun grenade: a cold, pulsing concussion vignette (movement is slowed). */
+#hud-stun { position: absolute; inset: 0; opacity: 0; z-index: 29; pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(150,190,255,0) 38%, rgba(120,160,230,.32) 72%, rgba(70,95,150,.62) 100%); }
 
 /* ---------- scope ---------- */
 #hud-scope { position: absolute; inset: 0; display: none; z-index: 1; }

@@ -43,6 +43,8 @@ const EFFECT_EVENTS = [
   // Respawn modes: personal objective points earned by a remote player, and
   // the airstrike flyover cue.
   'objective:award', 'streak:airstrike',
+  // Airstrike signal smoke.
+  'fx:marker',
 ];
 const AUTHORITY_OUTBOUND_TYPES = new Set(['snapshot', 'damage', 'event', 'respawn', 'yield_authority']);
 const SYNC_BLOCKED_OUTBOUND_TYPES = new Set([
@@ -2389,9 +2391,13 @@ export default class Multiplayer {
           _network: true,
         });
       }
-      if (eventName === 'fx:flash' && data.pos && this.game.combat &&
-        typeof this.game.combat.applyNetworkFlash === 'function') {
-        this.game.combat.applyNetworkFlash(data.pos);
+      if (eventName === 'fx:flash' && data.pos && this.game.combat) {
+        // A stun grenade slows; only a flashbang whites out the screen.
+        if (data.stun) {
+          if (typeof this.game.combat.applyNetworkStun === 'function') this.game.combat.applyNetworkStun(data.pos);
+        } else if (typeof this.game.combat.applyNetworkFlash === 'function') {
+          this.game.combat.applyNetworkFlash(data.pos);
+        }
       }
       if (eventName === 'kill' && !this.isHost && data.killerId === this.localId && Number(data.reward) > 0) {
         const reward = Number(data.reward);
