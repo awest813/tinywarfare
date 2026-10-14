@@ -100,14 +100,19 @@ export const NEON_FOUNDRY = {
     [0, 8.1, -8.6, 22.6, 0.3, 0.4, 'accentA'], [0, 8.1, 8.6, 22.6, 0.3, 0.4, 'accentB'],
     [-11.5, 3.8, 0, 0.18, 0.5, 6.2, 'neonA'], [11.5, 3.8, 0, 0.18, 0.5, 6.2, 'neonB'],
     [29.5, 0.95, -23, 21, 0.08, 15, 'metalGrid'], [29.5, 0.95, 23, 21, 0.08, 15, 'metalGrid'],
-    [-50.8, 4.2, 0, 0.12, 2.2, 14, 'neonA'], [50.8, 4.2, 0, 0.12, 2.2, 14, 'neonB'],
+    // On the perimeter's inner face (+-51.2), not 34 cm off it.
+    [-51.14, 4.2, 0, 0.12, 2.2, 14, 'neonA'], [51.14, 4.2, 0, 0.12, 2.2, 14, 'neonB'],
     [-1.8, 1.5, 0, 0.12, 2.2, 4.2, 'warning'], [1.8, 1.5, 0, 0.12, 2.2, 4.2, 'warning'],
   ],
   lights: [
-    { color: 0xff287e, intensity: 11, distance: 20, pos: [-7, 3.2, -1] },
-    { color: 0x18ead6, intensity: 11, distance: 20, pos: [7, 3.2, 1] },
-    { color: 0xff7a30, intensity: 9, distance: 18, pos: [0, 5, -10] },
-    { color: 0xff7a30, intensity: 9, distance: 18, pos: [0, 5, 10] },
+    // Tunnel lamps under the 5.2 m ceiling, not 20 cm off the catwalk deck
+    // where players walked through the shade and the deck blew out.
+    { color: 0xff287e, intensity: 11, distance: 20, pos: [-7, 4.8, -1] },
+    { color: 0x18ead6, intensity: 11, distance: 20, pos: [7, 4.8, 1] },
+    // Furnace glow on the core's outer faces (z = +-14). At z = +-10 these were
+    // inside 7.5 m of solid wall and lit both lanes through it.
+    { color: 0xff7a30, intensity: 9, distance: 18, pos: [0, 5, -14.6] },
+    { color: 0xff7a30, intensity: 9, distance: 18, pos: [0, 5, 14.6] },
     { color: 0xb8d7ff, intensity: 12, distance: 25, pos: [-41, 4.5, -16] },
     { color: 0xb8d7ff, intensity: 12, distance: 25, pos: [-41, 4.5, 16] },
     { color: 0x9fcfff, intensity: 14, distance: 27, pos: [42, 4.5, -11] },

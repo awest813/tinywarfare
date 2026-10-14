@@ -566,8 +566,10 @@ export class SkySystem {
        * horizon reaches the dome through the path that already exists.
        */
       horizon: [0.038, 3.5, 0.35, 16000],
-      ...(opts.weather ?? {}),
     };
+    /** The defaults above, kept so a map switch can start from them. */
+    this._weatherDefaults = { ...this.weather };
+    Object.assign(this.weather, opts.weather ?? {});
 
     // ---- shared uniform objects -------------------------------------------
     // Every pass and the dome reference these same objects, so one write per
@@ -980,6 +982,16 @@ export class SkySystem {
   setTimeRate(hoursPerSecond) {
     this.timeRate = hoursPerSecond || 0;
     return this;
+  }
+
+  /**
+   * Replace the whole weather state: defaults first, then `preset`. A map
+   * switch uses this rather than setWeather, which merges — with a merge, any
+   * key one map sets and the next leaves out (Harbor's wind speed, say) stayed
+   * in force, so the sky depended on the order the maps were visited in.
+   */
+  resetWeather(preset = {}) {
+    return this.setWeather({ ...this._weatherDefaults, ...preset });
   }
 
   setWeather(patch = {}) {

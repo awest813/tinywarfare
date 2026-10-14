@@ -84,10 +84,12 @@ export const FROSTLINE = {
   ],
   decor: [
     [-9, 6.8, 0, 12.4, 0.32, 36.4, 'trim'], [9, 6.8, 0, 12.4, 0.32, 36.4, 'trim'],
-    [-33.5, 0.04, 12.5, 18, 0.06, 18, 'snow'], [33.5, 0.04, 12.5, 18, 0.06, 18, 'snow'],
     [-21, 5.9, -22, 4.6, 0.2, 2.5, 'solar', -0.15], [21, 5.9, -22, 4.6, 0.2, 2.5, 'solar', 0.15],
-    [-14.7, 3.2, -4, 0.12, 1.2, 3.5, 'glass'], [14.7, 3.2, 5, 0.12, 1.2, 3.5, 'glass'],
-    [-48.8, 2.4, 0, 0.18, 1.4, 13, 'iceGlow'], [48.8, 2.4, 0, 0.18, 1.4, 13, 'iceGlow'],
+    // Windows sit 1 cm proud of the wings' outer faces (x = +-15) and the glow
+    // strips on the perimeter's inner face (+-49.25); both used to be buried in
+    // or floating off their walls. (Snow on the pads comes from dressSnowCaps.)
+    [-15.07, 3.2, -4, 0.12, 1.2, 3.5, 'glass'], [15.07, 3.2, 5, 0.12, 1.2, 3.5, 'glass'],
+    [-49.15, 2.4, 0, 0.18, 1.4, 13, 'iceGlow'], [49.15, 2.4, 0, 0.18, 1.4, 13, 'iceGlow'],
   ],
   lights: [
     { color: 0x70d8ff, intensity: 6, distance: 18, pos: [0, 2.5, -9] },

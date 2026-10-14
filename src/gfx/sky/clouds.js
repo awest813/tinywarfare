@@ -205,8 +205,12 @@ float skCumulusDensity( vec2 p, int oct ) {
   // Domain warp before the shape fbm. Straight fbm gives evenly sized blobs;
   // warping it stretches some and pinches others, which is what makes a cloud
   // field read as weather rather than as noise.
+  //
+  // 1.0, not 1.6: at 1.6 the shift approached a whole feature width at the
+  // shape frequency, which folds the level set into long liquid swirls — the
+  // "marble" read on the overcast and night maps.
   vec2 w = vec2( skVal2( p * 0.42 ), skVal2( p * 0.42 + 19.7 ) ) - 0.5;
-  float n = skFbm2( p * 1.25 + w * 1.6, oct );
+  float n = skFbm2( p * 1.25 + w * 1.0, oct );
 
   // Erode from below: coverage sets the threshold, the remainder is thickness.
   float d = smoothstep( 1.0 - cov, 1.0 - cov * 0.34 + 0.05, n );
@@ -347,7 +351,18 @@ vec4 skClouds( vec3 rayDir,
       // sample along the view ray by the height the cloud would have there, and
       // probe again. The result parallaxes — tops lean away from the camera,
       // bases toward it — which is what gives the silhouette any depth at all.
-      float dBase = skCumulusDensity( p0, octD );
+      // The visible sky is the quality-0 bake, and at three octaves the edge
+      // erosion below (oct > 3) never runs: what reached the screen was a
+      // smooth level set of warped noise, which reads as marble, not cumulus.
+      // Inside 22 km the deck is still several texels per feature, so it can
+      // afford the detail; past that the three-octave floor stands, for the
+      // horizon-aliasing reason above.
+      int octNear = quality > 0 ? octD : ( distKM < 22.0 ? 5 : octD );
+      // and the self-shadow taps one octave closer to that shape, or the
+      // light field is a blurrier cloud than the one it lights and its error
+      // shows up as dark ink lines through the lit side.
+      int octLNear = quality > 0 ? octL : ( distKM < 22.0 ? 3 : octL );
+      float dBase = skCumulusDensity( p0, octNear );
       // The parallax offset is CLAMPED, and that clamp is the difference between
       // a billow and an oil slick. 0.85 * d / rayDir.y is the horizontal run of a
       // view ray climbing the cloud's own height, which is right overhead and
@@ -361,7 +376,7 @@ vec4 skClouds( vec3 rayDir,
       // degrees of elevation; directly overhead 0.85 * d / 0.7 is already 1.03 max,
       // so nothing about the zenith moves.
       vec2 shear = rayDir.xz * min( 0.85 * dBase / max( 0.10, rayDir.y ), 1.2 );
-      float d = max( skCumulusDensity( p0 + shear, octD ), dBase * 0.55 );
+      float d = max( skCumulusDensity( p0 + shear, octNear ), dBase * 0.55 );
 
       if ( d > 0.003 ) {
         vec2 p = p0 + shear;
@@ -369,8 +384,8 @@ vec4 skClouds( vec3 rayDir,
         // see SK_CLOUD_MS. Without it the shaded side of every billow crushes
         // to whatever the sky happens to be giving, which by day is 2.6% of the
         // beam and after dark is nothing at all.
-        float lit = skCloudMS( skCumulusLight( p, sunDir, octL ) );
-        float litM = skCloudMS( skCumulusLight( p, moonDir, octL ) );
+        float lit = skCloudMS( skCumulusLight( p, sunDir, octLNear ) );
+        float litM = skCloudMS( skCumulusLight( p, moonDir, octLNear ) );
 
         // Grazing rays travel further through a deck — but only up to a point,
         // past which the deck is simply far away and the haze wins.

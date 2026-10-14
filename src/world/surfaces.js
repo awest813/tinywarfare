@@ -311,6 +311,10 @@ function base(theme) {
      * its wear and its grime, on every one of them.
      */
     metalDark: ['metal_brushed', { scale: 0.32, tint: tintOf(0x3c454d, 0.5, 0.42) }],
+    // Light fixtures: dark, matte stove-enamel. A lamp post stands a few tens
+    // of centimetres under a 30-unit point light; brushed metal's highlight and
+    // metalDoor's pale paint both turned it into a glowing white pole.
+    fixture: ['metal_painted', { scale: 0.5, tint: tintOf(0x262b31, 0.6, 0.32) }],
     // Gratings, walkway mesh and plant housings: 0.5-0.6 m objects.
     metalGrid: ['metal_brushed', { scale: 0.62, tint: tintOf(0x8d9aa3, 0.45, 0.8) }],
     // Shipping containers are 5.8 x 2.6 m; 1.25 m puts four panels of chipping
@@ -325,6 +329,13 @@ function base(theme) {
     // across and the citadel fountain kerb. At 2.2 m a rubble chunk was a
     // fifth of one block face — no joint, no arris, no tool marks.
     stoneDark: ['stone', { scale: 1.05, tint: tintOf(theme.wallB, 0.5) }],
+
+    // ---- the horizon (map.js _buildBackdrop) -------------------------------
+    // Mountain ridges 130-300 m out. Both are triplanar bakes, so a strip with
+    // no UVs takes them, and at this scale gravel's clods are scree and
+    // outcrop. Only resolved by the maps that draw ridges.
+    ridgeRock: ['gravel', { scale: 16, tint: tintOf(0x8a7f70, 0.55, 0.78) }],
+    ridgeSnow: ['snow', { scale: 14 }],
 
     // ---- set-dressing surfaces (src/world/dressing.js) --------------------
     /**
@@ -641,6 +652,12 @@ export function createThemeMaterials(materials, theme) {
     neonA: () => emissive(new THREE.Color(theme.accentA), 3.2),
     neonB: () => emissive(new THREE.Color(theme.accentB), 3.2),
     iceGlow: () => emissive(new THREE.Color(0x78ddff), 1.8),
+    // Lamp glass and fire. These used to be neonA — the map's accent — so every
+    // bulb on Neon Foundry was hot pink whatever colour its light was, and every
+    // lamp on Frostline cyan. A practical is a tungsten/sodium source; a brazier
+    // is a fire.
+    bulb: () => emissive(new THREE.Color(0xffd6a0), 2.6),
+    ember: () => emissive(new THREE.Color(0xff5a14), 3.0),
     water: () => {
       const mat = new THREE.MeshStandardMaterial({
         color: 0x24515f,

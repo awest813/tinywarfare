@@ -77,6 +77,10 @@ export const CITADEL = {
   ],
   props: [
     { kind: 'column', x: 0, z: 0, radius: 1.4, height: 1.1, mat: 'stoneDark' },
+    // The pool: a disc just inside the drum's rim, 2 cm proud of its top. It was
+    // a 4.2 m square plate, which overhung the 1.4 m drum by up to 1.6 m and
+    // hovered 4 cm above it with a square shadow.
+    { kind: 'column', x: 0, z: 0, radius: 1.24, height: 0.04, y: 1.08, mat: 'water' },
     { kind: 'column', x: -31, z: -20, radius: 1.0, height: 7.5, mat: 'wallB' },
     { kind: 'column', x: -31, z: 20, radius: 1.0, height: 7.5, mat: 'wallB' },
     { kind: 'column', x: 31, z: -15, radius: 1.0, height: 7.5, mat: 'wallA' },
@@ -91,7 +95,7 @@ export const CITADEL = {
     { kind: 'barrel', x: -24, z: 4, red: false },
   ],
   decor: [
-    [0, 1.2, 0, 4.2, 0.12, 4.2, 'water'], [0, 1.35, 0, 1.2, 0.18, 1.2, 'stoneDark'],
+    [0, 1.21, 0, 1.2, 0.18, 1.2, 'stoneDark'],
     [-12.5, 7.55, -13, 13.4, 0.35, 12.4, 'trim'], [-12.5, 7.55, 13, 13.4, 0.35, 12.4, 'trim'],
     [12.5, 7.55, -13, 13.4, 0.35, 12.4, 'trim'], [12.5, 7.55, 13, 13.4, 0.35, 12.4, 'trim'],
     [24.5, 1.25, -28, 27, 0.06, 15, 'stoneLight'], [24.5, 1.25, 28, 27, 0.06, 15, 'stoneLight'],

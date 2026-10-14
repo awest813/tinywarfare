@@ -1361,7 +1361,7 @@ export const PROPS = {
   water_tank: ['accentB', (r) => waterTank(r)],
   roof_vent: ['metalGrid', (r) => roofVent(r)],
   lamp_post: ['metalDark', (r) => streetLamp(r)],
-  lamp_glass: ['neonA', () => lampGlass()],
+  lamp_glass: ['bulb', () => lampGlass()],
 
   // debris
   brick_a: ['stoneDark', (r) => brickChunk(r)],

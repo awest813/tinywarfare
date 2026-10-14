@@ -92,8 +92,10 @@ export const HARBOR = {
     [29.5, 8.8, -2, 20, 0.45, 0.45, 'accentA'], [29.5, 5.8, -2, 0.45, 6, 0.45, 'metal'],
     [39, 5.8, -2, 0.45, 6, 0.45, 'metal'], [38.5, 8.2, -2, 2.5, 0.3, 0.3, 'metal'],
     [-33.5, 0.54, -17.5, 18, 0.08, 14, 'wood'], [33.5, 0.54, -17.5, 18, 0.08, 14, 'metalGrid'],
-    [-13.8, 4.1, 0, 0.12, 1.1, 4.5, 'glass'], [13.8, 4.1, 0, 0.12, 1.1, 4.5, 'glass'],
-    [51.1, 0.08, 0, 2.2, 0.08, 78, 'water'], [-51.1, 0.08, 0, 2.2, 0.08, 78, 'water'],
+    // Customs-house windows, 1 cm proud of the wings' faces (x = +-14). The sea
+    // is the backdrop's job now (map.js _buildBackdrop): the old 'water' strips
+    // ran 1.25 m inside the perimeter as a walk-through gutter.
+    [-14.07, 4.1, 0, 0.12, 1.1, 4.5, 'glass'], [14.07, 4.1, 0, 0.12, 1.1, 4.5, 'glass'],
   ],
   lights: [
     { color: 0xffc06f, intensity: 7, distance: 17, pos: [0, 2.7, 8] },

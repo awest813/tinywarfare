@@ -1487,7 +1487,7 @@ function dressWallFurniture(d, world, mass, faces, theme) {
           // top, and visible from every side.
           const shade = d.geo('shade:0.24', () => tubeY(0.24, 0.2, { radial: 12, taper: 0.42 }));
           d.add('metalDoor', shade, newTrs(x, y + 0.09, z), [0.55, 0.6, 0.2]);
-          d.add('neonA', d.geo('bulb', () => new THREE.SphereGeometry(0.07, 6, 5)),
+          d.add('bulb', d.geo('bulb', () => new THREE.SphereGeometry(0.07, 6, 5)),
             newTrs(x, y + 0.11, z), [0, 0, 0]);
         });
       }
@@ -2956,7 +2956,7 @@ function dressStilts(d, world, theme) {
  */
 function dressPracticals(d, world, theme) {
   const rng = d.rng;
-  const glass = 'neonA';
+  const glass = 'bulb';
   for (const light of world.environment.children) {
     if (!light.isPointLight) continue;
     // A fixture for a light that emits nothing is a lamp that is not there: the
@@ -3041,7 +3041,10 @@ function dressPracticals(d, world, theme) {
     }
     if (!spot) continue;
     const stand = Math.max(0.5, ly - 0.22 - spot.y);
-    const ironKey = theme.fixtureKey ?? 'metalDark';
+    // Dark matte paint (`fixture`): the post stands 0.22 m under a 30-unit point
+    // light, and both brushed metal and the pale door paint read as a glowing
+    // white pole on Neon Foundry.
+    const ironKey = theme.fixtureKey ?? 'fixture';
     if (!queueBoxSolid(
       d, world, 'standing_torch',
       spot.x, spot.y, spot.z,
@@ -3586,9 +3589,8 @@ function dressBattlements(d, world, masses, theme) {
  * This is the replacement for `wallServices`, not an addition to it: the same
  * piers, the same bay rhythm, the same `backedByWall` + `wallFree` contract,
  * and a fitting that belongs to the building. A cresset is a back plate, a
- * forged arm and a fire basket; the coals are `neonA`, which is the emissive
- * the map's own practicals already use, so this adds no material and therefore
- * no draw call.
+ * forged arm and a fire basket; the coals are `ember`, the same emissive the
+ * braziers use, so this adds no material and therefore no draw call.
  *
  * Height is 2.3–2.7 m: above a player's head (so nothing reads as a pickup),
  * below the 2.9 m first window row, and clamped inside the wall's own span.
@@ -3650,7 +3652,7 @@ function dressSconces(d, world, masses, theme) {
            * is 0.065 tall, so centring it at y + 0.24 puts its crown at
            * y + 0.305 and its base inside the basket where a fire's is.
            */
-          d.add('neonA', d.geo('embers', () => new THREE.SphereGeometry(0.105, 7, 5)),
+          d.add('ember', d.geo('embers', () => new THREE.SphereGeometry(0.105, 7, 5)),
             newTrs(x, y + 0.24, z, rng.float() * 6.28, 1, 0.62, 1), [0, 0, 0]);
           d.props++;
         });
@@ -3797,7 +3799,7 @@ function dressBraziers(d, world, theme) {
     }
     const bowl = d.geo('bowl', () => new THREE.CylinderGeometry(0.26, 0.14, 0.22, 10, 1, true));
     d.add('metal', bowl, newTrs(x, floor + stand + 0.09, z), [0.85, 0.5, 0.2]);
-    d.add('neonA', d.geo('coals', () => new THREE.SphereGeometry(0.19, 7, 5)),
+    d.add('ember', d.geo('coals', () => new THREE.SphereGeometry(0.19, 7, 5)),
       newTrs(x, floor + stand + 0.14, z, rng.float() * 6.28, 1, 0.6, 1), [0, 0, 0]);
     // A ring of fuel at the foot: a brazier nobody has to feed is a lamp.
     for (let k = 0, m = rng.int(1, 3); k < m; k++) {
@@ -3944,13 +3946,33 @@ function dressSnowCaps(d, world, masses, theme) {
   if (!theme.snowCaps) return;
   const rng = d.rng;
   const meshes = world.solids.children;
+  // A building's top is not its box top: dressMassShell lays a 0.22 m coping
+  // over the whole roof that oversails 0.14 m, and a cap seated on the raw box
+  // top sat entirely inside it — Frostline's roofs were the one surface in the
+  // map with no snow on them. Seat those caps on the deck and size them to it.
+  const massByIndex = new Map(masses.map((mass) => [mass.index, mass]));
   for (let i = 0; i < meshes.length; i++) {
     const mesh = meshes[i];
     if (!mesh.isMesh || mesh.geometry !== world._unitBox) continue;
     const s = mesh.scale;
     const p = mesh.position;
-    const top = p.y + s.y / 2;
-    if (top < 0.35 || top > 12) continue;
+    const mass = massByIndex.get(i);
+    const coped = mass && mass.deckY > mass.y1 + 0.01;
+    let top = coped ? mass.deckY : p.y + s.y / 2;
+    // A map can lay its own roof plate over a building (Frostline's wings carry
+    // a 0.32 m 'trim' deck): the snow goes on whatever is highest at the centre.
+    if (mass) {
+      for (const deco of world.environment.children) {
+        if (!deco.isMesh || deco.geometry !== world._unitBox) continue;
+        const ds = deco.scale;
+        const dp = deco.position;
+        const bottom = dp.y - ds.y / 2;
+        if (bottom < top - 0.4 || bottom > top + 0.2) continue;
+        if (Math.abs(dp.x - p.x) > ds.x / 2 || Math.abs(dp.z - p.z) > ds.z / 2) continue;
+        top = Math.max(top, dp.y + ds.y / 2);
+      }
+    }
+    if (top < 0.35 || top > 12.3) continue;
     if (s.x < 0.5 || s.z < 0.5) continue;
     // Anything with another box sitting on it stays bare — tested across the
     // whole footprint, because one centre probe misses a crate on the corner.
@@ -3963,7 +3985,11 @@ function dressSnowCaps(d, world, masses, theme) {
     }
     if (blocked) continue;
     const thick = rng.range(0.05, 0.12);
-    d.box('snow', p.x, top + thick / 2, p.z, s.x * 0.99, thick, s.z * 0.99, {
+    // On a deck the cap stops short of the coping's outer lip, so the stone
+    // edge still reads under it.
+    const sx = coped ? s.x + 0.2 : s.x * 0.99;
+    const sz = coped ? s.z + 0.2 : s.z * 0.99;
+    d.box('snow', p.x, top + thick / 2, p.z, sx, thick, sz, {
       bevel: 0.02, masks: [0.1, 0, 0],
     });
   }

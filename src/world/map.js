@@ -16,7 +16,9 @@ import { createThemeMaterials } from './surfaces.js';
 import { wrapUniforms } from '../gfx/materials/shader.js';
 import { skyPresetFor } from './skies.js';
 import { dressMap } from './dressing.js';
+import { Precipitation } from './precipitation.js';
 import { SkySystem } from '../gfx/sky/index.js';
+import { SITE } from '../gfx/sky/celestial.js';
 import { Rng } from '../gfx/kit/rng.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
@@ -27,14 +29,25 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
  * so these only ever read as a silhouette.
  */
 const BACKDROPS = {
-  desert: { count: 26, height: [6, 22], width: [10, 30], mat: 'wallN' },
-  coastal: { count: 20, height: [8, 30], width: [12, 34], mat: 'wallB' },
-  arctic: { count: 14, height: [10, 34], width: [16, 46], mat: 'wallB' },
-  neon: { count: 24, height: [10, 38], width: [10, 28], mat: 'wallB' },
-  citadel: { count: 16, height: [14, 46], width: [22, 60], mat: 'stoneDark' },
+  // A low market town: flat-roofed blocks, some with a stepped upper storey.
+  desert: { style: 'blocks', count: 26, height: [5, 16], width: [10, 30], mat: 'wallN' },
+  // Warehouses on the quay, ship-to-shore cranes on the water side, open sea.
+  coastal: { style: 'port', count: 14, height: [7, 15], width: [18, 40], mat: 'wallB' },
+  // The station sits in a bowl of snowfields and wind-scoured ridges.
+  arctic: { style: 'ridges', height: [16, 44], radius: 2.0, mat: 'ridgeSnow' },
+  // A night skyline close enough for its windows to read through the haze.
+  neon: { style: 'skyline', count: 30, height: [14, 44], width: [10, 22], mat: 'wallB' },
+  // A mountain fortress: rock ridges, not office blocks.
+  citadel: { style: 'ridges', height: [26, 72], radius: 2.15, mat: 'ridgeRock' },
 };
 
 const WALL_H = 5; // default interior wall height
+/** Metres covered by one tile of the skyline's window texture (4 x 4 storeys/bays). */
+const WINDOW_TILE = 12;
+const _Y = new THREE.Vector3(0, 1, 0);
+const _precipLight = new THREE.Color();
+const _precipKey = new THREE.Color();
+const _precipSize = new THREE.Vector2();
 
 /**
  * Form factor of the warm bounce wrap: what fraction of a shaded surface's
@@ -120,6 +133,7 @@ export default class World {
     this.botTactics = { attackRoutes: {}, defenseAreas: [] };
     this._adjacency = null;
     this._pathCache = new Map();
+    this._siteMarkers = [];
 
     this._initMaterials();
     this._buildSky();
@@ -127,6 +141,7 @@ export default class World {
     this._buildMap();
     this._buildWaypoints();
     this._dress();
+    this._seatSiteMarkers();
     this._buildBackdrop();
     // Last, so it sees the final material and shadow flags on every box —
     // `_buildDustyardMap` clears castShadow on the ground slab after box()
@@ -136,6 +151,7 @@ export default class World {
     // (dressPracticals walks it for PointLights, dressDecorSlabs for meshes)
     // and both are done by now, so hiding the sources cannot starve them.
     this._batchEnvironment();
+    this._buildPrecipitation();
 
     this.game.scene.add(this.environment);
     this.game.scene.add(this.solids);
@@ -155,6 +171,8 @@ export default class World {
 
   _disposeLoadedMap() {
     if (!this._loaded) return;
+    this.precipitation?.dispose();
+    this.precipitation = null;
     const scene = this.game.scene;
     if (this.solids) scene.remove(this.solids);
     if (this.environment) scene.remove(this.environment);
@@ -249,9 +267,11 @@ export default class World {
         groundAlbedo: preset.groundAlbedo,
       });
     } else {
-      this.sky.celestial.site = { ...this.sky.celestial.site, ...preset.site };
+      // From the defaults, not from the last map's values: Neon's moon offsets
+      // and Harbor's wind used to carry into whatever loaded after them.
+      this.sky.celestial.site = { ...SITE, ...preset.site };
       this.sky.shared.uGroundAlbedo.value.fromArray(preset.groundAlbedo);
-      this.sky.setWeather(preset.weather);
+      this.sky.resetWeather(preset.weather);
       this.sky.setTimeOfDay(preset.hour);
     }
 
@@ -309,49 +329,293 @@ export default class World {
     skirtMesh.name = 'backdrop-ground';
     this.environment.add(skirtMesh);
 
-    // ---- the silhouette ----------------------------------------------------
+    const quayX = bounds.x1 + 22;
+    if (preset.style === 'port') this._backdropSea(quayX, skirtMesh);
+
+    switch (preset.style) {
+      case 'ridges': this._backdropRidges(preset, inner, rng); break;
+      case 'skyline': this._backdropBlocks(preset, inner, rng, { windows: true, near: true }); break;
+      case 'port':
+        this._backdropBlocks(preset, inner, rng, { keep: (x) => x < quayX - 14 });
+        this._backdropCranes(quayX, rng);
+        break;
+      default: this._backdropBlocks(preset, inner, rng, {});
+    }
+  }
+
+  /**
+   * Blocks around the arena: a town, a skyline or a row of sheds. `windows`
+   * gives each face a lit-window grid (UVs in metres, so every storey is the
+   * same size whatever the block), which is what turns a fogged slab at night
+   * into a city. `near` pulls the ring in so the windows survive the haze.
+   */
+  _backdropBlocks(preset, inner, rng, { windows = false, near = false, keep = null } = {}) {
     const parts = [];
     const box = new THREE.BoxGeometry(1, 1, 1);
     const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const rMin = near ? 1.4 : 1.35;
+    const rMax = near ? 2.2 : 2.6;
+    const add = (pos, rotY, w, h, dpt) => {
+      const g = box.clone();
+      if (windows) {
+        // BoxGeometry face order: +x, -x, +y, -y, +z, -z, four vertices each.
+        const uv = g.getAttribute('uv');
+        const faceSize = [[dpt, h], [dpt, h], [0, 0], [0, 0], [w, h], [w, h]];
+        for (let f = 0; f < 6; f++) {
+          const [fu, fv] = faceSize[f];
+          for (let k = 0; k < 4; k++) {
+            const i = f * 4 + k;
+            uv.setXY(i, (uv.getX(i) * fu) / WINDOW_TILE, (uv.getY(i) * fv) / WINDOW_TILE);
+          }
+        }
+      }
+      m.compose(pos, q.setFromAxisAngle(_Y, rotY), _v3.set(w, h, dpt));
+      g.applyMatrix4(m);
+      parts.push(g);
+    };
     for (let i = 0; i < preset.count; i++) {
       const a = (i / preset.count) * Math.PI * 2 + rng.range(-0.05, 0.05);
-      const r = inner * rng.range(1.35, 2.6);
+      const r = inner * rng.range(rMin, rMax);
       const h = rng.range(preset.height[0], preset.height[1]);
       const w = rng.range(preset.width[0], preset.width[1]);
       const dpt = rng.range(preset.width[0], preset.width[1]);
+      // Turned to face the arena (plus a little), so a ring of blocks reads as
+      // streets around it rather than dice thrown on a plain.
+      const rotY = a + rng.range(-0.25, 0.25);
+      if (keep && !keep(Math.sin(a) * r, Math.cos(a) * r)) continue;
       // Sunk half a metre so no gap shows between block and ground at distance.
-      m.compose(
-        new THREE.Vector3(Math.sin(a) * r, h / 2 - 0.5, Math.cos(a) * r),
-        new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rng.range(0, Math.PI)),
-        new THREE.Vector3(w, h, dpt)
-      );
-      const g = box.clone();
-      g.applyMatrix4(m);
-      parts.push(g);
+      add(new THREE.Vector3(Math.sin(a) * r, h / 2 - 0.5, Math.cos(a) * r), rotY, w, h, dpt);
       // A stepped-back upper mass on some of them, so the skyline is not a
       // row of identical slabs.
       if (rng.bool(0.45)) {
         const h2 = h * rng.range(0.25, 0.6);
-        m.compose(
-          new THREE.Vector3(Math.sin(a) * r, h + h2 / 2 - 0.5, Math.cos(a) * r),
-          new THREE.Quaternion(),
-          new THREE.Vector3(w * rng.range(0.4, 0.7), h2, dpt * rng.range(0.4, 0.7))
-        );
-        const g2 = box.clone();
-        g2.applyMatrix4(m);
-        parts.push(g2);
+        add(new THREE.Vector3(Math.sin(a) * r, h + h2 / 2 - 0.5, Math.cos(a) * r), rotY,
+          w * rng.range(0.4, 0.7), h2, dpt * rng.range(0.4, 0.7));
       }
     }
     box.dispose();
     const merged = mergeGeometries(parts, false);
     for (const g of parts) g.dispose();
-    if (merged) {
-      const mesh = new THREE.Mesh(merged, this.mats[preset.mat] || this.mats.wallB);
-      mesh.castShadow = false;
-      mesh.receiveShadow = false;
-      mesh.name = 'backdrop-silhouette';
-      this.environment.add(mesh);
+    if (!merged) return;
+    const material = windows ? this._windowMaterial(rng) : (this.mats[preset.mat] || this.mats.wallB);
+    const mesh = new THREE.Mesh(merged, material);
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.name = 'backdrop-silhouette';
+    this.environment.add(mesh);
+  }
+
+  /** Dark facade with a random grid of lit windows, for the night skyline. */
+  _windowMaterial(rng) {
+    const size = 256;
+    const cells = 4; // WINDOW_TILE metres = 4 storeys x 4 bays
+    const canvas = typeof document !== 'undefined' ? document.createElement('canvas') : null;
+    let emissiveMap = null;
+    if (canvas) {
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, size, size);
+      const cell = size / cells;
+      const warm = ['#ffcf8a', '#ffd9a8', '#ffe2b8', '#ffc070'];
+      const cool = ['#bfe3ff', '#d6ecff', '#9fd0ff'];
+      for (let y = 0; y < cells; y++) {
+        for (let x = 0; x < cells; x++) {
+          if (!rng.bool(0.38)) continue;
+          const pal = rng.bool(0.7) ? warm : cool;
+          ctx.fillStyle = pal[Math.floor(rng.range(0, pal.length - 0.001))];
+          ctx.globalAlpha = rng.range(0.55, 1);
+          ctx.fillRect(x * cell + cell * 0.22, y * cell + cell * 0.2, cell * 0.56, cell * 0.5);
+        }
+      }
+      ctx.globalAlpha = 1;
+      emissiveMap = new THREE.CanvasTexture(canvas);
+      emissiveMap.colorSpace = THREE.SRGBColorSpace;
+      emissiveMap.wrapS = emissiveMap.wrapT = THREE.RepeatWrapping;
+      emissiveMap.anisotropy = 4;
     }
+    return new THREE.MeshStandardMaterial({
+      color: 0x1a1f27,
+      roughness: 0.85,
+      metalness: 0.1,
+      emissive: emissiveMap ? 0xffffff : 0x000000,
+      emissiveMap,
+      emissiveIntensity: 0.85,
+    });
+  }
+
+  /**
+   * A ring of mountain ridges: crest, shoulder and foot rows around the arena,
+   * the crest from a few integer-frequency sines so it closes on itself with
+   * no seam. Built as one strip facing inward and drawn in a triplanar surface
+   * (snow, or rock), so it needs no UVs and takes the sun like everything else.
+   */
+  _backdropRidges(preset, inner, rng) {
+    const N = 200;
+    const R = inner * preset.radius;
+    const freqs = [3, 5, 9, 17, 31, 57];
+    const phases = freqs.map(() => rng.range(0, Math.PI * 2));
+    const height = (a) => {
+      let h = 0;
+      let n = 0;
+      let amp = 1;
+      for (let k = 0; k < freqs.length; k++) {
+        h += amp * (0.5 + 0.5 * Math.sin(a * freqs[k] + phases[k]));
+        n += amp;
+        amp *= k < 2 ? 0.75 : 0.5;
+      }
+      const t = Math.pow(h / n, 1.5);
+      return preset.height[0] + (preset.height[1] - preset.height[0]) * t;
+    };
+    const rows = [
+      (h) => [R, h],                 // crest
+      (h) => [R + h * 0.7, h * 0.55],   // shoulder
+      (h) => [R + h * 1.9, -2],         // foot, below the skirt
+    ];
+    const pos = [];
+    const crestJitter = [];
+    for (let i = 0; i < N; i++) crestJitter.push(rng.range(-3, 3));
+    for (let i = 0; i <= N; i++) {
+      const a = (i / N) * Math.PI * 2;
+      const h = height(a);
+      const jitter = crestJitter[i % N];
+      for (const row of rows) {
+        const [r, y] = row(h);
+        const rr = r + jitter;
+        pos.push(Math.sin(a) * rr, y, Math.cos(a) * rr);
+      }
+    }
+    const idx = [];
+    const R3 = rows.length;
+    for (let i = 0; i < N; i++) {
+      for (let k = 0; k < R3 - 1; k++) {
+        const a0 = i * R3 + k;
+        const a1 = (i + 1) * R3 + k;
+        // Wound so the faces look in toward the arena.
+        idx.push(a0, a0 + 1, a1, a1, a0 + 1, a1 + 1);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    // Guarantee the winding: the crest's normal must point back at the arena.
+    const nrm = geo.getAttribute('normal');
+    const p0 = new THREE.Vector3().fromBufferAttribute(geo.getAttribute('position'), 0);
+    if (nrm.getX(0) * -p0.x + nrm.getZ(0) * -p0.z < 0) {
+      for (let t = 0; t < idx.length; t += 3) [idx[t + 1], idx[t + 2]] = [idx[t + 2], idx[t + 1]];
+      geo.setIndex(idx);
+      geo.computeVertexNormals();
+    }
+    const mesh = new THREE.Mesh(geo, this.mats[preset.mat] || this.mats.stoneDark);
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.name = 'backdrop-ridges';
+    this.environment.add(mesh);
+  }
+
+  /**
+   * Harbor's water. East of `quayX` the land stops at a quay edge and open sea
+   * runs to the horizon: the ground skirt is cut along that line and a glossy
+   * plane 1.6 m down takes over, lit by the sky's own IBL so it reflects
+   * whatever weather the map has. (No sea-wall face is needed: the drop faces
+   * the sea, away from every camera that can see it.)
+   */
+  _backdropSea(quayX, skirtMesh) {
+    // RingGeometry only has vertices on its two circles, and the region is
+    // star-shaped about the origin, so clamping x is an exact straight cut.
+    const pos = skirtMesh.geometry.getAttribute('position');
+    for (let i = 0; i < pos.count; i++) if (pos.getX(i) > quayX) pos.setX(i, quayX);
+    pos.needsUpdate = true;
+    skirtMesh.geometry.computeBoundingSphere();
+
+    const seaGeo = new THREE.PlaneGeometry(900, 1800, 1, 1);
+    seaGeo.rotateX(-Math.PI / 2);
+    seaGeo.translate(quayX - 1 + 450, -1.6, 0);
+    const sea = new THREE.Mesh(seaGeo, new THREE.MeshStandardMaterial({
+      color: 0x1c3a44,
+      roughness: 0.12,
+      metalness: 0.0,
+      envMapIntensity: 1.25,
+    }));
+    sea.castShadow = false;
+    sea.receiveShadow = false;
+    sea.name = 'backdrop-sea';
+    this.environment.add(sea);
+  }
+
+  /** Ship-to-shore cranes along the quay: the one silhouette that says port. */
+  _backdropCranes(quayX, rng) {
+    const parts = [];
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const box = new THREE.BoxGeometry(1, 1, 1);
+    const add = (x, y, z, w, h, d, rotY, ox, oz) => {
+      const g = box.clone();
+      // Positions are given in the crane's own frame, then turned to face out.
+      const c = Math.cos(rotY);
+      const s2 = Math.sin(rotY);
+      m.compose(_v3.set(ox + x * c + z * s2, y, oz - x * s2 + z * c), q.setFromAxisAngle(_Y, rotY), _v2.set(w, h, d));
+      g.applyMatrix4(m);
+      parts.push(g);
+    };
+    const sideX = quayX - 8; // legs on the quay, boom out over the water
+    const count = 4;
+    for (let i = 0; i < count; i++) {
+      const oz = (i - (count - 1) / 2) * 26 + rng.range(-3, 3);
+      const ox = sideX + rng.range(-2, 2);
+      const rot = 0; // boom points +x, out over the water
+      const legH = rng.range(30, 36);
+      for (const [lx, lz] of [[-7, -6], [-7, 6], [7, -6], [7, 6]]) add(lx, legH / 2, lz, 1.3, legH, 1.3, rot, ox, oz);
+      add(0, legH * 0.45, -6, 15, 1.2, 1.2, rot, ox, oz);
+      add(0, legH * 0.45, 6, 15, 1.2, 1.2, rot, ox, oz);
+      add(0, legH + 1, 0, 16, 2.2, 14, rot, ox, oz);
+      // boom: out over the water, a shorter back-reach over the quay
+      add(22, legH + 4, 0, 62, 2.4, 3.2, rot, ox, oz);
+      add(-4, legH + 6.5, 0, 8, 5, 7, rot, ox, oz);
+      // A-frame apex and stays
+      add(-2, legH + 11, 0, 1.2, 14, 1.2, rot, ox, oz);
+    }
+    box.dispose();
+    const merged = mergeGeometries(parts, false);
+    for (const g of parts) g.dispose();
+    if (!merged) return;
+    const mesh = new THREE.Mesh(merged, this.mats.accentA || this.mats.metal);
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.name = 'backdrop-cranes';
+    this.environment.add(mesh);
+  }
+
+  /** Snow or rain for themes that have it (see precipitation.js). */
+  _buildPrecipitation() {
+    if (!this.game.renderer || !this.game.camera) return;
+    const b = this.mapDefinition
+      ? this.mapDefinition.bounds
+      : { x0: -52, x1: 52, z0: -42, z1: 42 };
+    const precip = new Precipitation({
+      themeKey: this.theme.key,
+      colliders: this.colliders,
+      rect: { x0: b.x0 - 4, x1: b.x1 + 4, z0: b.z0 - 4, z1: b.z1 + 4 },
+      quality: this.game.gfxQuality || 'high',
+      windAngle: this.sky?.weather?.windAngle ?? 0.7,
+    });
+    if (!precip.object) return;
+    this.precipitation = precip;
+    this.environment.add(precip.object);
+  }
+
+  _updatePrecipitation(dt) {
+    // A flake is a near-white diffuser in the open: the sky's fill plus a
+    // share of the key, in the same linear units as every other surface.
+    const sky = this.sky;
+    const key = sky.keyLight;
+    const light = _precipLight.copy(sky.ambientColor);
+    if (key) light.add(_precipKey.copy(key.color).multiplyScalar(key.intensity / Math.PI * 0.6));
+    const renderer = this.game.renderer;
+    const height = renderer.getDrawingBufferSize ? renderer.getDrawingBufferSize(_precipSize).y : 720;
+    this.precipitation.update(dt, this.game.camera, light, height);
   }
 
   _buildLights() {
@@ -413,6 +677,7 @@ export default class World {
   update(dt) {
     if (!this.sky) return;
     this.sky.update(dt);
+    if (this.precipitation) this._updatePrecipitation(dt);
 
     // Retint the bounce fill from the light the sky is actually making. The
     // upper half is the sky's own colour; the lower half is that colour
@@ -822,7 +1087,11 @@ export default class World {
     const mesh = new THREE.Mesh(this._unitBox, material);
     mesh.position.set(x, y, z);
     mesh.scale.set(w, h, d);
-    mesh.castShadow = true;
+    // Same rule as box(): a broad, thin plate (paving, deck plating) laid on a
+    // floor is receive-only, or it reintroduces the coplanar-caster acne box()
+    // was written to avoid. Transparent decor (glass, water) never casts.
+    const flat = h <= 0.5 && w >= 4 && d >= 4;
+    mesh.castShadow = !flat && !(material && material.transparent);
     mesh.receiveShadow = true;
     this.environment.add(mesh);
     return mesh;
@@ -831,13 +1100,18 @@ export default class World {
   // Archway: lintel over an opening in a wall running along `axis` ('x'|'z').
   // (cx,cz) center of opening, `width` opening span, wall thickness `t`.
   arch(cx, cz, width, axis, t, yBot, yTop, material) {
+    // The lintel runs 0.45 m into the wall either side, so at the wall's own
+    // thickness both of its faces were coplanar with the wall's and flickered
+    // (a third of a stop apart, wallNs on wallN). Two centimetres proud reads as
+    // a lintel and gives the depth buffer something to resolve.
+    const tl = t + 0.04;
     if (axis === 'x') {
-      this.slab(cx - width / 2 - 0.45, cx + width / 2 + 0.45, yBot, yTop, cz - t / 2, cz + t / 2, material);
+      this.slab(cx - width / 2 - 0.45, cx + width / 2 + 0.45, yBot, yTop, cz - tl / 2, cz + tl / 2, material);
       // slightly proud pillars
       this.slab(cx - width / 2 - 0.45, cx - width / 2, 0, yBot, cz - t / 2 - 0.12, cz + t / 2 + 0.12, material);
       this.slab(cx + width / 2, cx + width / 2 + 0.45, 0, yBot, cz - t / 2 - 0.12, cz + t / 2 + 0.12, material);
     } else {
-      this.slab(cx - t / 2, cx + t / 2, yBot, yTop, cz - width / 2 - 0.45, cz + width / 2 + 0.45, material);
+      this.slab(cx - tl / 2, cx + tl / 2, yBot, yTop, cz - width / 2 - 0.45, cz + width / 2 + 0.45, material);
       this.slab(cx - t / 2 - 0.12, cx + t / 2 + 0.12, 0, yBot, cz - width / 2 - 0.45, cz - width / 2, material);
       this.slab(cx - t / 2 - 0.12, cx + t / 2 + 0.12, 0, yBot, cz + width / 2, cz + width / 2 + 0.45, material);
     }
@@ -1018,8 +1292,42 @@ export default class World {
     mesh.renderOrder = 1;
     mesh.receiveShadow = true;
     mesh.castShadow = false;
+    mesh.name = 'site-marker:' + letter;
     this.environment.add(mesh);
+    this._siteMarkers?.push(mesh);
     return mesh;
+  }
+
+  /**
+   * Put each bomb-site decal on whatever is ACTUALLY on top at its centre.
+   *
+   * A definition places the marker 2 cm above the site's nominal floor, but
+   * four of the five maps lay something over that floor afterwards — Citadel's
+   * paving, the Harbor and Neon deck plates, Frostline's snow caps — and a
+   * polygon offset cannot see through centimetres of slab, so the decal was
+   * hidden everywhere but Dustyard. One short ray down from just above the
+   * nominal floor finds the real top; the reach is kept small so a roof or a
+   * catwalk over the site is never mistaken for it.
+   */
+  _seatSiteMarkers() {
+    if (!this._siteMarkers || !this._siteMarkers.length) return;
+    const targets = [this.solids, ...this.environment.children.filter(
+      (o) => !this._siteMarkers.includes(o) && o.visible !== false
+    )];
+    this.solids.updateMatrixWorld(true);
+    this.environment.updateMatrixWorld(true);
+    const rc = this._raycaster;
+    for (const marker of this._siteMarkers) {
+      const nominal = marker.position.y - 0.02;
+      rc.set(_v1.set(marker.position.x, nominal + 0.7, marker.position.z), _v2.set(0, -1, 0));
+      rc.near = 0;
+      rc.far = 1.0;
+      this._rayHits.length = 0;
+      rc.intersectObjects(targets, true, this._rayHits);
+      const hit = this._rayHits.find((h) => h.object.material && !h.object.material.transparent);
+      if (hit) marker.position.y = hit.point.y + 0.02;
+    }
+    rc.far = Infinity;
   }
 
   // =========================================================================
