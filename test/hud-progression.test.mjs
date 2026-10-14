@@ -379,6 +379,45 @@ test('unranked guest event renders a terminal no-credit state instead of pending
   }
 });
 
+test('a permanently rejected result settles the rewards panel instead of syncing forever', () => {
+  const handlers = new Map();
+  const previousWindow = globalThis.window;
+  globalThis.window = { addEventListener() {} };
+  try {
+    const hud = hudFor(progression());
+    hud._endUnranked = false;
+    hud._localProgress = null;
+    hud.game.events = { on(name, handler) { handlers.set(name, handler); } };
+    hud._el = {
+      endRewards: fakeElement(),
+      endRewardPoints: fakeElement(),
+      endRewardRank: fakeElement(),
+      endRewardLevel: fakeElement(),
+      endXpFill: fakeElement(),
+      endXpLabel: fakeElement(),
+      endUnlocks: fakeElement(),
+      endRank: fakeElement(),
+    };
+    hud._el.endRewards.classes.add('pending');
+    hud._el.endRewardPoints.textContent = 'SYNCING';
+    hud._el.endXpLabel.textContent = 'VERIFYING MATCH REWARDS…';
+
+    hud._bindEvents();
+    handlers.get('leaderboard:submit-error')({ permanent: false, error: 'offline' });
+    assert.equal(hud._endUnranked, false, 'a queued retry stays pending');
+
+    handlers.get('leaderboard:submit-error')({ permanent: true, error: 'The elimination rate is not plausible.' });
+    assert.equal(hud._endUnranked, true);
+    assert.equal(hud._el.endRewards.classes.has('pending'), false);
+    assert.match(hud._el.endRank.textContent, /COULD NOT BE RANKED · THE ELIMINATION RATE/);
+    assert.equal(hud._el.endRewardRank.textContent, 'UNRANKED');
+    assert.doesNotMatch(hud._el.endRewardPoints.textContent + hud._el.endXpLabel.textContent, /VERIFYING|SYNCING/);
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
+});
+
 test('end primary action returns online players to rooms and only restarts solo matches locally', () => {
   let leaves = 0;
   const emitted = [];

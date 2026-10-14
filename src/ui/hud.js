@@ -1440,8 +1440,9 @@ export default class HUD {
       this._renderClasses();
       // Rank-ups and unlocks join the end screen whichever way it renders.
       const endRewards = this._el.endRewards;
-      if (this.game.state?.phase === 'gameEnd' && endRewards && !endRewards.classList.contains('unranked')) {
-        this._renderEndRewards();
+      if (this.game.state?.phase === 'gameEnd' && endRewards) {
+        if (this._endUnranked) this._renderUnrankedEndState({ reason: this._unrankedReason });
+        else if (!endRewards.classList.contains('unranked')) this._renderEndRewards();
       }
     });
     this.game.events.on('ui:start', () => { this._localProgress = null; });
@@ -1808,6 +1809,13 @@ export default class HUD {
       this._setEndRank(d?.permanent
         ? 'MATCH COULD NOT BE RANKED · ' + String(d.error || 'RESULT REJECTED').toUpperCase()
         : 'SCORE SAVED — IT WILL SYNC WHEN THE LEADERBOARD IS ONLINE', d?.permanent ? 'error' : 'queued');
+      // A rejected result never syncs: settle the rewards panel (device XP
+      // only) instead of leaving it on SYNCING / VERIFYING for good.
+      if (d?.permanent) {
+        this._endUnranked = true;
+        this._unrankedReason = 'rejected';
+        this._renderUnrankedEndState({ reason: 'rejected' });
+      }
     });
     ev.on('leaderboard:identity-lost', () => {
       if (this._el.careerSync) this._el.careerSync.textContent = 'PROGRESS KEY NEEDS RECOVERY — OPEN PROFILE';
@@ -3577,14 +3585,18 @@ export default class HUD {
 
   _renderUnrankedEndState(d = {}) {
     const modeOnly = d.reason === 'mode';
-    this._setEndRank(modeOnly
-      ? 'THIS MATCH EARNS RANK XP ON THIS DEVICE ONLY'
-      : 'UNRANKED GUEST · NO LEADERBOARD CREDIT', 'unranked');
+    // A server-rejected result keeps its rejection line in the rank slot.
+    const rejected = d.reason === 'rejected';
+    if (!rejected) {
+      this._setEndRank(modeOnly
+        ? 'THIS MATCH EARNS RANK XP ON THIS DEVICE ONLY'
+        : 'UNRANKED GUEST · NO LEADERBOARD CREDIT', 'unranked');
+    }
     if (this._el.endRewards) {
       this._el.endRewards.classList.remove('pending');
       this._el.endRewards.classList.add('unranked');
     }
-    const local = modeOnly ? this._localProgress : null;
+    const local = modeOnly || rejected ? this._localProgress : null;
     if (local) {
       // Respawn modes still pay device-local rank XP.
       const names = (ids) => ids.map((id) => String(this._names[id] || PERKS[id]?.label || STREAKS[id]?.label || id).toUpperCase());
@@ -3610,14 +3622,16 @@ export default class HUD {
       return;
     }
     if (this._el.endRewardPoints) this._el.endRewardPoints.textContent = 'NO CREDIT';
-    if (this._el.endRewardRank) this._el.endRewardRank.textContent = modeOnly ? 'TDM' : 'GUEST';
+    if (this._el.endRewardRank) this._el.endRewardRank.textContent = modeOnly ? 'TDM' : rejected ? 'UNRANKED' : 'GUEST';
     if (this._el.endRewardLevel) this._el.endRewardLevel.textContent = 'CAREER UNCHANGED';
     if (this._el.endXpFill) this._el.endXpFill.style.width = '0%';
     if (this._el.endXpLabel) this._el.endXpLabel.textContent = 'THIS MATCH DOES NOT CHANGE YOUR SAVED CAREER';
     if (this._el.endUnlocks) {
       this._el.endUnlocks.innerHTML = modeOnly
         ? '<span class="steady">RANK XP IS SAVED ON THIS DEVICE</span>'
-        : '<span class="steady">REJOIN WITH YOUR RANKED IDENTITY TO EARN PROGRESS</span>';
+        : rejected
+          ? '<span class="steady">NO LEADERBOARD CREDIT FOR THIS MATCH</span>'
+          : '<span class="steady">REJOIN WITH YOUR RANKED IDENTITY TO EARN PROGRESS</span>';
     }
   }
 
