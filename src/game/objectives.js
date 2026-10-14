@@ -26,7 +26,9 @@ import * as THREE from 'three';
 export const KC = Object.freeze({
   TAG_LIFETIME: 30,   // s before an uncollected tag vanishes
   PICKUP_RADIUS: 1.5, // m (horizontal)
-  BOT_SEEK_RANGE: 45, // m: bots detour for tags this close
+  BOT_SEEK_RANGE: 45, // m: bots detour for enemy tags (confirms) this close
+  BOT_DENY_RANGE: 20, // m: ...and for their own side's tags (denies) this close
+  BOT_DENY_BIAS: 1.6, // a deny must be this much nearer than a confirm to win
   CONFIRM_POINTS: 100,
   DENY_POINTS: 50,
 });
@@ -38,6 +40,10 @@ export const DOM = Object.freeze({
   CAPTURE_POINTS: 200,
   DEFEND_POINTS: 50,
 });
+
+// m of height an actor may be off a flag or hardpoint and still count: enough
+// for a ramp inside the radius, not enough to reach a bridge from below it.
+const OBJECTIVE_STOREY = 2.4;
 
 const TEAM_COLOR = Object.freeze({ ct: 0x5f9fe0, t: 0xe0603c, neutral: 0xd8dccd });
 const SIDE_COLOR = Object.freeze({ ours: 0x5f9fe0, theirs: 0xe0603c, neutral: 0xd8dccd });
@@ -199,15 +205,27 @@ export class KillConfirmed {
     });
   }
 
-  /** Nearest tag worth a detour (either kind: confirm or deny). */
+  /**
+   * Nearest tag worth a detour. Confirms come first: a tag drops beside the
+   * victim's teammates while the killer is usually a lane away, so bots that
+   * weighed both kinds alike denied four tags in five and the score crawled.
+   */
   botGoal(bot) {
     let best = null;
-    let bestD = KC.BOT_SEEK_RANGE;
+    let bestScore = Infinity;
     for (const tag of this.tags) {
       const d = horizontalDistance(tag.pos, bot.pos);
-      if (d < bestD) { bestD = d; best = tag.pos; }
+      const own = !!bot.team && tag.team === bot.team;
+      if (d > (own ? KC.BOT_DENY_RANGE : KC.BOT_SEEK_RANGE)) continue;
+      const score = own ? d * KC.BOT_DENY_BIAS : d;
+      if (score < bestScore) { bestScore = score; best = tag.pos; }
     }
     return best;
+  }
+
+  /** A bot that scores a kill goes for the tag it just made. */
+  pullsKiller() {
+    return true;
   }
 
   radarMarkers() {
@@ -284,10 +302,73 @@ function nearestNode(nodes, target) {
 /**
  * Flag positions. The source maps are bomb-defusal layouts whose sites both
  * sit near the defenders' spawn, so flags are laid out symmetrically instead:
- * A partway from the U.S. spawn toward mid, B on the mid defence anchor, C the
- * same distance out from the Russian spawn, each snapped to a nav node.
- * Falls back to the bomb sites when the map lacks that data.
+ * B halfway between the two spawns, A partway from the U.S. spawn toward it,
+ * C the same distance out from the Russian spawn, each snapped to a nav node.
+ * (The S&D "mid" defence anchor is not used for B when spawns are known: it
+ * sits on the defenders' side, which put A and B 5-10 m apart.) Falls back
+ * to the bomb sites when the map lacks that data.
  */
+function pathLength(world, from, to) {
+  const path = world.findPath(from, to);
+  if (!Array.isArray(path) || !path.length) return Infinity;
+  let length = from.distanceTo(path[0]);
+  for (let i = 1; i < path.length; i++) length += path[i].distanceTo(path[i - 1]);
+  return length;
+}
+
+/**
+ * Flags balanced by walking distance on the nav graph: B is the node both
+ * spawns reach equally soon along the main route, A and C sit the same walk
+ * out from their own spawns. Straight-line midpoints favour whichever side
+ * has the more direct lane (on Dustyard the Russians walked 45 m to B against
+ * 29 m for the U.S.).
+ */
+function balancedFlags(world, nodes, ct, t) {
+  const groundY = (ct.y + t.y) / 2;
+  const rows = [];
+  const byNode = new Map();
+  for (const node of nodes) {
+    if (!node || !node.pos) continue;
+    const dc = pathLength(world, ct, node.pos);
+    const dt = pathLength(world, t, node.pos);
+    if (!Number.isFinite(dc) || !Number.isFinite(dt)) continue;
+    const row = { pos: node.pos, dc, dt, lift: Math.abs(node.pos.y - groundY) };
+    rows.push(row);
+    byNode.set(node, row);
+  }
+  if (rows.length < 3) return null;
+  // Edge midpoints too (an edge is a walkable straight run): a symmetric map
+  // can have its centre between two nodes, as Neon Foundry's mid bridge does.
+  const edges = world.waypoints && Array.isArray(world.waypoints.edges) ? world.waypoints.edges : [];
+  for (const edge of edges) {
+    const ra = byNode.get(nodes[edge[0]]);
+    const rb = byNode.get(nodes[edge[1]]);
+    if (!ra || !rb) continue;
+    const pos = ra.pos.clone().add(rb.pos).multiplyScalar(0.5);
+    const half = ra.pos.distanceTo(rb.pos) / 2;
+    rows.push({
+      pos,
+      dc: Math.min(ra.dc, rb.dc) + half,
+      dt: Math.min(ra.dt, rb.dt) + half,
+      lift: Math.abs(pos.y - groundY),
+    });
+  }
+  const route = Math.min(...rows.map((r) => r.dc + r.dt));
+  // Off the main route and up on a ledge both cost: a flag belongs on the floor of a lane.
+  const pick = (cost) => rows.reduce((best, r) => (cost(r) < cost(best) ? r : best));
+  const b = pick((r) => Math.abs(r.dc - r.dt) + 0.35 * (r.dc + r.dt - route) + 2 * r.lift);
+  const reach = HOME_FLAG_T * (b.dc + b.dt) / 2;
+  const apart = (r) => (r.pos.distanceTo(b.pos) < 2 * DOM.RADIUS + 3 ? 1000 : 0);
+  const a = pick((r) => Math.abs(r.dc - reach) + 0.35 * (r.dc + r.dt - route) + 2 * r.lift + apart(r));
+  const c = pick((r) => Math.abs(r.dt - reach) + 0.35 * (r.dc + r.dt - route) + 2 * r.lift + apart(r));
+  if (a === c) return null;
+  return [
+    { name: 'A', pos: a.pos.clone() },
+    { name: 'B', pos: b.pos.clone() },
+    { name: 'C', pos: c.pos.clone() },
+  ];
+}
+
 export function dominationPoints(world) {
   const sites = world && Array.isArray(world.bombSites) ? world.bombSites : [];
   const areas = world && world.botTactics && Array.isArray(world.botTactics.defenseAreas)
@@ -302,7 +383,12 @@ export function dominationPoints(world) {
   const ct = centroid(world && world.spawns && world.spawns.ct);
   const t = centroid(world && world.spawns && world.spawns.t);
   const nodes = world && world.waypoints && Array.isArray(world.waypoints.nodes) ? world.waypoints.nodes : [];
-  if (mid && ct && t && nodes.length) {
+  if (ct && t && nodes.length && world && typeof world.findPath === 'function') {
+    const balanced = balancedFlags(world, nodes, ct, t);
+    if (balanced) return balanced;
+  }
+  if (ct && t && nodes.length) {
+    mid = nearestNode(nodes, ct.clone().add(t).multiplyScalar(0.5));
     return [
       { name: 'A', pos: nearestNode(nodes, ct.clone().lerp(mid, HOME_FLAG_T)) },
       { name: 'B', pos: nearestNode(nodes, mid) },
@@ -344,7 +430,7 @@ export class Domination {
       let t = 0;
       const inside = [];
       for (const a of actors) {
-        if (horizontalDistance(a.pos, flag.pos) > DOM.RADIUS || Math.abs(a.pos.y - flag.pos.y) > 3) continue;
+        if (horizontalDistance(a.pos, flag.pos) > DOM.RADIUS || Math.abs(a.pos.y - flag.pos.y) > OBJECTIVE_STOREY) continue;
         if (a.team === 't') t++; else ct++;
         inside.push(a);
       }
@@ -574,7 +660,7 @@ export class Hardpoint {
     let t = 0;
     const inside = [];
     for (const a of livingActors(this.game)) {
-      if (horizontalDistance(a.pos, zone) > HP.RADIUS || Math.abs(a.pos.y - zone.y) > 3) continue;
+      if (horizontalDistance(a.pos, zone) > HP.RADIUS || Math.abs(a.pos.y - zone.y) > OBJECTIVE_STOREY) continue;
       if (a.team === 't') t++; else ct++;
       inside.push(a);
     }

@@ -276,3 +276,26 @@ test('runtime switching replaces scene groups without leaking old map roots', ()
   assert.equal(world.loadMap('not-a-map'), true, 'unknown IDs normalize to default');
   assert.equal(world.mapId, 'dustyard');
 });
+
+test('Domination flags and hardpoints are spread out and centred between the spawns on every map', async () => {
+  const { dominationPoints, hardpointZones, DOM } = await import('../src/game/objectives.js');
+  const centroid = (list) => list.reduce((c, s) => c.add(s.pos), new THREE.Vector3()).multiplyScalar(1 / list.length);
+  for (const { id } of MAP_CATALOG) {
+    const world = new World(gameFor(id));
+    const flags = dominationPoints(world).map((f) => f.pos);
+    assert.equal(flags.length, 3, `${id}: three flags`);
+    for (let i = 0; i < 3; i++) {
+      for (let j = i + 1; j < 3; j++) {
+        assert.ok(flags[i].distanceTo(flags[j]) > 2 * DOM.RADIUS + 5, `${id}: flags ${i} and ${j} are ${flags[i].distanceTo(flags[j]).toFixed(1)} m apart`);
+      }
+    }
+    const ct = centroid(world.spawns.ct);
+    const t = centroid(world.spawns.t);
+    const mid = ct.clone().add(t).multiplyScalar(0.5);
+    const off = Math.hypot(flags[1].x - mid.x, flags[1].z - mid.z);
+    assert.ok(off < 0.2 * ct.distanceTo(t), `${id}: B is ${off.toFixed(1)} m off the centre`);
+    assert.ok(flags[0].distanceTo(ct) < flags[0].distanceTo(t), `${id}: A is on the U.S. side`);
+    assert.ok(flags[2].distanceTo(t) < flags[2].distanceTo(ct), `${id}: C is on the Russian side`);
+    assert.ok(hardpointZones(world).length >= 4, `${id}: hardpoint rotation`);
+  }
+});

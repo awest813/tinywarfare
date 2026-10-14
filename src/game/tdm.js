@@ -392,7 +392,10 @@ export default class TeamDeathmatch {
     if (!bot) return;
     this._score(bot.team);
     this._ffaCredit(p.killer, bot);
-    if (this.objective) this.objective.onDeath(bot.team, bot.pos);
+    if (this.objective) {
+      this.objective.onDeath(bot.team, bot.pos);
+      this._retaskKiller(p.killer);
+    }
     this._botRespawns.set(bot, this._time + TDM.RESPAWN_DELAY);
   }
 
@@ -405,7 +408,10 @@ export default class TeamDeathmatch {
     const player = this.game.player;
     this._score(player ? player.team : 'ct');
     this._ffaCredit(p && p.killer, player);
-    if (this.objective && player) this.objective.onDeath(player.team, player.position);
+    if (this.objective && player) {
+      this.objective.onDeath(player.team, player.position);
+      this._retaskKiller(p && p.killer);
+    }
     this._playerRespawnAt = this._time + TDM.RESPAWN_DELAY;
   }
 
@@ -413,6 +419,14 @@ export default class TeamDeathmatch {
    * Free-for-all: each kill scores for its killer. state.scores mirrors the
    * HUD: `ct` is the local player's kills, `t` the best of everyone else.
    */
+  /** Kill Confirmed: the killing bot drops its errand to pick a fresh goal (its tag). */
+  _retaskKiller(killer) {
+    const pulls = this.objective && typeof this.objective.pullsKiller === 'function' && this.objective.pullsKiller();
+    const bots = this.game.bots;
+    if (!pulls || !killer || typeof killer !== 'object' || !bots || typeof bots.retask !== 'function') return;
+    bots.retask(killer);
+  }
+
   _ffaCredit(killer, victim) {
     if (this.game.state.mode !== 'ffa' || !killer || killer === victim) return;
     const player = this.game.player;

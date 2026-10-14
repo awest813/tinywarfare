@@ -312,18 +312,26 @@ Shipped solo and online (`src/game/objectives.js`, driven by the respawn engine 
 - Each death drops a spinning tag in team colour that lasts 30 s.
 - Enemies confirm it for +1 team score and 100 personal points. Teammates deny
   it for 50 points.
-- Bots detour for tags within 45 m.
+- Bots detour for enemy tags within 45 m and their own within 20 m, and walk
+  onto the tag itself (pickup is 1.5 m). A deny must be 1.6x nearer than a
+  confirm to win, and a bot that scores a kill goes for the tag it made. Before
+  this, bots stopped at a waypoint up to 3 m short and weighed both kinds alike,
+  so most tags expired or were denied: a ten-minute playthrough on Frostline
+  ended 14-27 with neither side near 30.
 - Tags show as diamonds on the radar.
 
 **Domination** (first to 150):
 - Flags are symmetric because these bomb maps put both sites near the U.S.
-  spawn. A is 45% of the way from the U.S. spawn to mid, B is the mid defence
-  anchor, and C is 45% of the way from the Russian spawn to mid, each snapped
-  to a nav node. The first layout, which used the bomb sites, ran 58-7 on
-  Harbor in simulation. The symmetric layout ran 55-44 over the same
-  three minutes, with each side holding its home flag and mid changing
-  hands. Each flag has a pole, a cloth, and a ground ring in
-  the owner's colour.
+  spawn. B is the nav point (node or edge midpoint) both spawns reach equally
+  soon along the main route; A and C sit the same walk out from their own
+  spawns (45% of the way to B), on the floor of a lane. The first layout, which
+  used the bomb sites, ran 58-7 on Harbor in simulation. The second used the
+  S&D mid defence anchor for B, but that anchor sits on the defenders' side,
+  so A and B landed 5-10 m apart on Dustyard, Harbor and Frostline. A test now
+  holds every map to flags more than 14 m apart with B near the centre. Each
+  flag has a pole, a cloth, and a ground ring in the owner's colour.
+- Flags and hardpoints count anyone within 2.4 m of their height, so a flag on
+  Neon Foundry's mid bridge does not count players on the floor below.
 - Capture:
   - A 4.5 m radius and 6 s solo. Extra cappers speed it up.
   - Contested flags freeze.

@@ -81,8 +81,8 @@ test('Domination: flags from the map, capture, contest, neutralise, and tick sco
   navWorld.waypoints.nodes = [-30, -20, -10, 0, 10, 20, 30].map((z) => ({ pos: v(0, z) }));
   const sym = dominationPoints(navWorld);
   assert.ok(sym[0].pos.equals(v(0, -20)), 'A sits between the U.S. spawn and mid');
-  assert.ok(sym[1].pos.equals(v(0, 10)));
-  assert.ok(sym[2].pos.equals(v(0, 30)), 'C sits between the Russian spawn and mid');
+  assert.ok(sym[1].pos.equals(v(0, 0)), 'B sits halfway between the spawns, not on the defenders\' anchor');
+  assert.ok(sym[2].pos.equals(v(0, 20)), 'C sits between the Russian spawn and mid');
 
   const game = makeGame('dom');
   const dom = new Domination(game);
@@ -210,4 +210,30 @@ test('Free-for-all scores per killer, ignores teams for spawns, and ranks the pl
   assert.equal(ended.ffa.place, 2);
   assert.equal(ended.ffa.leader, 'Ally');
   assert.notEqual(ended.winner, game.player.team);
+});
+
+test('Kill Confirmed bots go for confirms first and the killer is sent to its tag', () => {
+  const game = { scene: null, player: { team: 'ct' }, state: { scores: { ct: 0, t: 0 } }, events: { emit() {} } };
+  const kc = new KillConfirmed(game);
+  kc.onDeath('ct', v(6, 0));  // own tag, 6 m away
+  kc.onDeath('t', v(9, 0));   // enemy tag, 9 m away
+  assert.ok(kc.botGoal({ team: 'ct', pos: v(0, 0) }).equals(v(9, 0)), 'a slightly further confirm beats a deny');
+  kc.onDeath('ct', v(2, 0));
+  assert.ok(kc.botGoal({ team: 'ct', pos: v(0, 0) }).equals(v(2, 0)), 'a deny at the bot\'s feet still wins');
+  const far = new KillConfirmed(game);
+  far.onDeath('ct', v(KC.BOT_DENY_RANGE + 5, 0));
+  assert.equal(far.botGoal({ team: 'ct', pos: v(0, 0) }), null, 'bots do not cross the map to deny');
+  assert.ok(far.botGoal({ team: 't', pos: v(0, 0) }), '...but will to confirm');
+
+  // The respawn engine hands a bot killer to the bots for a fresh goal; the
+  // player (a string tag in death payloads) is never retasked.
+  const retasked = [];
+  const engine = Object.assign(Object.create(TeamDeathmatch.prototype), {
+    objective: kc, game: { bots: { retask: (b) => retasked.push(b) } },
+  });
+  const killer = { name: 'Havoc' };
+  engine._retaskKiller(killer);
+  engine._retaskKiller('player');
+  engine._retaskKiller(null);
+  assert.deepEqual(retasked, [killer]);
 });

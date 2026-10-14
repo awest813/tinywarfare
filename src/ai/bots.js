@@ -2809,6 +2809,18 @@ export default class Bots {
     if (goal && this._setGoal(bot, goal)) bot.state = 'move';
   }
 
+  /**
+   * Drop a hunting bot's current errand so its next think picks a fresh goal
+   * (Kill Confirmed: the tag it just made). Engagement still overrides the
+   * new goal while another enemy is in view.
+   */
+  retask(bot) {
+    if (!bot || !this.all.includes(bot) || !bot.alive || bot.plan !== 'hunt') return;
+    bot.hasGoal = false;
+    bot.path = null;
+    if (bot.state === 'hold') bot.holdTimer = 0;
+  }
+
   /** Switch the roster from bomb plans to TDM hunting with respawn loadouts. */
   prepareTdm() {
     this.bombCarrier = null;
