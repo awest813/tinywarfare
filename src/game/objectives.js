@@ -106,6 +106,8 @@ function livingActors(game) {
 export class KillConfirmed {
   constructor(game) {
     this.game = game;
+    // Bots path onto a tag itself: a nearby waypoint can sit outside PICKUP_RADIUS.
+    this.goalSpread = 0;
     this.tags = [];
     this._time = 0;
     this._nextId = 0;

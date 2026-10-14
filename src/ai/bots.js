@@ -2796,7 +2796,10 @@ export default class Bots {
     const objectiveGoal = objective && typeof objective.botGoal === 'function' ? objective.botGoal(bot) : null;
     let goal = null;
     if (objectiveGoal && Math.random() < 0.75) {
-      goal = this._diverseNear(bot, objectiveGoal, 3);
+      // A dog tag is picked up within 1.5 m, so walk onto it exactly; a flag
+      // or hardpoint is wide enough to spread the arrivals across its nodes.
+      const spread = Number.isFinite(objective.goalSpread) ? objective.goalSpread : 3;
+      goal = spread > 0 ? this._diverseNear(bot, objectiveGoal, spread) : objectiveGoal;
     } else if (nearest && Math.random() < (uavUp ? 0.95 : jammed ? 0.35 : 0.7)) {
       goal = this._diverseNear(bot, nearest, 12);
     } else {

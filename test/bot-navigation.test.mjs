@@ -526,3 +526,31 @@ test('replicated bots snap across teleport-sized corrections instead of sliding'
   assert.equal(bot.pos.x, 20, 'sub-threshold corrections leave pos to the lerp');
   assert.equal(bot.netPos.x, 21);
 });
+
+test('a Kill Confirmed bot paths onto the tag itself, not a nearby waypoint', async () => {
+  const { KillConfirmed, KC } = await import('../src/game/objectives.js');
+  const tagPos = new THREE.Vector3(10, 0, 0);
+  // Every waypoint near the tag sits just outside the pickup radius.
+  const nodes = [new THREE.Vector3(0, 0, 0), new THREE.Vector3(12.4, 0, 0), new THREE.Vector3(10, 0, 2.6)]
+    .map((pos, id) => ({ id, pos }));
+  const world = {
+    waypoints: { nodes },
+    findPath: (from, to) => [nodes[0].pos.clone(), to.clone()],
+  };
+  const { brain } = makeBrain(world);
+  const kc = new KillConfirmed({ scene: null, player: { team: 'ct' } });
+  kc.onDeath('t', tagPos);
+  brain.game.rounds = { tdm: { objective: kc } };
+  const random = Math.random;
+  Math.random = () => 0; // take the objective branch
+  try {
+    const bot = makeBot({ hasGoal: false, path: null, state: 'move' });
+    brain._thinkHunt(bot);
+    assert.ok(bot.hasGoal, 'the bot takes an order');
+    const dx = bot.goal.x - tagPos.x;
+    const dz = bot.goal.z - tagPos.z;
+    assert.ok(Math.hypot(dx, dz) <= KC.PICKUP_RADIUS, `goal ${bot.goal.toArray()} is off the tag`);
+  } finally {
+    Math.random = random;
+  }
+});
