@@ -1,4 +1,5 @@
 import { LEADERBOARD_MAPS, rankedOutcome } from '../src/shared/leaderboard-core.mjs';
+import { mapForMode } from '../src/maps/catalog.js';
 import {
   acceptAuthoritySnapshot,
   applyAuthoritativeDamageResult,
@@ -439,7 +440,8 @@ export class RoomDurableObject {
       code,
       mode: message.mode === 'humans' ? 'humans' : 'mixed',
       gameMode: cleanGameMode(message.gameMode),
-      mapId: cleanMapId(message.mapId),
+      // A map can be out of a mode's rotation (Frostline in S&D).
+      mapId: mapForMode(cleanMapId(message.mapId), cleanGameMode(message.gameMode)),
       hostId: connection.id,
       players: {},
       started: false,
@@ -856,7 +858,7 @@ export class RoomDurableObject {
         break;
       case 'set_map':
         if (!room.started && room.hostId === player.id) {
-          room.mapId = cleanMapId(message.mapId);
+          room.mapId = mapForMode(cleanMapId(message.mapId), cleanGameMode(room.gameMode));
           dirty = true;
           this._broadcastLobby(room);
         }
@@ -864,6 +866,7 @@ export class RoomDurableObject {
       case 'set_game_mode':
         if (!room.started && room.hostId === player.id) {
           room.gameMode = cleanGameMode(message.gameMode);
+          room.mapId = mapForMode(room.mapId, room.gameMode);
           dirty = true;
           this._broadcastLobby(room);
         }

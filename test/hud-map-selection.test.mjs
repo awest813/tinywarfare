@@ -20,6 +20,7 @@ function mapButton(mapId) {
       },
     },
     setAttribute(name, value) { attributes.set(name, String(value)); },
+    removeAttribute(name) { attributes.delete(name); },
     scrollIntoView() {},
   };
 }
@@ -129,4 +130,29 @@ test('PLAY flushes a pending map selection before starting the solo match', (t) 
   assert.equal(fixture.lockRequests(), 1);
   assert.equal(fixture.hud._pendingMapSelectId, null);
   assert.equal(fixture.hud._mapSelectTimer, null);
+});
+
+test('Frostline is out of the Search & Destroy rotation in the menu', (t) => {
+  installStorage(t);
+  const fixture = makeHud();
+  t.after(() => fixture.hud._cancelMapSelection());
+  const frost = fixture.buttons.find((b) => b.dataset.mapId === 'frostline');
+
+  fixture.hud._selectMode('tdm');
+  fixture.hud._selectMap('frostline');
+  assert.equal(fixture.game.selectedMapId, 'frostline', 'TDM runs on Frostline');
+  assert.equal(frost.disabled, false);
+
+  fixture.hud._selectMode('sd');
+  assert.equal(fixture.game.selectedMapId, 'dustyard', 'picking S&D moves off Frostline');
+  assert.equal(frost.disabled, true);
+  assert.ok(frost.classes.has('unavailable'));
+  assert.match(frost.attributes.get('title'), /SEARCH & DESTROY/);
+
+  fixture.hud._selectMap('frostline');
+  assert.equal(fixture.game.selectedMapId, 'dustyard', 'and S&D cannot pick it');
+
+  fixture.hud._selectMode('kc');
+  assert.equal(frost.disabled, false, 'other modes get it back');
+  assert.equal(frost.attributes.has('title'), false);
 });

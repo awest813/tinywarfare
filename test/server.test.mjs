@@ -223,12 +223,12 @@ test('two clients can create, join, start, and relay authoritative messages', as
   const hostWelcome = nextMessage(host, 'welcome');
   const hostInitialLobby = nextMessage(host, 'lobby');
   host.send(JSON.stringify({
-    type: 'hello', action: 'create', room: 'TEST01', name: 'Alpha', characterId: '#ff00ff', mode: 'humans', mapId: 'frostline', authorityProtocol: 1,
+    type: 'hello', action: 'create', room: 'TEST01', name: 'Alpha', characterId: '#ff00ff', mode: 'humans', mapId: 'citadel', authorityProtocol: 1,
   }));
   const hostInfo = await hostWelcome;
   assert.equal((await hostInitialLobby).players.length, 1);
   assert.equal(hostInfo.room, 'TEST01');
-  assert.equal(hostInfo.mapId, 'frostline');
+  assert.equal(hostInfo.mapId, 'citadel');
 
   const guestWelcome = nextMessage(guest, 'welcome');
   const hostLobby = nextMessage(host, 'lobby');
@@ -237,7 +237,7 @@ test('two clients can create, join, start, and relay authoritative messages', as
   }));
   const guestInfo = await guestWelcome;
   const lobby = await hostLobby;
-  assert.equal(guestInfo.mapId, 'frostline');
+  assert.equal(guestInfo.mapId, 'citadel');
   assert.equal(lobby.players.length, 2);
   assert.deepEqual(new Set(lobby.players.map((p) => p.team)), new Set(['ct', 't']));
   assert.deepEqual(new Set(lobby.players.map((p) => p.characterId)), new Set(['vanguard', 'ranger']));
@@ -249,7 +249,7 @@ test('two clients can create, join, start, and relay authoritative messages', as
   assert.deepEqual(waitingRooms.rooms[0], {
     code: 'TEST01',
     room: 'TEST01',
-    mapId: 'frostline',
+    mapId: 'citadel',
     mode: 'humans',
     gameMode: 'sd',
     started: false,
@@ -739,6 +739,21 @@ test('respawn-mode rooms carry the game mode and let the authority revive player
   const tdmLobby = nextMessage(guest, 'lobby');
   host.send(JSON.stringify({ type: 'set_game_mode', gameMode: 'tdm' }));
   assert.equal((await tdmLobby).gameMode, 'tdm');
+
+  // Frostline is out of the S&D rotation: picking S&D moves the room off it,
+  // and an S&D room cannot pick it.
+  const frostLobby = nextMessage(guest, 'lobby');
+  host.send(JSON.stringify({ type: 'set_map', mapId: 'frostline' }));
+  assert.equal((await frostLobby).mapId, 'frostline', 'TDM runs on Frostline');
+  const sdLobby = nextMessage(guest, 'lobby');
+  host.send(JSON.stringify({ type: 'set_game_mode', gameMode: 'sd' }));
+  assert.equal((await sdLobby).mapId, 'dustyard', 'switching to S&D leaves Frostline');
+  const pickLobby = nextMessage(guest, 'lobby');
+  host.send(JSON.stringify({ type: 'set_map', mapId: 'frostline' }));
+  assert.equal((await pickLobby).mapId, 'dustyard', 'an S&D room cannot pick Frostline');
+  const backLobby = nextMessage(guest, 'lobby');
+  host.send(JSON.stringify({ type: 'set_game_mode', gameMode: 'tdm' }));
+  assert.equal((await backLobby).gameMode, 'tdm');
 
   const guestStart = nextMessage(guest, 'match_start');
   const hostStart = nextMessage(host, 'match_start');

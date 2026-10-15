@@ -299,3 +299,14 @@ test('Domination flags and hardpoints are spread out and centred between the spa
     assert.ok(hardpointZones(world).length >= 4, `${id}: hardpoint rotation`);
   }
 });
+
+test('maps can sit out a mode: Frostline is not in the Search & Destroy rotation', async () => {
+  const { mapSupportsMode, mapForMode } = await import('../src/maps/catalog.js');
+  assert.equal(mapSupportsMode('frostline', 'sd'), false);
+  for (const mode of ['tdm', 'kc', 'dom', 'hp', 'ffa']) assert.equal(mapSupportsMode('frostline', mode), true, mode);
+  for (const { id } of MAP_CATALOG.filter((m) => m.id !== 'frostline')) assert.equal(mapSupportsMode(id, 'sd'), true, id);
+  assert.equal(mapForMode('frostline', 'sd'), DEFAULT_MAP_ID);
+  assert.equal(mapForMode('frostline', 'kc'), 'frostline');
+  assert.equal(mapForMode('harbor', 'sd'), 'harbor');
+  assert.equal(mapForMode('nowhere', 'sd'), DEFAULT_MAP_ID);
+});

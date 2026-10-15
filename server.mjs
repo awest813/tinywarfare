@@ -10,6 +10,7 @@ import {
   LEADERBOARD_MAPS,
 } from './src/server/leaderboard.mjs';
 import { normalizeCharacterId } from './src/player/profile.js';
+import { mapForMode } from './src/maps/catalog.js';
 import { rankedOutcome } from './src/shared/leaderboard-core.mjs';
 import {
   acceptAuthoritySnapshot,
@@ -624,7 +625,8 @@ function joinRoom(ws, client, msg) {
       code,
       mode: msg.mode === 'humans' ? 'humans' : 'mixed',
       gameMode: cleanGameMode(msg.gameMode),
-      mapId: cleanMapId(msg.mapId),
+      // A map can be out of a mode's rotation (Frostline in S&D).
+      mapId: mapForMode(cleanMapId(msg.mapId), cleanGameMode(msg.gameMode)),
       hostId: client.id,
       players: new Map(),
       started: false,
@@ -801,13 +803,14 @@ function handleRoomMessage(client, msg) {
       break;
     case 'set_map':
       if (!room.started && room.hostId === client.id) {
-        room.mapId = cleanMapId(msg.mapId);
+        room.mapId = mapForMode(cleanMapId(msg.mapId), cleanGameMode(room.gameMode));
         broadcastLobby(room);
       }
       break;
     case 'set_game_mode':
       if (!room.started && room.hostId === client.id) {
         room.gameMode = cleanGameMode(msg.gameMode);
+        room.mapId = mapForMode(room.mapId, room.gameMode);
         broadcastLobby(room);
       }
       break;

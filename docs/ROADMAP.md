@@ -87,15 +87,16 @@ actor; two bots stuck in 140+ matches, both in S&D.
 | Domination | Healthy on four maps; Dustyard 0-4 for the U.S. (four samples) | none (sample too small to retune the layout) | |
 | Hardpoint | Zone empty 57% of the match; 2 of 5 timed out. Bots spent 72% of the time 20 m+ from the zone: holds capped at 1.6 s, one order in four went hunting, investigations dragged bots away, and respawns maximised distance from the enemies sitting on the zone | Bots in the zone hold it (`goalRadius`); 90% of orders go to it (`goalWeight`); a rotation retasks every bot; a 20 m `leash` stops chasing noises away from it; respawns are pulled toward it (`spawnFocus`, `SPAWN_ANCHOR`) | Empty 42%; 0 of 20 timed out; matches 504 s to 400 s; spawn deaths 1.3% of kills |
 | FFA | 10.6% of kills within 3 s of a respawn, many inside the 1.5 s protection: bots spawned in sight and fired at once, which ends protection | Bots hold fire while protected | 7.7%. Edge-midpoint spawn candidates (also added) did not move it measurably |
-| S&D | 1 bot defuse in 23 plants. At most detonations every attacker was already dead and only the player was left; on Frostline the defenders never got within 31 m of the bomb (attackers 8-2 twice) | none: a retake balance and site-cover question for the map, not a code fault | |
+| S&D | 1 bot defuse in 23 plants. At most detonations every bot on both sides was already dead and only the player was left; on Frostline the defenders never got within 31 m of the bomb (attackers 8-2 twice) | Frostline leaves the S&D rotation (`excludedModes` in `src/maps/catalog.js`, enforced in the menu, at match start and by both room servers); it stays in every respawn mode | |
 
 Also from the soak: a free-for-all respawn raycast every candidate against every
 enemy, 10-30 ms per spawn (a frame hitch). It now raycasts best-first and stops
 once nothing can win: 1.6-8.5 ms, same choice (tested against the exhaustive
-search). Hardpoint zones were never contested in 20 matches: attackers kill the
-holder from outside the 5 m radius; a larger zone would change that. Kill
-Confirmed tags on Neon Foundry's mid bridge expire uncollected: the bridge is a
-killing ground. The Domination spawn change was first tried with the same hard
+search). Hardpoint zones were never contested in 20 matches: attackers killed
+the holder from outside the 5 m radius, so zones grew to 8 m (bots spread
+across them). Kill Confirmed tags on Neon Foundry's mid bridge expire
+uncollected: the bridge is a killing ground, and the map stays in the mode as
+it is. The Domination spawn change was first tried with the same hard
 pull as Hardpoint; it spawned both teams around mid and flag B never changed
 hands, so Domination keeps its gentle lean.
 
@@ -393,7 +394,7 @@ Both modes use classes, streaks, and spawn protection.
 
 Also shipped:
 - **Hardpoint** (first to 150):
-  - One zone (5 m radius) that rotates every 60 s: mid first, then the home
+  - One zone (8 m radius) that rotates every 60 s: mid first, then the home
     flags and the bomb sites.
   - A side holding it alone scores 1 per second. Contested time scores
     nothing. Holding it alone is worth 50 personal points every 5 s.

@@ -39,6 +39,7 @@
 
 import * as THREE from 'three';
 import TeamDeathmatch, { isRespawnMode, normalizeModeId } from './tdm.js';
+import { mapForMode, mapSupportsMode } from '../maps/catalog.js';
 
 // --- Tuning local to this module (everything match-critical is in CONFIG) ---
 const MENU_AUTOSTART_DELAY = 0.5; // s, debug (?test) auto-start
@@ -558,6 +559,12 @@ export default class Rounds {
     // Online rooms play the mode their host picked; solo plays the menu pick.
     const mp = this.game.multiplayer;
     s.mode = normalizeModeId(mp && mp.active ? mp.gameMode : this.game.selectedMode);
+    // A map can be out of a mode's rotation (Frostline in S&D); a saved pick
+    // or a ?map= link must not start the match there.
+    const world = this.game.world;
+    if (world && typeof world.loadMap === 'function' && world.mapId && !mapSupportsMode(world.mapId, s.mode)) {
+      world.loadMap(mapForMode(world.mapId, s.mode));
+    }
     this._matchStarted = true;
     this._matchWinner = null;
     this._lastRoundResult = null;

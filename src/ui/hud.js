@@ -9,7 +9,7 @@
 // ============================================================================
 
 import * as THREE from 'three';
-import { MAP_CATALOG, normalizeMapId } from '../maps/catalog.js';
+import { MAP_CATALOG, mapForMode, mapSupportsMode, normalizeMapId } from '../maps/catalog.js';
 import { FACTIONS, FLAG_SVG, faction, scoreLine } from '../shared/factions.js';
 import { GAME_MODES, TDM, isRespawnMode, modeRules, normalizeModeId } from '../game/tdm.js';
 import { STREAKS, STREAK_IDS } from '../game/streaks.js';
@@ -1347,7 +1347,9 @@ export default class HUD {
   }
 
   _selectMap(value, notify = true) {
-    const id = normalizeMapId(value);
+    const mode = normalizeModeId(this.game?.selectedMode);
+    // A map out of the mode's rotation (Frostline in S&D) is not selectable.
+    const id = mapForMode(value, mode);
     this._selectedMapId = id;
     if (this.game) this.game.selectedMapId = id;
     try { localStorage.setItem('tiny-strike-map', id); } catch { /* private mode */ }
@@ -1390,8 +1392,26 @@ export default class HUD {
       }
     }
     if (this._el.classPicker) this._el.classPicker.hidden = !isRespawnMode(id);
+    this._refreshMapAvailability(id);
+    // Picking a mode the current map is not in moves to a map that runs it.
+    if (!mapSupportsMode(this._selectedMapId, id) && !roomGuest) {
+      this._selectMap(mapForMode(this._selectedMapId, id), options.notify !== false);
+    }
     this._updateStartSub();
     if (changed && options.notify !== false) this.game?.events?.emit?.('ui:mode-select', { mode: id });
+  }
+
+  /** Grey out the maps a mode does not run on. */
+  _refreshMapAvailability(mode) {
+    if (!this._el.mapPicker) return;
+    const label = GAME_MODES[normalizeModeId(mode)]?.label || '';
+    for (const button of this._el.mapPicker.querySelectorAll('[data-map-id]')) {
+      const ok = mapSupportsMode(button.dataset.mapId, mode);
+      button.disabled = !ok;
+      button.classList.toggle('unavailable', !ok);
+      if (ok) button.removeAttribute('title');
+      else button.setAttribute('title', 'Not in the ' + label + ' rotation');
+    }
   }
 
   _bindClassControls() {
@@ -5019,6 +5039,7 @@ export default class HUD {
 }
 .mn-map:hover { transform: translateY(-2px); border-color: var(--map-a); filter: none; box-shadow: 0 8px 20px rgba(0,0,0,.38); }
 .mn-map:focus-visible { outline: 2px solid var(--olive-bright); outline-offset: 2px; }
+.mn-map.unavailable, .mn-map.unavailable:hover { opacity:.32; filter:grayscale(1); transform:none; box-shadow:none; cursor:not-allowed; }
 .mn-map.selected { border-color: var(--map-a); filter: none; box-shadow: inset 0 0 0 1px var(--map-a),0 0 20px color-mix(in srgb,var(--map-a) 25%,transparent); }
 .mn-map-art {
   display: block; height: 46px; position: relative; overflow: hidden;

@@ -18,6 +18,9 @@ export const MAP_CATALOG = Object.freeze([
     description: 'Snowbound chokepoints connected by a frozen service tunnel.',
     tempo: 'Long range',
     colors: ['#b9e8f2', '#397087', '#101e2b'],
+    // Out of the Search & Destroy rotation: a soak had the attackers win 8-2
+    // twice, the defenders dying before they could retake a planted site.
+    excludedModes: Object.freeze(['sd']),
   }),
   Object.freeze({
     id: 'neon_foundry',
@@ -54,4 +57,19 @@ export function normalizeMapId(value) {
 export function mapById(value) {
   const id = normalizeMapId(value);
   return MAP_CATALOG.find((map) => map.id === id) || MAP_CATALOG[0];
+}
+
+/** Whether a map is in the rotation for a game mode. */
+export function mapSupportsMode(mapId, mode) {
+  const map = MAP_CATALOG.find((entry) => entry.id === mapId);
+  return !!map && !(map.excludedModes || []).includes(mode);
+}
+
+/** The map to play `mode` on: `mapId` when it runs that mode, else the default. */
+export function mapForMode(mapId, mode) {
+  const id = normalizeMapId(mapId);
+  if (mapSupportsMode(id, mode)) return id;
+  if (mapSupportsMode(DEFAULT_MAP_ID, mode)) return DEFAULT_MAP_ID;
+  const fallback = MAP_CATALOG.find((entry) => mapSupportsMode(entry.id, mode));
+  return fallback ? fallback.id : DEFAULT_MAP_ID;
 }

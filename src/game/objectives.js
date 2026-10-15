@@ -620,7 +620,9 @@ export class Domination {
 // ----------------------------------------------------------------------------
 
 export const HP = Object.freeze({
-  RADIUS: 5,          // m
+  // m. Was 5: in a 20-match soak no zone was ever contested, because
+  // attackers dropped the holder from outside it before stepping in.
+  RADIUS: 8,
   ROTATE: 60,         // s each zone stays live
   POINTS_EVERY: 5,    // s of solo holding per personal award
   HOLD_POINTS: 50,
@@ -631,7 +633,7 @@ export function hardpointZones(world) {
   const flags = dominationPoints(world);
   const zones = [];
   const add = (pos) => {
-    if (pos && !zones.some((z) => z.distanceTo(pos) < 10)) zones.push(pos.clone());
+    if (pos && !zones.some((z) => z.distanceTo(pos) < HP.RADIUS * 2)) zones.push(pos.clone());
   };
   const mid = flags.find((f) => f.name === 'B');
   if (mid) add(mid.pos);
@@ -647,6 +649,8 @@ export class Hardpoint {
     // Bots on the live hardpoint hold it instead of wandering off to hunt,
     // and most orders go to it: the zone is the whole game.
     this.goalRadius = HP.RADIUS;
+    // Arrivals spread across the zone, not onto its centre.
+    this.goalSpread = HP.RADIUS - 2.5;
     this.goalWeight = 0.9;
     // ...and do not chase noises or lost enemies away from it.
     this.leash = 20;
