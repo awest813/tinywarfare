@@ -2676,8 +2676,15 @@ export default class Bots {
         bot.trackTime = 0;
         bot.crouching = false;
         bot.wantCrouch = false;
-        bot.state = 'investigate';
-        this._setGoal(bot, bot.lastSeenPos);
+        if (this._offLeash(bot, bot.lastSeenPos)) {
+          // Hardpoint: let them go and get back to the zone.
+          bot.state = 'move';
+          bot.hasGoal = false;
+          bot.path = null;
+        } else {
+          bot.state = 'investigate';
+          this._setGoal(bot, bot.lastSeenPos);
+        }
       }
       return;
     }
@@ -2704,7 +2711,7 @@ export default class Bots {
       // retried the roll ten times per second and made every sound effectively
       // mandatory, pulling whole teams onto the same coordinate.
       bot.heardTime = -99;
-      if (Math.random() < 0.6) {
+      if (Math.random() < 0.6 && !this._offLeash(bot, bot.heardPos)) {
         bot.state = 'investigate';
         this._setGoal(bot, bot.heardPos);
         return;
@@ -2834,6 +2841,23 @@ export default class Bots {
     bot.hasGoal = false;
     bot.path = null;
     if (bot.state === 'hold') bot.holdTimer = 0;
+  }
+
+  /**
+   * True when chasing `pos` would drag the bot away from a leashed objective
+   * (Hardpoint): the spot is beyond the objective's leash from the zone and
+   * farther from it than the bot already is. In the soak, bots spent 72% of
+   * Hardpoint more than 20 m from the zone, chasing noises and last-seen
+   * enemies across the map, and the zone sat empty more than half the match.
+   */
+  _offLeash(bot, pos) {
+    const objective = this.game.rounds && this.game.rounds.tdm && this.game.rounds.tdm.objective;
+    const leash = objective && Number.isFinite(objective.leash) ? objective.leash : 0;
+    if (!leash || !pos || !isRespawnMode(this.game.state.mode)) return false;
+    const focus = typeof objective.botGoal === 'function' ? objective.botGoal(bot) : null;
+    if (!focus) return false;
+    const away = Math.hypot(pos.x - focus.x, pos.z - focus.z);
+    return away > leash && away > Math.hypot(bot.pos.x - focus.x, bot.pos.z - focus.z);
   }
 
   /** Switch the roster from bomb plans to TDM hunting with respawn loadouts. */

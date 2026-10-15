@@ -648,6 +648,8 @@ export class Hardpoint {
     // and most orders go to it: the zone is the whole game.
     this.goalRadius = HP.RADIUS;
     this.goalWeight = 0.9;
+    // ...and do not chase noises or lost enemies away from it.
+    this.leash = 20;
     this.zones = hardpointZones(game.world);
     this.index = 0;
     this.clock = 0;          // s into the current zone

@@ -605,3 +605,18 @@ test('a spawn-protected bot tracks its target but holds fire until the protectio
   for (let i = 0; i < 10; i++) { brain._combatFrame(bot, 1 / 30); brain.time += 1 / 30; bot.lastSeenTime = brain.time; }
   assert.ok(shots > 0, 'fires once the protection is gone');
 });
+
+test('Hardpoint bots do not chase noises or lost enemies away from the zone', () => {
+  const { brain } = makeBrain(null);
+  brain.game.state.mode = 'hp';
+  const zone = new THREE.Vector3(0, 0, 0);
+  brain.game.rounds = { tdm: { objective: { leash: 20, botGoal: () => zone } } };
+  const bot = makeBot({ pos: new THREE.Vector3(10, 0, 0) });
+  assert.equal(brain._offLeash(bot, new THREE.Vector3(45, 0, 0)), true, 'a noise far beyond the zone');
+  assert.equal(brain._offLeash(bot, new THREE.Vector3(-12, 0, 0)), false, 'a fight at the zone is still chased');
+  assert.equal(brain._offLeash(bot, new THREE.Vector3(0, 0, -25)), true);
+  const far = makeBot({ pos: new THREE.Vector3(60, 0, 0) });
+  assert.equal(brain._offLeash(far, new THREE.Vector3(30, 0, 0)), false, 'a noise on the way back is fine');
+  brain.game.rounds.tdm.objective = { botGoal: () => zone };
+  assert.equal(brain._offLeash(bot, new THREE.Vector3(45, 0, 0)), false, 'no leash outside Hardpoint');
+});
