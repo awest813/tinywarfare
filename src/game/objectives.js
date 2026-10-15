@@ -406,6 +406,8 @@ export function dominationPoints(world) {
 export class Domination {
   constructor(game) {
     this.game = game;
+    // Bots inside the flag they are taking stay until it is theirs.
+    this.goalRadius = DOM.RADIUS;
     this._time = 0;
     this._tick = 0;
     this.flags = dominationPoints(game.world).map((p) => ({
@@ -627,6 +629,8 @@ export function hardpointZones(world) {
 export class Hardpoint {
   constructor(game) {
     this.game = game;
+    // Bots on the live hardpoint hold it instead of wandering off to hunt.
+    this.goalRadius = HP.RADIUS;
     this.zones = hardpointZones(game.world);
     this.index = 0;
     this.clock = 0;          // s into the current zone

@@ -210,6 +210,7 @@ const CT_HOLD_MAX = 10.5;
 const T_HOLD_MIN = 3.0;
 const T_HOLD_MAX = 5.5;
 const TDM_HOLD_MAX = 1.6;        // respawn modes keep everyone moving
+const ZONE_HOLD_MAX = 4;         // ...except on a hardpoint or a flag being taken
 const GHOST_FOOTSTEP_RANGE = 0.45; // Ghost perk: bots hear the player's steps at this fraction
 const SUPPRESSED_HEARING = 0.35;
 const STUN_SPEED_SCALE = 0.4;      // stunned bots crawl and track slowly
@@ -2770,7 +2771,18 @@ export default class Bots {
    * the rest sweep a random part of the map so lanes stay contested.
    */
   _thinkHunt(bot) {
-    if (bot.state === 'hold' && bot.holdTimer > TDM_HOLD_MAX) bot.holdTimer = TDM_HOLD_MAX;
+    // Objective modes: most decisions go to the tag / flag the objective picks.
+    const objective = this.game.rounds && this.game.rounds.tdm && this.game.rounds.tdm.objective;
+    const objectiveGoal = objective && typeof objective.botGoal === 'function' ? objective.botGoal(bot) : null;
+    // Standing in a zone that scores while held (a hardpoint, a flag being
+    // captured): stay in it. A bot used to wander off after a 1.6 s hold one
+    // order in four, and the soak had hardpoints empty half the match.
+    const zone = objective && Number.isFinite(objective.goalRadius) ? objective.goalRadius : 0;
+    const inZone = !!objectiveGoal && zone > 0 &&
+      Math.hypot(bot.pos.x - objectiveGoal.x, bot.pos.z - objectiveGoal.z) < zone - 0.5 &&
+      Math.abs(bot.pos.y - objectiveGoal.y) < 2.4;
+    const holdMax = inZone ? ZONE_HOLD_MAX : TDM_HOLD_MAX;
+    if (bot.state === 'hold' && bot.holdTimer > holdMax) bot.holdTimer = holdMax;
     if (bot.hasGoal || bot.path || (bot.state === 'hold' && bot.holdTimer > 0)) return;
 
     let nearest = null;
@@ -2791,11 +2803,8 @@ export default class Bots {
     // The player's Counter-UAV scatters the enemy side's hunt.
     const jammed = !!(streaks && typeof streaks.counterUavActive === 'function' && streaks.counterUavActive()) &&
       bot.team !== ((player && player.team) || 'ct');
-    // Objective modes: most decisions go to the tag / flag the objective picks.
-    const objective = this.game.rounds && this.game.rounds.tdm && this.game.rounds.tdm.objective;
-    const objectiveGoal = objective && typeof objective.botGoal === 'function' ? objective.botGoal(bot) : null;
     let goal = null;
-    if (objectiveGoal && Math.random() < 0.75) {
+    if (objectiveGoal && (inZone || Math.random() < 0.75)) {
       // A dog tag is picked up within 1.5 m, so walk onto it exactly; a flag
       // or hardpoint is wide enough to spread the arrivals across its nodes.
       const spread = Number.isFinite(objective.goalSpread) ? objective.goalSpread : 3;

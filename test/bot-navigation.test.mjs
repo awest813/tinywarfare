@@ -554,3 +554,34 @@ test('a Kill Confirmed bot paths onto the tag itself, not a nearby waypoint', as
     Math.random = random;
   }
 });
+
+test('a bot on the live hardpoint holds it instead of wandering off to hunt', async () => {
+  const { Hardpoint, HP } = await import('../src/game/objectives.js');
+  const zone = new THREE.Vector3(0, 0, 0);
+  const nodes = [new THREE.Vector3(0, 0, 0), new THREE.Vector3(2, 0, 0), new THREE.Vector3(40, 0, 0)]
+    .map((pos, id) => ({ id, pos }));
+  const world = { waypoints: { nodes }, findPath: (from, to) => [to.clone()] };
+  const { brain } = makeBrain(world);
+  const objective = Object.assign(Object.create(Hardpoint.prototype), { goalRadius: HP.RADIUS, zones: [zone], index: 0 });
+  brain.game.rounds = { tdm: { objective } };
+  const enemy = makeBot({ team: 't', pos: new THREE.Vector3(40, 0, 0) });
+  brain.all = [enemy];
+  const random = Math.random;
+  Math.random = () => 0.99; // the roll that used to send it after the nearest enemy
+  try {
+    const bot = makeBot({ hasGoal: false, path: null, state: 'hold', holdTimer: 10, pos: new THREE.Vector3(1, 0, 0) });
+    brain._thinkHunt(bot);
+    assert.ok(bot.holdTimer > 1.6 && bot.holdTimer <= 4, `holds the zone (${bot.holdTimer} s)`);
+    bot.holdTimer = 0;
+    brain._thinkHunt(bot);
+    assert.ok(bot.hasGoal, 'takes an order');
+    assert.ok(bot.goal.distanceTo(zone) < HP.RADIUS, `next goal ${bot.goal.toArray()} stays on the hardpoint`);
+
+    // Off the zone the old mix still applies.
+    const roamer = makeBot({ hasGoal: false, path: null, state: 'move', pos: new THREE.Vector3(30, 0, 0) });
+    brain._thinkHunt(roamer);
+    assert.ok(roamer.goal.distanceTo(zone) > HP.RADIUS, 'a bot away from it may still hunt');
+  } finally {
+    Math.random = random;
+  }
+});
