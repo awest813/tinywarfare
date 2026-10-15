@@ -606,10 +606,16 @@ export default class TeamDeathmatch {
     const player = this.game.player;
     if (player) add(player, player.position);
     for (const remote of this._remotes()) add(remote, remote.position);
-    // Objectives pull spawns (Domination: flags this team holds; Hardpoint:
-    // the live zone).
-    const anchors = this.objective && typeof this.objective.spawnAnchors === 'function'
-      ? this.objective.spawnAnchors(team) : [];
+    // Objectives can lean spawns toward points (Domination: flags this team
+    // holds, counted like a teammate nearby) or pull them in hard (Hardpoint:
+    // the live zone, see SPAWN_ANCHOR). The hard pull is Hardpoint's alone:
+    // on Domination it spawned both teams around mid, B was contested all
+    // match and never changed hands.
+    if (this.objective && typeof this.objective.spawnAnchors === 'function') {
+      for (const pos of this.objective.spawnAnchors(team)) friends.push(pos);
+    }
+    const anchors = this.objective && typeof this.objective.spawnFocus === 'function'
+      ? this.objective.spawnFocus(team) : [];
 
     const world = this.game.world;
     const raycast = world && typeof world.raycast === 'function'

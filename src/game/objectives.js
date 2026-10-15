@@ -666,7 +666,7 @@ export class Hardpoint {
   }
 
   /** Both sides respawn within reach of the live zone. */
-  spawnAnchors() {
+  spawnFocus() {
     const zone = this.current();
     return zone ? [zone] : [];
   }
