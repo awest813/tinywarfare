@@ -7,7 +7,7 @@ export const LEADERBOARD_GAME_MODES = Object.freeze(['sd', 'tdm', 'kc', 'dom', '
  * frame can carry the score past the limit: an airstrike or frag multi-kill,
  * or Domination ticking every held flag at once.
  */
-export const RESPAWN_SCORE_LIMITS = Object.freeze({ tdm: 50, kc: 30, dom: 150, hp: 150, ffa: 30 });
+export const RESPAWN_SCORE_LIMITS = Object.freeze({ tdm: 50, kc: 30, dom: 150, hp: 100, ffa: 30 });
 const RESPAWN_OVERSHOOT = Object.freeze({ tdm: 8, kc: 4, dom: 3, hp: 1, ffa: 8 });
 const RESPAWN_TIME_LIMIT_SECONDS = 600;
 // Wall-clock allowance over the match clock: get-ready, loading, reconnects.

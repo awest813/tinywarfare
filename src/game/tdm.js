@@ -24,7 +24,7 @@ export const GAME_MODES = Object.freeze({
   tdm: Object.freeze({ id: 'tdm', label: 'TEAM DEATHMATCH', short: 'TDM', detail: 'RESPAWN · FIRST TO 50' }),
   kc: Object.freeze({ id: 'kc', label: 'KILL CONFIRMED', short: 'KC', detail: 'COLLECT TAGS · FIRST TO 30' }),
   dom: Object.freeze({ id: 'dom', label: 'DOMINATION', short: 'DOM', detail: 'HOLD FLAGS · FIRST TO 150' }),
-  hp: Object.freeze({ id: 'hp', label: 'HARDPOINT', short: 'HP', detail: 'HOLD THE MOVING ZONE · FIRST TO 150' }),
+  hp: Object.freeze({ id: 'hp', label: 'HARDPOINT', short: 'HP', detail: 'HOLD THE MOVING ZONE · FIRST TO 100' }),
   ffa: Object.freeze({ id: 'ffa', label: 'FREE-FOR-ALL', short: 'FFA', detail: 'NO TEAMS · FIRST TO 30' }),
 });
 
@@ -40,7 +40,7 @@ export const MODE_RULES = Object.freeze({
   tdm: Object.freeze({ scoreLimit: 50, killScore: 1, brief: 'FIRST TEAM TO 50 KILLS WINS' }),
   kc: Object.freeze({ scoreLimit: 30, killScore: 0, brief: 'COLLECT ENEMY TAGS TO SCORE · DENY YOURS' }),
   dom: Object.freeze({ scoreLimit: 150, killScore: 0, brief: 'CAPTURE AND HOLD A · B · C' }),
-  hp: Object.freeze({ scoreLimit: 150, killScore: 0, brief: 'HOLD THE HARDPOINT · IT MOVES EVERY MINUTE' }),
+  hp: Object.freeze({ scoreLimit: 100, killScore: 0, brief: 'HOLD THE HARDPOINT · IT MOVES EVERY MINUTE' }),
   ffa: Object.freeze({ scoreLimit: 30, killScore: 0, brief: 'NO TEAMS · FIRST SOLDIER TO 30 KILLS WINS' }),
 });
 
