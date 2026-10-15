@@ -150,3 +150,54 @@ test('TDM ignores deaths when Search & Destroy is the active mode', () => {
   assert.deepEqual(game.state.scores, { ct: 0, t: 0 });
   assert.equal(tdm.playerRespawnIn(), null);
 });
+
+test('the lazy spawn search picks exactly what scoring every candidate would', () => {
+  // A seeded generator so both searches draw the same per-candidate jitter.
+  const seeded = (seed) => () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const exhaustive = (candidates, enemies, friends, raycast, random) => {
+    let best = null; let bestScore = -Infinity;
+    for (const c of candidates) {
+      let near = Infinity; let seen = 0; let friend = Infinity;
+      for (const e of enemies) {
+        const d = Math.hypot(e.x - c.pos.x, e.z - c.pos.z);
+        near = Math.min(near, d);
+        if (d < 60) {
+          const eye = new THREE.Vector3(c.pos.x, c.pos.y + 1.6, c.pos.z);
+          const to = new THREE.Vector3(e.x - eye.x, e.y + 1.6 - eye.y, e.z - eye.z);
+          const dist = to.length();
+          if (dist > 1e-3 && !raycast(eye, to.multiplyScalar(1 / dist), dist)) seen++;
+        }
+      }
+      for (const f of friends) friend = Math.min(friend, Math.hypot(f.x - c.pos.x, f.z - c.pos.z));
+      let score = Math.min(near, 45);
+      if (near < TDM.SAFE_DISTANCE) score -= 100;
+      score -= seen * 40;
+      if (friend < 22) score += 8;
+      score += random() * 6;
+      if (score > bestScore) { bestScore = score; best = c.pos; }
+    }
+    return best;
+  };
+  // Walls: a ray is blocked when it crosses x = 0 between |z| < 20.
+  const raycast = (o, d, dist) => {
+    if (Math.abs(d.x) < 1e-6) return null;
+    const t = -o.x / d.x;
+    if (t <= 0 || t >= dist) return null;
+    return Math.abs(o.z + d.z * t) < 20 ? { distance: t } : null;
+  };
+  const rand = seeded(7);
+  let raysLazy = 0;
+  for (let trial = 0; trial < 40; trial++) {
+    const point = () => v(Math.round(rand() * 120 - 60), Math.round(rand() * 120 - 60));
+    const candidates = Array.from({ length: 40 }, () => ({ pos: point(), yaw: 0 }));
+    const enemies = Array.from({ length: 9 }, point);
+    const friends = trial % 2 ? Array.from({ length: 3 }, point) : [];
+    const seed = 1000 + trial;
+    const want = exhaustive(candidates, enemies, friends, raycast, seeded(seed));
+    const got = pickSafeSpawn(candidates, enemies, friends, {
+      random: seeded(seed), raycast: (...a) => { raysLazy++; return raycast(...a); },
+    });
+    assert.ok(got.pos.equals(want), `trial ${trial}: lazy ${got.pos.toArray()} vs exhaustive ${want.toArray()}`);
+  }
+  assert.ok(raysLazy < 40 * 40 * 9 * 0.5, `the lazy search skips most sight lines (${raysLazy})`);
+});

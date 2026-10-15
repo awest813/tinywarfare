@@ -90,45 +90,66 @@ export function pickSafeSpawn(candidates, enemies, friends, opts = {}) {
   if (!Array.isArray(candidates) || candidates.length === 0) return null;
   const random = typeof opts.random === 'function' ? opts.random : Math.random;
   const raycast = typeof opts.raycast === 'function' ? opts.raycast : null;
-  let best = null;
-  let bestScore = -Infinity;
 
+  // Pass 1, cheap: distances give each candidate its best possible score
+  // (sight lines can only take points away).
+  const rows = [];
   for (const candidate of candidates) {
     const pos = candidate && candidate.pos;
     if (!pos) continue;
     let nearestEnemy = Infinity;
     let nearestEnemyPos = null;
-    let seen = 0;
     for (const enemy of enemies) {
       const d = Math.hypot(enemy.x - pos.x, enemy.z - pos.z);
       if (d < nearestEnemy) { nearestEnemy = d; nearestEnemyPos = enemy; }
-      if (raycast && d < 60) {
-        _eye.set(pos.x, pos.y + 1.6, pos.z);
-        _to.set(enemy.x - _eye.x, enemy.y + 1.6 - _eye.y, enemy.z - _eye.z);
-        const dist = _to.length();
-        if (dist > 1e-3 && !raycast(_eye, _to.multiplyScalar(1 / dist), dist)) seen++;
-      }
     }
     let nearestFriend = Infinity;
     for (const friend of friends) {
       nearestFriend = Math.min(nearestFriend, Math.hypot(friend.x - pos.x, friend.z - pos.z));
     }
+    let bound = Math.min(nearestEnemy, 45);
+    if (nearestEnemy < TDM.SAFE_DISTANCE) bound -= 100;
+    if (nearestFriend < 22) bound += 8;
+    bound += random() * 6;
+    rows.push({ candidate, pos, bound, nearestEnemyPos });
+  }
 
-    let score = Math.min(nearestEnemy, 45);
-    if (nearestEnemy < TDM.SAFE_DISTANCE) score -= 100;
-    score -= seen * 40;
-    if (nearestFriend < 22) score += 8;
-    score += random() * 6;
+  // Pass 2: sight-line raycasts best-first, stopping once no remaining
+  // candidate could beat the best so far. Raycasting every candidate against
+  // every enemy cost 20-30 ms per free-for-all spawn (a frame hitch).
+  rows.sort((a, b) => b.bound - a.bound);
+  let best = null;
+  let bestScore = -Infinity;
+  for (const row of rows) {
+    if (row.bound <= bestScore) break;
+    let seen = 0;
+    if (raycast) {
+      const pos = row.pos;
+      for (const enemy of enemies) {
+        const d = Math.hypot(enemy.x - pos.x, enemy.z - pos.z);
+        if (d >= 60) continue;
+        _eye.set(pos.x, pos.y + 1.6, pos.z);
+        _to.set(enemy.x - _eye.x, enemy.y + 1.6 - _eye.y, enemy.z - _eye.z);
+        const dist = _to.length();
+        if (dist > 1e-3 && !raycast(_eye, _to.multiplyScalar(1 / dist), dist)) {
+          seen++;
+          if (row.bound - seen * 40 <= bestScore) break; // cannot win any more
+        }
+      }
+    }
+    const score = row.bound - seen * 40;
     if (score > bestScore) {
       bestScore = score;
-      // Face the nearest enemy's general direction so the action is ahead.
-      const yaw = nearestEnemyPos
-        ? Math.atan2(-(nearestEnemyPos.x - pos.x), -(nearestEnemyPos.z - pos.z))
-        : (candidate.yaw || 0);
-      best = { pos: pos.clone(), yaw };
+      best = row;
     }
   }
-  return best;
+  if (!best) return null;
+  // Face the nearest enemy's general direction so the action is ahead.
+  const pos = best.pos;
+  const yaw = best.nearestEnemyPos
+    ? Math.atan2(-(best.nearestEnemyPos.x - pos.x), -(best.nearestEnemyPos.z - pos.z))
+    : (best.candidate.yaw || 0);
+  return { pos: pos.clone(), yaw };
 }
 
 export default class TeamDeathmatch {
@@ -528,10 +549,24 @@ export default class TeamDeathmatch {
         for (const spawn of world.spawns[team] || []) if (spawn && spawn.pos) list.push(spawn);
       }
     }
-    // Navigation nodes are validated walkable ground across the whole map.
+    // Navigation nodes are validated walkable ground across the whole map,
+    // and so is the straight run between two linked nodes: edge midpoints
+    // double the choice. With only the nodes, a free-for-all (nine enemies)
+    // often had no spot both 16 m clear and out of sight, and a soak saw up
+    // to a fifth of FFA kills land within 3 s of a respawn.
     const nodes = world && world.waypoints && world.waypoints.nodes;
     if (Array.isArray(nodes)) {
       for (const node of nodes) if (node && node.pos) list.push({ pos: node.pos, yaw: 0 });
+      const edges = world.waypoints.edges;
+      if (Array.isArray(edges)) {
+        for (const edge of edges) {
+          const a = nodes[edge[0]];
+          const b = nodes[edge[1]];
+          if (!a || !b || !a.pos || !b.pos || Math.abs(a.pos.y - b.pos.y) > 0.6) continue;
+          if (a.pos.distanceTo(b.pos) < 6) continue;
+          list.push({ pos: a.pos.clone().add(b.pos).multiplyScalar(0.5), yaw: 0 });
+        }
+      }
     }
     this._candidates = list;
     return list;
