@@ -627,10 +627,6 @@ export const HP = Object.freeze({
   // s of sole hold per team point. Was 1: slower scoring gives the other side
   // time to push into the zone before a hold decides the match.
   SCORE_EVERY: 1.5,
-  // s a side must hold a zone alone before it owns it and starts scoring, so
-  // an arriving enemy fights over the point instead of conceding the score.
-  // Contesting freezes the capture; an empty zone falls neutral.
-  CAPTURE_TIME: 3,
   ROTATE: 60,         // s each zone stays live
   POINTS_EVERY: 5,    // s of solo holding per personal award
   HOLD_POINTS: 50,
@@ -667,7 +663,6 @@ export class Hardpoint {
     this.clock = 0;          // s into the current zone
     this.owner = null;
     this.contested = false;
-    this._capture = { team: null, t: 0 }; // a side taking a zone it does not own
     this._fraction = { ct: 0, t: 0 };
     this._personal = new Map(); // human -> seconds toward the next hold award
     this._group = this._buildZone();
@@ -694,7 +689,6 @@ export class Hardpoint {
       this.clock = 0;
       this.index = (this.index + 1) % this.zones.length;
       this.owner = null;
-      this._capture = { team: null, t: 0 };
       this._placeZone();
       this.game.events.emit('objective:hardpoint', { moved: true, index: this.index });
       // Everyone drops their errand for the new zone now, not after it.
@@ -713,36 +707,15 @@ export class Hardpoint {
       inside.push(a);
     }
     this.contested = ct > 0 && t > 0;
-    const alone = this.contested ? null : ct > 0 ? 'ct' : t > 0 ? 't' : null;
-    let held = dt; // time this frame that counts toward the score
-    if (!this.contested) {
-      if (!alone) {
-        // Empty: the zone falls neutral and any capture starts over.
-        this._capture = { team: null, t: 0 };
-        this._setOwner(null);
-      } else if (alone !== this.owner) {
-        // A side alone on a zone it does not own has to take it first.
-        if (this._capture.team !== alone) this._capture = { team: alone, t: 0 };
-        this._setOwner(null);
-        this._capture.t += dt;
-        if (this._capture.t >= HP.CAPTURE_TIME) {
-          held = this._capture.t - HP.CAPTURE_TIME; // only the time past the capture
-          this._capture = { team: null, t: 0 };
-          this._fraction[alone] = 0;
-          this._setOwner(alone);
-          this.game.events.emit('objective:hardpoint-captured', { team: alone });
-        }
-      }
+    const holder = this.contested ? null : ct > 0 ? 'ct' : t > 0 ? 't' : null;
+    if (holder !== this.owner) {
+      this.owner = holder;
+      this._paint();
     }
-    // Contested time freezes the capture and the score alike.
-    const holder = alone && alone === this.owner ? alone : null;
-    if (!holder) {
-      this._pulse();
-      return;
-    }
+    if (!holder) return;
 
     const s = this.game.state;
-    this._fraction[holder] += held;
+    this._fraction[holder] += dt;
     while (this._fraction[holder] >= HP.SCORE_EVERY) {
       this._fraction[holder] -= HP.SCORE_EVERY;
       s.scores[holder] = (s.scores[holder] || 0) + 1;
@@ -762,12 +735,6 @@ export class Hardpoint {
     this._pulse();
   }
 
-  _setOwner(owner) {
-    if (owner === this.owner) return;
-    this.owner = owner;
-    this._paint();
-  }
-
   _pulse() {
     if (this._group) {
       this._group.userData.beam.material.opacity = 0.16 + 0.06 * Math.sin(this.clock * 3);
@@ -775,10 +742,7 @@ export class Hardpoint {
   }
 
   networkSnapshot() {
-    return {
-      index: this.index, clock: round2(this.clock), owner: this.owner, contested: this.contested,
-      capture: this._capture.team ? { team: this._capture.team, t: round2(this._capture.t) } : null,
-    };
+    return { index: this.index, clock: round2(this.clock), owner: this.owner, contested: this.contested };
   }
 
   applyNetworkSnapshot(data) {
@@ -792,14 +756,10 @@ export class Hardpoint {
     }
     if (Number.isFinite(data.clock)) this.clock = THREE.MathUtils.clamp(data.clock, 0, HP.ROTATE);
     this.contested = !!data.contested;
-    const cap = data.capture;
-    this._capture = cap && (cap.team === 'ct' || cap.team === 't') && Number.isFinite(cap.t)
-      ? { team: cap.team, t: THREE.MathUtils.clamp(cap.t, 0, HP.CAPTURE_TIME) }
-      : { team: null, t: 0 };
     const owner = data.owner === 'ct' || data.owner === 't' ? data.owner : null;
     if (owner !== this.owner) {
-      this._setOwner(owner);
-      if (owner) this.game.events.emit('objective:hardpoint-captured', { team: owner });
+      this.owner = owner;
+      this._paint();
     }
   }
 
@@ -817,17 +777,10 @@ export class Hardpoint {
     return zone ? [{ x: zone.x, z: zone.z, kind: 'flag', name: 'HP', owner: this.owner, contested: this.contested }] : [];
   }
 
-  /** The HP chip: time left on the zone, or capture progress while a side takes it. */
   hud() {
-    if (!this.current()) return null;
-    const capturing = this._capture.team;
-    return [{
-      name: 'HP',
-      owner: this.owner,
-      capturing,
-      control: capturing ? Math.min(1, this._capture.t / HP.CAPTURE_TIME) : 1 - this.clock / HP.ROTATE,
-      contested: this.contested,
-    }];
+    return this.current()
+      ? [{ name: 'HP', owner: this.owner, control: 1 - this.clock / HP.ROTATE, contested: this.contested }]
+      : null;
   }
 
   stop() {

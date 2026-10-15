@@ -49,11 +49,6 @@ export default class Announcer {
       else if (d.owner) this.say('Enemy has taken flag ' + d.name + '.');
     });
     ev.on('objective:hardpoint', () => this.say('Hardpoint moving.'));
-    ev.on('objective:hardpoint-captured', (d) => {
-      const mine = (game.player && game.player.team) || 'ct';
-      if (d && d.team === mine) this.say('Hardpoint secured.');
-      else if (d && d.team) this.say('Enemy has the hardpoint.', true);
-    });
     // Leaving for the menu (or hiding the tab) ends any line mid-sentence.
     ev.on('ui:menu', () => this.stop());
     globalThis.document?.addEventListener?.('visibilitychange', () => {

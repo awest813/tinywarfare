@@ -85,7 +85,7 @@ actor; two bots stuck in 140+ matches, both in S&D.
 | TDM | Healthy: every match to 50 in 250-300 s, margins 5-15 | none | |
 | Kill Confirmed | 6 of 20 matches reached 30; about 75% of pickups were denies. Diagnostic: half the bot denies were bots strafing over a fallen teammate's tag mid-fight, a fifth bots running to the gunfire; one in seven went for the tag | Bots in `engage` or `investigate` do not collect their own side's tags (they still deny on purpose or on patrol, humans on touch) | 12 of 20 reached 30; Harbor and Dustyard 4/4 with more confirms than denies |
 | Domination | Healthy on four maps; Dustyard 0-4 for the U.S. (four samples) | none (sample too small to retune the layout) | |
-| Hardpoint | Zone empty 57% of the match; 2 of 5 timed out. Bots spent 72% of the time 20 m+ from the zone: holds capped at 1.6 s, one order in four went hunting, investigations dragged bots away, and respawns maximised distance from the enemies sitting on the zone | Bots in the zone hold it (`goalRadius`); 90% of orders go to it (`goalWeight`); a rotation retasks every bot; a 20 m `leash` stops chasing noises away from it; respawns are pulled toward it (`spawnFocus`, `SPAWN_ANCHOR`) | Empty 42%; 0 of 20 timed out; matches 504 s to 400 s; spawn deaths 1.3% of kills. With the zone grown to 8 m (10 matches): empty 25%, contested 0.3%, matches 343 s. At 10 m with a point every 1.5 s (10 matches): empty 20%, contested 0.6%, matches 463 s (longest 560 s, none timed out). Adding a 3 s capture at a limit of 150: 4 of 10 timed out (closer matches, loser at 68% of the winner); at a limit of 100: 356 s (longest 480 s), none timed out. Contested time stays under 1% with bots: a lone defender dies as attackers arrive, so the capture mostly stops fresh holds from scoring rather than starting fights inside the zone |
+| Hardpoint | Zone empty 57% of the match; 2 of 5 timed out. Bots spent 72% of the time 20 m+ from the zone: holds capped at 1.6 s, one order in four went hunting, investigations dragged bots away, and respawns maximised distance from the enemies sitting on the zone | Bots in the zone hold it (`goalRadius`); 90% of orders go to it (`goalWeight`); a rotation retasks every bot; a 20 m `leash` stops chasing noises away from it; respawns are pulled toward it (`spawnFocus`, `SPAWN_ANCHOR`) | Empty 42%; 0 of 20 timed out; matches 504 s to 400 s; spawn deaths 1.3% of kills. With the zone grown to 8 m (10 matches): empty 25%, contested 0.3%, matches 343 s. At 10 m with a point every 1.5 s (10 matches): empty 20%, contested 0.6%, matches 463 s (longest 560 s, none timed out). A 3 s capture delay was tried and removed: it pushed 4 of 10 matches to the clock at a limit of 150, needed the limit cut to 100 to fit, and did not raise contested time with bots |
 | FFA | 10.6% of kills within 3 s of a respawn, many inside the 1.5 s protection: bots spawned in sight and fired at once, which ends protection | Bots hold fire while protected | 7.7%. Edge-midpoint spawn candidates (also added) did not move it measurably |
 | S&D | 1 bot defuse in 23 plants. At most detonations every bot on both sides was already dead and only the player was left; on Frostline the defenders never got within 31 m of the bomb (attackers 8-2 twice) | Frostline leaves the S&D rotation (`excludedModes` in `src/maps/catalog.js`, enforced in the menu, at match start and by both room servers); it stays in every respawn mode | |
 
@@ -393,14 +393,11 @@ Shipped solo and online (`src/game/objectives.js`, driven by the respawn engine 
 Both modes use classes, streaks, and spawn protection.
 
 Also shipped:
-- **Hardpoint** (first to 100; was 150 until scoring slowed and captures took 3 s):
+- **Hardpoint** (first to 150):
   - One zone (10 m radius, zones at least 16 m apart) that rotates every 60 s:
     mid first, then the home flags and the bomb sites.
-  - A side alone on a zone it does not own captures it in 3 s; an enemy
-    stepping in freezes the capture, an empty zone falls neutral, and a side
-    that clears the holders captures again from zero. The owner, alone,
-    scores 1 point every 1.5 s (was every second, with no capture). Contested
-    time scores nothing. Holding it alone is worth 50 personal points every 5 s.
+  - A side holding it alone scores 1 point every 1.5 s (was every second).
+    Contested time scores nothing. Holding it alone is worth 50 personal points every 5 s.
   - It shows as a ring and light beam in the holder's colour, an "HP" chip
     whose bar is the time left on the zone, a radar marker, and a "HARDPOINT
     MOVED" banner.

@@ -47,8 +47,7 @@ its host has selected in the menu when the match starts. All modes are ranked.
 - **Domination**: capture and hold flags A (near the U.S.
   side), B (mid), and C (near the Russian side). Every held flag scores a point every 5 seconds. First to 150.
 - **Hardpoint**: hold the single zone, which moves every
-  minute. Hold it alone for 3 seconds to capture it, then score a point every
-  1.5 seconds while your side holds it alone. First to 100.
+  minute. A point every 1.5 seconds while your side holds it alone. First to 150.
 - **Free-for-all**: no teams, first soldier to 30 kills.
 - **Team Deathmatch**: respawn after 3 seconds with an
   M4/AK starter class. First side to 50 kills, or the higher score after

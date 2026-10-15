@@ -152,9 +152,8 @@ test('Hardpoint: one zone scores for a sole holder, freezes when contested, and 
   let moved = 0;
   game.events.on('objective:hardpoint', () => moved++);
   game.player.position.copy(hp.current());
-  hp.update(HP.CAPTURE_TIME + 0.05);
-  assert.equal(hp.owner, 'ct', 'captured after CAPTURE_TIME alone');
   hp.update(HP.SCORE_EVERY * 3 + 0.2);
+  assert.equal(hp.owner, 'ct');
   assert.equal(game.state.scores.ct, 3, 'one point per SCORE_EVERY held');
   assert.ok(HP.SCORE_EVERY > 1, 'scoring is slower than a point a second');
 
@@ -267,59 +266,4 @@ test('Kill Confirmed: a bot mid-firefight does not deny by accident, but confirm
   kc.onDeath('ct', v(10, 10.5));     // an enemy tag: a fighter still confirms it
   kc.update(0.1);
   assert.equal(game.state.scores.t, 1);
-});
-
-test('Hardpoint: a side must hold the zone alone before it scores, and contests freeze the capture', async () => {
-  const { Hardpoint, HP } = await import('../src/game/objectives.js');
-  const game = makeGame('hp');
-  const hp = new Hardpoint(game);
-  const captures = [];
-  game.events.on('objective:hardpoint-captured', (e) => captures.push(e.team));
-  const enemy = game.bots.all[0];
-  const away = v(0, 40);
-  enemy.pos.copy(away);
-  const step = (seconds) => { for (let t = 0; t < seconds; t += 0.1) hp.update(0.1); };
-
-  game.player.position.copy(hp.current());
-  step(HP.CAPTURE_TIME - 1);
-  assert.equal(hp.owner, null, 'still capturing');
-  assert.equal(game.state.scores.ct, 0, 'no points before the capture');
-  assert.equal(hp.hud()[0].capturing, 'ct');
-
-  enemy.pos.copy(hp.current());       // an enemy steps in: contested, frozen
-  step(5);
-  assert.equal(hp.contested, true);
-  assert.equal(hp.owner, null);
-  assert.equal(game.state.scores.ct + game.state.scores.t, 0);
-
-  enemy.pos.copy(away);                // they leave: the capture resumes where it was
-  step(1.1);
-  assert.equal(hp.owner, 'ct');
-  assert.deepEqual(captures, ['ct']);
-
-  // The other side clears the zone: it must capture again from zero.
-  game.player.position.copy(away);
-  enemy.pos.copy(hp.current());
-  step(HP.CAPTURE_TIME - 0.5);
-  assert.equal(hp.owner, null);
-  assert.equal(game.state.scores.t, 0);
-  step(1);
-  assert.equal(hp.owner, 't');
-  assert.deepEqual(captures, ['ct', 't']);
-
-  // Empty, it falls neutral and the progress resets.
-  enemy.pos.copy(away);
-  step(0.2);
-  assert.equal(hp.owner, null);
-  assert.equal(hp.hud()[0].capturing, null);
-
-  // Replicas mirror the capture and announce it.
-  const replica = new Hardpoint(makeGame('hp'));
-  const seen = [];
-  replica.game.events.on('objective:hardpoint-captured', (e) => seen.push(e.team));
-  replica.applyNetworkSnapshot({ index: 0, clock: 5, owner: null, contested: false, capture: { team: 't', t: 1.2 } });
-  assert.equal(replica.hud()[0].capturing, 't');
-  replica.applyNetworkSnapshot({ index: 0, clock: 6, owner: 't', contested: false, capture: null });
-  assert.equal(replica.owner, 't');
-  assert.deepEqual(seen, ['t']);
 });
