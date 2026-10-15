@@ -1783,6 +1783,11 @@ export default class HUD {
     ev.on('streak:package', (d) => this._showMsg(String(d?.label || 'SUPPLIES'),
       d?.reward === 'resupply' ? 'AMMO AND GRENADES REFILLED' : 'BONUS STREAK · PRESS ' + this._bindingLabel('streak3'), 2));
     ev.on('objective:hardpoint', () => this._showMsg('HARDPOINT MOVED', 'NEW ZONE ON THE RADAR', 1.6));
+    ev.on('objective:hardpoint-captured', (d) => {
+      const mine = (this.game.player && this.game.player.team) || 'ct';
+      if (d?.team === mine) this._showMsg('HARDPOINT SECURED', 'HOLD IT TO SCORE', 1.4);
+      else if (d?.team) this._showMsg('ENEMY HOLDS THE HARDPOINT', 'TAKE IT BACK', 1.4);
+    });
     ev.on('objective:flag', (d) => {
       const mine = (this.game.player && this.game.player.team) || 'ct';
       if (d?.owner === mine) this._showMsg('FLAG ' + d.name + ' SECURED', '', 1.4);
@@ -2402,7 +2407,7 @@ export default class HUD {
     const objective = isRespawnMode(st.mode) ? this.game.rounds?.tdm?.objective : null;
     const flags = objective && typeof objective.hud === 'function' ? objective.hud() : null;
     const key = flags
-      ? flags.map((f) => f.name + (f.owner || '-') + (f.contested ? '!' : '') + Math.round(f.control * 20)).join('|')
+      ? flags.map((f) => f.name + (f.owner || '-') + (f.capturing || '') + (f.contested ? '!' : '') + Math.round(f.control * 20)).join('|')
       : '';
     if (key === this._cache.objectiveKey) return;
     this._cache.objectiveKey = key;
@@ -2415,7 +2420,7 @@ export default class HUD {
       const side = (team) => (!team ? '' : team === mine ? 'ours' : 'theirs');
       const color = { ours: '#5f9fe0', theirs: '#e0603c', '': '#d8dccd' };
       const toward = f.name === 'HP'
-        ? color[side(f.owner)]
+        ? color[side(f.capturing || f.owner)]
         : color[side(f.control >= 0 ? 'ct' : 't')];
       return '<span class="obj-flag ' + side(f.owner) + (f.contested ? ' contested' : '') + '" ' +
         'style="--cap:' + Math.round(Math.abs(f.control) * 100) + '%;--capc:' + toward + '">' + esc(f.name) + '<i></i></span>';
