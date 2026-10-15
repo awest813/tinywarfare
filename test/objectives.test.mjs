@@ -253,6 +253,10 @@ test('Kill Confirmed: a bot mid-firefight does not deny by accident, but confirm
   kc.update(0.1);
   assert.equal(kc.tags.length, 1, 'strafing over it mid-fight leaves the tag');
 
+  fighter.state = 'investigate';     // nor while running to the gunfire
+  kc.update(0.1);
+  assert.equal(kc.tags.length, 1);
+
   fighter.state = 'move';            // between fights it denies as before
   kc.update(0.1);
   assert.equal(kc.tags.length, 0);

@@ -110,15 +110,17 @@ function livingActors(game) {
 // ----------------------------------------------------------------------------
 
 /**
- * A bot in a firefight does not deny by accident. Tags drop beside the
+ * A bot reacting to a fight does not deny by accident. Tags drop beside the
  * victim's teammates, and a soak found half of all bot denies were bots
- * strafing over a fallen teammate's tag mid-fight (only one in seven went
- * for the tag), so four tags in five were denied and matches ran out the
- * clock. Bots still deny on purpose or between fights; humans deny on touch.
+ * strafing over a fallen teammate's tag mid-fight and a fifth were bots
+ * running to the gunfire (only one in seven went for the tag), so four tags
+ * in five were denied and matches ran out the clock. Bots still deny on
+ * purpose or on patrol; humans deny on touch.
  */
+const NO_ACCIDENTAL_DENY = new Set(['engage', 'investigate']);
 function botMidFightOnOwnTag(entry, tag) {
   return !entry.isPlayer && !entry.remoteId && entry.team === tag.team &&
-    !!entry.actor && entry.actor.state === 'engage';
+    !!entry.actor && NO_ACCIDENTAL_DENY.has(entry.actor.state);
 }
 
 export class KillConfirmed {
