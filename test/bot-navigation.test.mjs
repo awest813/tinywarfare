@@ -585,3 +585,23 @@ test('a bot on the live hardpoint holds it instead of wandering off to hunt', as
     Math.random = random;
   }
 });
+
+test('a spawn-protected bot tracks its target but holds fire until the protection ends', () => {
+  const { brain } = makeBrain(null);
+  const enemy = makeBot({ team: 't', pos: new THREE.Vector3(0, 0, -15) });
+  brain.all = [enemy];
+  const bot = makeBot({
+    state: 'engage', target: enemy, targetBot: enemy, targetVisible: true,
+    lastSeenTime: 0, reactionTimer: 0, yaw: 0, aimPitch: 0, mag: 30, weaponId: 'm4a1',
+    spawnProtection: 1.5, trackTime: 0, stunUntil: -99,
+  });
+  let shots = 0;
+  brain._fireShot = () => { shots++; };
+  brain._targetPos = (b, out) => out.copy(enemy.pos);
+  for (let i = 0; i < 20; i++) { brain._combatFrame(bot, 1 / 30); brain.time += 1 / 30; bot.lastSeenTime = brain.time; }
+  assert.equal(shots, 0, 'no shot while protected');
+  assert.ok(bot.trackTime > 0.5, 'it keeps settling its aim');
+  bot.spawnProtection = 0;
+  for (let i = 0; i < 10; i++) { brain._combatFrame(bot, 1 / 30); brain.time += 1 / 30; bot.lastSeenTime = brain.time; }
+  assert.ok(shots > 0, 'fires once the protection is gone');
+});

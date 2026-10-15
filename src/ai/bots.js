@@ -2540,6 +2540,11 @@ export default class Bots {
     if (!seen && !blind) return;
     if (bot.reactionTimer > 0) return;
     if (blind && !bot.blindSpray) return;
+    // Fresh off a respawn: keep tracking but hold fire while protected.
+    // Firing ends the protection, and in the free-for-all soak a fifth of all
+    // kills were bots that spawned in sight of someone, shot at once, and died
+    // inside 1.5 s. Holding lets them settle their aim before the first shot.
+    if (bot.spawnProtection > 0) return;
 
     // On-target check: only fire once the barrel is roughly aligned.
     const offYaw = Math.abs(angleDiff(wantYaw, bot.yaw));
