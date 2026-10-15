@@ -665,6 +665,12 @@ export class Hardpoint {
     return this.zones[this.index] || null;
   }
 
+  /** Both sides respawn within reach of the live zone. */
+  spawnAnchors() {
+    const zone = this.current();
+    return zone ? [zone] : [];
+  }
+
   onDeath() {}
 
   update(dt) {

@@ -76,6 +76,18 @@ const _eye = new THREE.Vector3();
 const _to = new THREE.Vector3();
 
 /**
+ * Objective spawn pull. Respawns maximised distance from enemies (up to 45 m),
+ * and in Hardpoint the enemies sit on the zone, so every respawn landed as far
+ * from the objective as the map allowed and the zone stood empty half the
+ * match while bots walked back.
+ */
+export const SPAWN_ANCHOR = Object.freeze({
+  CAP: 30,    // m from the nearest enemy past which a spawn gains nothing
+  PULL: 18,   // score for spawning on an anchor, fading to 0 at REACH
+  REACH: 45,  // m
+});
+
+/**
  * Score candidate spawn points: far from living enemies (hard floor at
  * SAFE_DISTANCE), out of their sight, and preferably near a teammate so the
  * team stays together. Pure function over plain data so it is testable.
@@ -90,6 +102,10 @@ export function pickSafeSpawn(candidates, enemies, friends, opts = {}) {
   if (!Array.isArray(candidates) || candidates.length === 0) return null;
   const random = typeof opts.random === 'function' ? opts.random : Math.random;
   const raycast = typeof opts.raycast === 'function' ? opts.raycast : null;
+  // Objective anchors (the live hardpoint, held flags) pull spawns toward the
+  // fight; with them, distance from enemies stops paying past ANCHOR_CAP.
+  const anchors = Array.isArray(opts.anchors) ? opts.anchors : [];
+  const cap = anchors.length ? SPAWN_ANCHOR.CAP : 45;
 
   // Pass 1, cheap: distances give each candidate its best possible score
   // (sight lines can only take points away).
@@ -107,9 +123,14 @@ export function pickSafeSpawn(candidates, enemies, friends, opts = {}) {
     for (const friend of friends) {
       nearestFriend = Math.min(nearestFriend, Math.hypot(friend.x - pos.x, friend.z - pos.z));
     }
-    let bound = Math.min(nearestEnemy, 45);
+    let bound = Math.min(nearestEnemy, cap);
     if (nearestEnemy < TDM.SAFE_DISTANCE) bound -= 100;
     if (nearestFriend < 22) bound += 8;
+    if (anchors.length) {
+      let nearestAnchor = Infinity;
+      for (const a of anchors) nearestAnchor = Math.min(nearestAnchor, Math.hypot(a.x - pos.x, a.z - pos.z));
+      bound += SPAWN_ANCHOR.PULL * Math.max(0, 1 - nearestAnchor / SPAWN_ANCHOR.REACH);
+    }
     bound += random() * 6;
     rows.push({ candidate, pos, bound, nearestEnemyPos });
   }
@@ -585,16 +606,16 @@ export default class TeamDeathmatch {
     const player = this.game.player;
     if (player) add(player, player.position);
     for (const remote of this._remotes()) add(remote, remote.position);
-    // Objectives can pull spawns (Domination: toward flags this team holds).
-    if (this.objective && typeof this.objective.spawnAnchors === 'function') {
-      for (const pos of this.objective.spawnAnchors(team)) friends.push(pos);
-    }
+    // Objectives pull spawns (Domination: flags this team holds; Hardpoint:
+    // the live zone).
+    const anchors = this.objective && typeof this.objective.spawnAnchors === 'function'
+      ? this.objective.spawnAnchors(team) : [];
 
     const world = this.game.world;
     const raycast = world && typeof world.raycast === 'function'
       ? (origin, dir, dist) => world.raycast(origin, dir, dist)
       : null;
-    const spawn = pickSafeSpawn(this._spawnCandidates(), enemies, friends, { raycast });
+    const spawn = pickSafeSpawn(this._spawnCandidates(), enemies, friends, { raycast, anchors });
     if (spawn) return spawn;
     const own = world && world.spawns && world.spawns[team];
     const fallback = own && own[0];

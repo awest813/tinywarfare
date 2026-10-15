@@ -201,3 +201,16 @@ test('the lazy spawn search picks exactly what scoring every candidate would', (
   }
   assert.ok(raysLazy < 40 * 40 * 9 * 0.5, `the lazy search skips most sight lines (${raysLazy})`);
 });
+
+test('objective anchors pull respawns toward the fight without breaking the safety floor', () => {
+  const noRandom = { random: () => 0 };
+  const zone = v(0, 0);
+  const enemies = [v(0, 2)];                       // the enemy holds the zone
+  const near = { pos: v(24, 0), yaw: 0 };          // 22 m from that enemy, by the zone
+  const far = { pos: v(60, 40), yaw: 0 };          // as far from everyone as the map allows
+  const tooClose = { pos: v(6, 0), yaw: 0 };       // on the zone, inside SAFE_DISTANCE
+  const candidates = [far, near, tooClose];
+  assert.ok(pickSafeSpawn(candidates, enemies, [], noRandom).pos.equals(far.pos), 'without anchors: farthest');
+  const pick = pickSafeSpawn(candidates, enemies, [], { ...noRandom, anchors: [zone] });
+  assert.ok(pick.pos.equals(near.pos), `with the zone as anchor: ${pick.pos.toArray()}`);
+});
