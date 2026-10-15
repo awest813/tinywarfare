@@ -13,6 +13,7 @@ import { MAP_CATALOG, mapForMode, mapSupportsMode, normalizeMapId } from '../map
 import { FACTIONS, FLAG_SVG, faction, scoreLine } from '../shared/factions.js';
 import { GAME_MODES, TDM, isRespawnMode, modeRules, normalizeModeId } from '../game/tdm.js';
 import { STREAKS, STREAK_IDS } from '../game/streaks.js';
+import { BOT_SKILLS, BOT_SKILL_STORAGE_KEY, normalizeBotSkill } from '../ai/skill.js';
 import { ATTACHMENTS, ATTACHMENT_IDS, LETHALS, PRIMARIES, SECONDARIES, TACTICALS, PERKS, PERK1_IDS, PERK2_IDS } from '../game/loadouts.js';
 import { ATTACHMENT_LEVEL } from '../game/progression.js';
 import { hostile, hostileTeams, isFfa } from '../game/hostility.js';
@@ -454,6 +455,7 @@ export default class HUD {
       buyHintKey: $('hud-buy-hint-key'),
       mapPicker: $('hud-map-picker'),
       modePicker: $('hud-mode-picker'),
+      botSkillRow: $('hud-bot-skill'),
       classPicker: $('hud-class-picker'),
       classRow: $('hud-class-row'),
       classEdit: $('hud-class-edit'),
@@ -628,6 +630,14 @@ export default class HUD {
         button.addEventListener('click', () => this._selectMode(button.dataset.modeId));
       }
     }
+    if (this._el.botSkillRow) {
+      for (const button of this._el.botSkillRow.querySelectorAll('[data-bot-skill]')) {
+        button.addEventListener('click', () => this._selectBotSkill(button.dataset.botSkill));
+      }
+    }
+    let savedSkill = null;
+    try { savedSkill = localStorage.getItem(BOT_SKILL_STORAGE_KEY); } catch { /* private mode */ }
+    this._selectBotSkill(this.game?.botSkill || savedSkill, { notify: false });
     this._bindClassControls();
     let savedMode = null;
     try { savedMode = localStorage.getItem('tiny-strike-mode'); } catch { /* private mode */ }
@@ -1401,6 +1411,28 @@ export default class HUD {
     if (changed && options.notify !== false) this.game?.events?.emit?.('ui:mode-select', { mode: id });
   }
 
+  /** Pick the bot difficulty tier (src/ai/skill.js) for the next match. */
+  _selectBotSkill(value, options = {}) {
+    const id = normalizeBotSkill(value);
+    const changed = this.game && this.game.botSkill !== id;
+    const mp = this.game?.multiplayer;
+    const roomGuest = !!(mp && mp.connected && !mp.active && !mp.isHost);
+    // A room's tier mirrored from the host is not this player's preference.
+    if (this.game && options.persist !== false) this.game.botSkill = id;
+    if (options.persist !== false && !roomGuest) {
+      try { localStorage.setItem(BOT_SKILL_STORAGE_KEY, id); } catch { /* private mode */ }
+    }
+    if (this._el.botSkillRow) {
+      for (const button of this._el.botSkillRow.querySelectorAll('[data-bot-skill]')) {
+        const selected = button.dataset.botSkill === id;
+        button.classList.toggle('selected', selected);
+        button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      }
+    }
+    this._updateStartSub();
+    if (changed && options.notify !== false) this.game?.events?.emit?.('ui:bot-skill-select', { skill: id });
+  }
+
   /** Grey out the maps a mode does not run on. */
   _refreshMapAvailability(mode) {
     if (!this._el.mapPicker) return;
@@ -1566,7 +1598,9 @@ export default class HUD {
     if (!this._el.startSub) return;
     const entry = MAP_CATALOG.find((map) => map.id === this._selectedMapId);
     const mode = GAME_MODES[normalizeModeId(this.game?.selectedMode)];
-    this._el.startSub.textContent = mode.short + (entry ? ' · ON ' + String(entry.name).toUpperCase() : '');
+    const skill = BOT_SKILLS[normalizeBotSkill(this.game?.botSkill)];
+    this._el.startSub.textContent = mode.short + (entry ? ' · ON ' + String(entry.name).toUpperCase() : '') +
+      ' · ' + skill.label + ' BOTS';
   }
 
   _queueMapSelection(id) {
@@ -4072,6 +4106,11 @@ export default class HUD {
       '<div class="mn-mode-row">' + Object.values(GAME_MODES).map((mode) =>
         '<button type="button" class="mn-mode" data-mode-id="' + mode.id + '" aria-pressed="false">' +
         '<strong>' + mode.label + '</strong><span>' + mode.detail + '</span></button>').join('') +
+      '</div>' +
+      '<div class="mn-section-head mn-sub-head">BOTS</div>' +
+      '<div class="mn-mode-row mn-skill-row" id="hud-bot-skill">' + Object.values(BOT_SKILLS).map((skill) =>
+        '<button type="button" class="mn-mode" data-bot-skill="' + skill.id + '" aria-pressed="false">' +
+        '<strong>' + skill.label + '</strong><span>' + skill.detail + '</span></button>').join('') +
       '</div></section>' +
       '<section class="mn-class-picker" id="hud-class-picker" aria-label="Choose a class" hidden>' +
       '<div class="mn-section-head">CLASS<span class="mn-rank" id="hud-rank-chip"></span>' +
@@ -5103,6 +5142,8 @@ export default class HUD {
 .mn-mode:focus-visible { outline:2px solid var(--olive-bright); outline-offset:2px; }
 .mn-mode.selected { border-color:var(--olive-bright); background:rgba(154,178,107,.16); box-shadow:inset 0 0 0 1px var(--olive); }
 .mn-mode.selected span { color:var(--olive-bright); }
+.mn-sub-head { margin-top:8px; }
+.mn-skill-row { grid-template-columns:repeat(3,minmax(0,1fr)); }
 /* ---------- primary action + quiet secondary row ---------- */
 .mn-actions,.end-actions { position:relative; display:flex; align-items:stretch; justify-content:center; gap:10px; }
 #hud-start, #hud-restart, #hud-end-leaderboard {

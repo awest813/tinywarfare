@@ -11,6 +11,7 @@ import {
 } from './src/server/leaderboard.mjs';
 import { normalizeCharacterId } from './src/player/profile.js';
 import { mapForMode } from './src/maps/catalog.js';
+import { normalizeBotSkill } from './src/ai/skill.js';
 import { rankedOutcome } from './src/shared/leaderboard-core.mjs';
 import {
   acceptAuthoritySnapshot,
@@ -196,6 +197,7 @@ function roomPayload(room) {
     room: room.code,
     mode: room.mode,
     gameMode: cleanGameMode(room.gameMode),
+    botSkill: normalizeBotSkill(room.botSkill),
     mapId: room.mapId,
     started: room.started,
     hostId: room.hostId,
@@ -516,6 +518,7 @@ function welcomePayload(room, client, resumed = false) {
     room: room.code,
     mode: room.mode,
     gameMode: cleanGameMode(room.gameMode),
+    botSkill: normalizeBotSkill(room.botSkill),
     mapId: room.mapId,
     ranked: !!client.leaderboardPlayerId,
     reconnectToken: client.reconnectToken,
@@ -547,6 +550,7 @@ function matchResumePayload(room, client) {
     mapId: room.mapId,
     mode: room.mode,
     gameMode: cleanGameMode(room.gameMode),
+    botSkill: normalizeBotSkill(room.botSkill),
     players: [...room.players.values()].map((player) => ({
       ...publicPlayer(player, room.hostId),
       stats: statsFor(player),
@@ -625,6 +629,7 @@ function joinRoom(ws, client, msg) {
       code,
       mode: msg.mode === 'humans' ? 'humans' : 'mixed',
       gameMode: cleanGameMode(msg.gameMode),
+      botSkill: normalizeBotSkill(msg.botSkill),
       // A map can be out of a mode's rotation (Frostline in S&D).
       mapId: mapForMode(cleanMapId(msg.mapId), cleanGameMode(msg.gameMode)),
       hostId: client.id,
@@ -688,6 +693,7 @@ function joinRoom(ws, client, msg) {
       mapId: room.mapId,
       mode: room.mode,
       gameMode: cleanGameMode(room.gameMode),
+      botSkill: normalizeBotSkill(room.botSkill),
       players: [...room.players.values()].map((player) => publicPlayer(player, room.hostId)),
       // Respawn rooms have no round to wait for: the authority deploys
       // late joiners within seconds, so they are not spectators.
@@ -765,6 +771,7 @@ function startMatch(room, client) {
     mapId: room.mapId,
     mode: room.mode,
     gameMode: cleanGameMode(room.gameMode),
+    botSkill: normalizeBotSkill(room.botSkill),
     ...authoritySnapshotEnvelope(room, null),
     hostId: room.hostId,
     players: [...room.players.values()].map((p) => publicPlayer(p, room.hostId)),
@@ -804,6 +811,12 @@ function handleRoomMessage(client, msg) {
     case 'set_map':
       if (!room.started && room.hostId === client.id) {
         room.mapId = mapForMode(cleanMapId(msg.mapId), cleanGameMode(room.gameMode));
+        broadcastLobby(room);
+      }
+      break;
+    case 'set_bot_skill':
+      if (!room.started && room.hostId === client.id) {
+        room.botSkill = normalizeBotSkill(msg.botSkill);
         broadcastLobby(room);
       }
       break;

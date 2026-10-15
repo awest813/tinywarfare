@@ -55,12 +55,9 @@ export const CONFIG = {
     HEIGHT: 1.83,
     EYE: 1.62,
     RUN_SPEED: 4.6,
-    TURN_SPEED: 8,          // rad/s aim smoothing
-    REACTION_MIN: 0.22,     // seconds from spotting to first shot
-    REACTION_MAX: 0.55,
-    ENGAGE_RANGE: 45,
-    HEAR_RANGE: 22,         // hears gunfire within this radius
-    FOV_DEG: 110,
+    HEAR_RANGE: 22,         // hears gunfire within this radius (scaled by tier)
+    // Reaction, turn speed, aim, sight and the rest are per difficulty tier:
+    // src/ai/skill.js.
   },
 
   // Damage armor model: armored damage = dmg * 0.5, armor absorbs dmg * 0.5 * 0.5

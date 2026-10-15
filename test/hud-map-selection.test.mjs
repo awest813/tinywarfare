@@ -89,7 +89,7 @@ test('map selection updates the card, PLAY label, game state, and storage inside
   assert.ok(elapsed < 100, `selection took ${elapsed.toFixed(1)} ms`);
   assert.equal(fixture.hud._selectedMapId, 'harbor');
   assert.equal(fixture.game.selectedMapId, 'harbor');
-  assert.equal(fixture.startSub.textContent, 'S&D · ON HARBOR');
+  assert.equal(fixture.startSub.textContent, 'S&D · ON HARBOR · REGULAR BOTS');
   assert.deepEqual(writes, [['tiny-strike-map', 'harbor']]);
   assert.deepEqual(fixture.emitted, [], 'the expensive map event must not run in the click turn');
 

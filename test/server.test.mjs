@@ -740,6 +740,15 @@ test('respawn-mode rooms carry the game mode and let the authority revive player
   host.send(JSON.stringify({ type: 'set_game_mode', gameMode: 'tdm' }));
   assert.equal((await tdmLobby).gameMode, 'tdm');
 
+  // The bot tier is the host's pick too.
+  const vetLobby = nextMessage(guest, 'lobby');
+  host.send(JSON.stringify({ type: 'set_bot_skill', botSkill: 'veteran' }));
+  assert.equal((await vetLobby).botSkill, 'veteran');
+  const ignoredSkill = expectNoMessage(host, 'lobby');
+  guest.send(JSON.stringify({ type: 'set_bot_skill', botSkill: 'recruit' }));
+  await ignoredSkill;
+  assert.equal(rooms.get('TDM001').botSkill, 'veteran');
+
   // Frostline is out of the S&D rotation: picking S&D moves the room off it,
   // and an S&D room cannot pick it.
   const frostLobby = nextMessage(guest, 'lobby');
@@ -760,6 +769,7 @@ test('respawn-mode rooms carry the game mode and let the authority revive player
   host.send(JSON.stringify({ type: 'start_match' }));
   const [start] = await Promise.all([hostStart, guestStart]);
   assert.equal(start.gameMode, 'tdm');
+  assert.equal(start.botSkill, 'veteran', 'every client learns the tier, so a new authority keeps it');
   const epoch = start.authorityEpoch;
   const listed = await fetch(`http://127.0.0.1:${port}/api/rooms`).then((r) => r.json());
   assert.equal(listed.rooms[0].gameMode, 'tdm');

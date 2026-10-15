@@ -16,6 +16,7 @@ import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { isRespawnMode } from '../game/tdm.js';
 import { hostile, isFfa } from '../game/hostility.js';
+import { BOT_SKILLS, botSkill } from './skill.js';
 import { getCharacterPalette } from '../player/profile.js';
 import { buildAnimationSet, OperativeAnimator, IK_FAR_SQ } from './operative-anim.js';
 import {
@@ -193,7 +194,6 @@ const NODE_REACH = 0.42;
 const FOOTSTEP_DIST = 2.6;
 const WALK_SPEED = 2.2;
 const CORPSE_FALL_TIME = 0.4;
-const LOSE_TARGET_TIME = 2.2; // s unseen before target degrades to a memory
 const PLANT_CLEAR_TIME = 1.5; // s without a visible enemy before planting starts
 const TEAM_SEPARATION = 2.15;
 const TEAM_QUEUE_DISTANCE = 2.75;
@@ -289,6 +289,20 @@ export default class Bots {
   // -------------------------------------------------------------------------
   // Public API (spec section G)
   // -------------------------------------------------------------------------
+
+  /**
+   * The difficulty profile every bot plays this match (src/ai/skill.js),
+   * read from game.botSkill: the menu pick solo, the room's setting online.
+   */
+  _skill() {
+    const mp = this.game && this.game.multiplayer;
+    const id = mp && mp.active && mp.botSkill ? mp.botSkill : this.game && this.game.botSkill;
+    if (!this._sk || id !== this._skId) {
+      this._skId = id;
+      this._sk = id ? botSkill(id) : BOT_SKILLS.regular;
+    }
+    return this._sk;
+  }
 
   aliveOf(team) {
     let n = 0;
@@ -596,9 +610,10 @@ export default class Bots {
       let dur = (2.2 * (1 - d / 16) + 0.7) * (facing ? 1.35 : 0.75);
       dur = Math.max(0.4, Math.min(3.4, dur));
       b.blindUntil = Math.max(b.blindUntil, this.time + dur);
-      b.blindSpray = Math.random() < 0.3;
-      // Blindness breaks concentration on objectives.
+      b.blindSpray = Math.random() < this._skill().blindSpray;
+      // Blindness breaks concentration on objectives, a plant included.
       b.plantClearTimer = 0;
+      if (b.state === 'plant') { b.plantTimer = 0; b.state = 'hold'; b.holdTimer = 0; }
       if (b.state === 'defuse') this._cancelDefuse(b);
     }
   }
@@ -1851,6 +1866,18 @@ export default class Bots {
     bot.burstLeft = 0;
     bot.pauseTimer = 0;
     bot.reloadTimer = 0;
+    bot.bloom = 0;
+    bot.aimHead = false;
+    bot.attacker = null;
+    bot.damageHandled = -99;
+    bot.deafUntil = 0;
+    bot.noiseTime = -99;
+    bot.rescanAt = 0;
+    bot.leadTarget = null;
+    bot.grenades = this._skill().grenade > 0 ? 1 : 0;
+    bot.grenadeFor = null;
+    bot.dodgeUntil = 0;
+    if (bot.dodgeSeen) bot.dodgeSeen.clear();
     bot.plantClearTimer = 0;
     bot.plantTimer = 0;
     bot.defuseTimer = 0;
@@ -1929,6 +1956,9 @@ export default class Bots {
     }
     if (fromPos) bot.damageFromPos.copy(fromPos);
     else bot.damageFromPos.copy(bot.pos);
+    // Who did it: target switching turns on the attacker by identity.
+    bot.attacker = from && from !== bot && from.alive !== false && (from.pos || from.position) &&
+      hostile(this.game, from, bot) ? from : null;
 
     // Getting shot cancels plant/defuse concentration.
     bot.plantClearTimer = 0;
@@ -2022,8 +2052,11 @@ export default class Bots {
     });
 
     ev.on('bot:footstep', (p) => {
-      if (!p || !p.pos || !p.bot) return;
-      this._hearSound(p.pos, p.bot.team, this._cfg.HEAR_RANGE, p.bot);
+      if (!p || !p.pos) return;
+      if (p.bot) this._hearSound(p.pos, p.bot.team, this._cfg.HEAR_RANGE, p.bot);
+      // A remote human's steps, synthesized from its replicated motion: the
+      // authority's bots never heard them before.
+      else if (p.replica && p.human) this._hearSound(p.pos, p.team || null, this._cfg.HEAR_RANGE);
     });
 
     ev.on('fx:explosion', (p) => {
@@ -2050,6 +2083,7 @@ export default class Bots {
   }
 
   _hearSound(pos, sourceTeam, range, sourceBot) {
+    range *= this._skill().hearing;
     for (let i = 0; i < this.all.length; i++) {
       const b = this.all[i];
       if (!b.alive || b === sourceBot) continue;
@@ -2058,6 +2092,97 @@ export default class Bots {
       if (dx * dx + dz * dz > range * range) continue;
       b.heardPos.copy(pos);
       b.heardTime = this.time;
+      // heardTime is consumed by the investigate roll; this is remembered
+      // for where to look while holding.
+      if (!b.noisePos) b.noisePos = new THREE.Vector3();
+      b.noisePos.copy(pos);
+      b.noiseTime = this.time;
+    }
+  }
+
+  /**
+   * Where a holding bot looks next: toward the freshest thing it knows about
+   * (a hit, a sighting, a noise) when its tier is alert enough to use it,
+   * otherwise a random sweep around its facing.
+   */
+  _scanYaw(bot, sk) {
+    let pos = null;
+    let at = this.time - 12;
+    if (bot.damageTime > at) { at = bot.damageTime; pos = bot.damageFromPos; }
+    if (bot.lastSeenTime > at) { at = bot.lastSeenTime; pos = bot.lastSeenPos; }
+    if (bot.noisePos && bot.noiseTime > at) { at = bot.noiseTime; pos = bot.noisePos; }
+    if (pos && Math.random() < sk.huntSense) {
+      const dx = pos.x - bot.pos.x, dz = pos.z - bot.pos.z;
+      if (dx * dx + dz * dz > 1) return yawFromDir(dx, dz) + rand(-0.45, 0.45);
+    }
+    return bot.yaw + rand(-1.2, 1.2);
+  }
+
+  /**
+   * Frag a target that ducked behind cover, once per sighting. Regular and
+   * Veteran bots carry one per life. Returns true when a grenade was thrown.
+   */
+  _tryGrenade(bot, sk) {
+    if (!(sk.grenade > 0) || !(bot.grenades > 0) || bot.reloadTimer > 0) return false;
+    if (bot.grenadeFor === bot.lastSeenTime) return false;
+    bot.grenadeFor = bot.lastSeenTime;
+    if (Math.random() >= sk.grenade) return false;
+    const target = bot.lastSeenPos;
+    const eye = this._botEye(bot, _eyeA);
+    const dx = target.x - eye.x, dz = target.z - eye.z;
+    const flat = Math.hypot(dx, dz);
+    if (flat < 5 || flat > 16) return false;
+    // Never into a teammate's lap.
+    for (const o of this.all) {
+      if (o === bot || !o.alive || hostile(this.game, o, bot)) continue;
+      if (o.pos.distanceToSquared(target) < 20) return false;
+    }
+    // Lob at 40 degrees, landing a little short so the roll carries it in.
+    const g = 20;
+    const d = flat - 1.2;
+    const h = target.y + 0.2 - eye.y;
+    const theta = 0.7;
+    const c = Math.cos(theta);
+    const denom = 2 * c * c * (d * Math.tan(theta) - h);
+    if (denom <= 0) return false;
+    const v = Math.sqrt(g * d * d / denom);
+    if (!(v <= 14)) return false;
+    const ux = dx / flat, uz = dz / flat;
+    const dir = new THREE.Vector3(ux * c, Math.sin(theta), uz * c);
+    this.game.events.emit('bot:grenade', {
+      bot, type: 'hegrenade', origin: eye.clone(), dir, strength: v,
+    });
+    bot.grenades--;
+    bot.pauseTimer = Math.max(bot.pauseTimer, 0.5);
+    bot.fireAnim = 1;
+    return true;
+  }
+
+  /** Run from a live enemy frag or semtex close by (once per grenade, by tier). */
+  _dodgeGrenade(bot, sk) {
+    if (bot.dodgeUntil > this.time) return;
+    const combat = this.game.combat;
+    if (!combat || typeof combat.liveExplosives !== 'function') return;
+    for (const p of combat.liveExplosives()) {
+      if (p.stuckTo === bot || p.fuse > 2.2) continue;
+      const friendly = p.thrower !== bot && !isFfa(this.game) && p.throwerTeam === bot.team;
+      if (friendly) continue;
+      const dx = bot.pos.x - p.pos.x, dz = bot.pos.z - p.pos.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > 36 || Math.abs(bot.pos.y - p.pos.y) > 3) continue;
+      // Pooled projectiles are reused, so a grenade is known by its throw.
+      if (!bot.dodgeSeen) bot.dodgeSeen = new Set();
+      if (bot.dodgeSeen.has(p.throwId)) continue;
+      bot.dodgeSeen.add(p.throwId);
+      if (Math.random() >= sk.dodge) continue;
+      const d = Math.sqrt(d2) || 1;
+      if (!bot.dodgeDir) bot.dodgeDir = new THREE.Vector3();
+      bot.dodgeDir.set(dx / d, 0, dz / d);
+      if (d < 0.2) bot.dodgeDir.set(Math.sin(bot.yaw), 0, Math.cos(bot.yaw));
+      bot.dodgeUntil = this.time + Math.min(1.8, p.fuse + 0.25);
+      if (bot.state === 'plant') { bot.plantTimer = 0; bot.state = 'hold'; bot.holdTimer = 0; }
+      if (bot.state === 'defuse') this._cancelDefuse(bot);
+      return;
     }
   }
 
@@ -2150,7 +2275,12 @@ export default class Bots {
     const stationary = bot.state === 'plant' || bot.state === 'defuse' ||
       (bot.state === 'hold' && !bot.hasGoal) || bot.state === 'idle';
 
-    if (blind && bot.state === 'engage') {
+    const sk = this._skill();
+    if (bot.dodgeUntil > this.time && bot.dodgeDir) {
+      // Running from a live grenade beats every other errand.
+      _delta.copy(bot.dodgeDir);
+      wantSpeed = this._cfg.RUN_SPEED;
+    } else if (blind && bot.state === 'engage') {
       // Blind: freeze and pray.
       wantSpeed = 0;
     } else if (bot.state === 'engage' && bot.target) {
@@ -2162,7 +2292,7 @@ export default class Bots {
           // rest of the duel. Resume on its stable formation side instead.
           bot.strafeDir = bot.formationSide || 1;
           bot.strafeTimer = rand(0.45, 0.75);
-        } else if (Math.random() < 0.18) {
+        } else if (Math.random() < sk.strafeStop) {
           bot.strafeDir = 0;
           bot.strafeTimer = rand(0.18, 0.32);
         } else {
@@ -2184,12 +2314,18 @@ export default class Bots {
         // AWP holds ground; others jiggle at ~55% run speed and close distance
         // when far beyond their weapon's comfort range.
         const stats = GUN[bot.weaponId] || GUN_FALLBACK;
-        const advance = dist > stats.prefer ? 0.75 : (dist < stats.prefer * 0.4 ? -0.4 : 0);
+        // Reloading in a fight: give ground and keep moving sideways.
+        const covering = sk.reloadCover && bot.reloadTimer > 0;
+        const advance = covering ? -0.8
+          : dist > stats.prefer ? 0.75 : (dist < stats.prefer * 0.4 ? -0.4 : 0);
+        if (covering && bot.strafeDir === 0) _v2.set(-_v1.z, 0, _v1.x).multiplyScalar(bot.formationSide || 1);
         _v2.addScaledVector(_v1, advance);
         if (_v2.lengthSq() > 0.001) {
           _v2.normalize();
-          wantSpeed = this._cfg.RUN_SPEED * (bot.weaponId === 'awp' ? 0.35 : 0.62);
+          wantSpeed = this._cfg.RUN_SPEED * (bot.weaponId === 'awp' ? 0.35 : sk.strafe);
           if (bot.crouching) wantSpeed *= 0.45;
+          if (bot.stunUntil > this.time) wantSpeed *= STUN_SPEED_SCALE;
+          if (bot.perk === 'lightweight') wantSpeed *= 1.08;
           _delta.copy(_v2);
         }
       }
@@ -2248,7 +2384,7 @@ export default class Bots {
         if (Math.abs(bot.pos.y - o.pos.y) > 1.25) continue; // catwalk vs ground
         const dx = bot.pos.x - o.pos.x, dz = bot.pos.z - o.pos.z;
         const d2 = dx * dx + dz * dz;
-        const teammate = o.team === bot.team;
+        const teammate = !hostile(this.game, o, bot);
         const separation = teammate ? TEAM_SEPARATION : 1.0;
         if (d2 > 0.0001 && d2 < separation * separation) {
           const d = Math.sqrt(d2);
@@ -2487,20 +2623,26 @@ export default class Bots {
   // -------------------------------------------------------------------------
 
   _combatFrame(bot, dt) {
+    const sk = this._skill();
+    const stats = GUN[bot.weaponId] || GUN_FALLBACK;
     // Carry the overshoot of a RUNNING cooldown into the next one (an idle
     // trigger rests at 0): clamping every expiry to the frame dropped the
     // remainder, so a bot AK cycled at 514 rpm on a 60 fps host, not 600.
     bot.fireCooldown = bot.fireCooldown > 0 ? bot.fireCooldown - dt : 0;
-    if (bot.reloadTimer > 0) {
+    // The pause between bursts runs on the clock, not only while the bot has
+    // a clean sight picture (it used to freeze whenever the target ducked).
+    if (bot.pauseTimer > 0) bot.pauseTimer = Math.max(0, bot.pauseTimer - dt);
+    // Recoil bloom builds through a burst and recovers in the pause after it.
+    if (bot.bloom > 0 && !(bot.burstLeft > 0)) bot.bloom = Math.max(0, bot.bloom - dt * 4);
+    const reloading = bot.reloadTimer > 0;
+    if (reloading) {
       bot.reloadTimer -= dt;
       if (bot.reloadTimer <= 0) {
-        const stats = GUN[bot.weaponId] || GUN_FALLBACK;
         bot.mag = stats.mag;
         bot.burstLeft = 0;
+        bot.bloom = 0;
         bot.pauseTimer = rand(0.1, 0.25);
       }
-      bot.aimBlend = Math.max(0, bot.aimBlend - dt * 2);
-      return;
     }
 
     const blind = bot.blindUntil > this.time;
@@ -2508,84 +2650,153 @@ export default class Bots {
     if (bot.state !== 'engage' || !bot.target) {
       bot.aimBlend = Math.max(0, bot.aimBlend - dt * 2.5);
       bot.aimPitch += (0 - bot.aimPitch) * Math.min(1, 6 * dt);
+      // Shot by someone it cannot see: turn toward the shots.
+      if (sk.damageTurn > 0 && this.time - bot.damageTime < 0.7 && !blind) {
+        const want = yawFromDir(bot.damageFromPos.x - bot.pos.x, bot.damageFromPos.z - bot.pos.z);
+        const k = 1 - Math.exp(-sk.turnSpeed * sk.damageTurn * dt);
+        bot.yaw += angleDiff(want, bot.yaw) * k;
+      }
       return;
     }
 
-    bot.aimBlend = Math.min(1, bot.aimBlend + dt * 5);
-    bot.reactionTimer = Math.max(0, bot.reactionTimer - dt);
+    bot.aimBlend = reloading
+      ? Math.max(0.35, bot.aimBlend - dt * 2)
+      : Math.min(1, bot.aimBlend + dt * 5);
+    // A spawn-protected bot tracks but its reaction does not start until the
+    // protection ends: holding fire used to hand it a free, settled pre-aim.
+    if (!(bot.spawnProtection > 0)) bot.reactionTimer = Math.max(0, bot.reactionTimer - dt);
     bot.trackTime += dt;
 
     // Where is the enemy?
-    const tp = bot.targetVisible === false
-      ? _v3.copy(bot.lastSeenPos)
-      : this._targetPos(bot, _v3);
+    const live = bot.targetVisible !== false;
+    const tp = live ? this._targetPos(bot, _v3) : _v3.copy(bot.lastSeenPos);
     if (!tp) return;
+    if (live) {
+      // Track the target's velocity for lead (smoothed; teleports ignored).
+      if (bot.leadFrom && bot.leadTarget === bot.target && dt > 0) {
+        const vx = (tp.x - bot.leadFrom.x) / dt;
+        const vz = (tp.z - bot.leadFrom.z) / dt;
+        if (vx * vx + vz * vz < 400) {
+          const a = Math.min(1, dt * 8);
+          bot.leadVel.x += (vx - bot.leadVel.x) * a;
+          bot.leadVel.z += (vz - bot.leadVel.z) * a;
+        }
+      } else if (bot.leadVel) {
+        bot.leadVel.set(0, 0, 0);
+      }
+      if (!bot.leadFrom) { bot.leadFrom = new THREE.Vector3(); bot.leadVel = new THREE.Vector3(); }
+      bot.leadFrom.copy(tp);
+      bot.leadTarget = bot.target;
+      bot.aimHeight = this._aimHeight(bot);
+    }
     this._botEye(bot, _eyeA);
-    const aimY = tp.y + (bot.targetIsPlayer ? 1.35 : 1.3); // chest-high
-    _v1.set(tp.x - _eyeA.x, aimY - _eyeA.y, tp.z - _eyeA.z);
+    const aimY = tp.y + (bot.aimHeight || (bot.targetIsPlayer ? 1.35 : 1.3));
+    let ax = tp.x;
+    let az = tp.z;
+    if (live && sk.lead > 0 && bot.leadVel) {
+      // Aim ahead by the lag the exponential chase builds up on a mover.
+      const ahead = sk.lead / sk.turnSpeed;
+      ax += bot.leadVel.x * ahead;
+      az += bot.leadVel.z * ahead;
+    }
+    _v1.set(ax - _eyeA.x, aimY - _eyeA.y, az - _eyeA.z);
     const dist = _v1.length();
     if (dist < 0.05) return;
     _v1.multiplyScalar(1 / dist);
 
-    // Smoothed turn toward the target (TURN_SPEED rad/s exponential chase).
+    // Smoothed turn toward the target (exponential chase at the tier's speed).
     const wantYaw = yawFromDir(_v1.x, _v1.z);
     const wantPitch = Math.asin(Math.max(-1, Math.min(1, _v1.y)));
-    const turn = this._cfg.TURN_SPEED * (bot.stunUntil > this.time ? STUN_SPEED_SCALE : 1);
+    const turn = sk.turnSpeed * (bot.stunUntil > this.time ? STUN_SPEED_SCALE : 1);
     const k = 1 - Math.exp(-turn * dt);
     bot.yaw += angleDiff(wantYaw, bot.yaw) * k;
     bot.aimPitch += (wantPitch - bot.aimPitch) * k;
+    if (reloading) return;
 
     // Can we actually see them right now?
     const seen = bot.targetVisible && this.time - bot.lastSeenTime < 0.35;
-    if (!seen && !blind) return;
+    if (!seen && !blind) {
+      // Nothing to shoot: top the magazine up behind cover.
+      if (bot.mag < stats.mag * 0.5 && this.time - bot.lastSeenTime > 0.6) this._startReload(bot, stats);
+      return;
+    }
     if (bot.reactionTimer > 0) return;
     if (blind && !bot.blindSpray) return;
     // Fresh off a respawn: keep tracking but hold fire while protected.
     // Firing ends the protection, and in the free-for-all soak a fifth of all
     // kills were bots that spawned in sight of someone, shot at once, and died
-    // inside 1.5 s. Holding lets them settle their aim before the first shot.
+    // inside 1.5 s.
     if (bot.spawnProtection > 0) return;
 
     // On-target check: only fire once the barrel is roughly aligned.
     const offYaw = Math.abs(angleDiff(wantYaw, bot.yaw));
     const offPitch = Math.abs(wantPitch - bot.aimPitch);
-    if (!blind && (offYaw > 0.12 || offPitch > 0.12)) return;
+    if (!blind && (offYaw > sk.onTarget || offPitch > sk.onTarget)) return;
 
     // Burst discipline.
-    const stats = GUN[bot.weaponId] || GUN_FALLBACK;
-    if (bot.pauseTimer > 0) { bot.pauseTimer -= dt; return; }
+    if (bot.pauseTimer > 0) return;
     if (bot.burstLeft <= 0) {
-      bot.burstLeft = randInt(stats.burst[0], stats.burst[1]);
+      bot.burstLeft = Math.max(1, Math.round(randInt(stats.burst[0], stats.burst[1]) * sk.burst));
     }
     if (bot.fireCooldown > 0) return;
     if (bot.mag <= 0) {
-      bot.reloadTimer = stats.reload;
+      this._startReload(bot, stats);
       return;
     }
 
     this._fireShot(bot, dist, blind);
     bot.mag--;
     bot.burstLeft--;
+    bot.bloom = (bot.bloom || 0) + sk.bloom;
     bot.fireCooldown += 60 / stats.rpm;
     if (stats.bolt) bot.fireCooldown = Math.max(bot.fireCooldown, stats.bolt);
     if (bot.burstLeft <= 0) {
-      bot.pauseTimer = rand(stats.pause[0], stats.pause[1]);
+      bot.pauseTimer = rand(stats.pause[0], stats.pause[1]) * sk.pause;
       // Long-range discipline: sometimes take a knee for the next burst.
       const farFight = dist > 26;
-      bot.wantCrouch = farFight && Math.random() < 0.35;
+      bot.wantCrouch = farFight && Math.random() < sk.crouchFar;
+      // Each burst picks chest or head again.
+      bot.aimHead = Math.random() < sk.headChance;
     }
+  }
+
+  _startReload(bot, stats = GUN[bot.weaponId] || GUN_FALLBACK) {
+    if (bot.reloadTimer > 0 || bot.mag >= stats.mag) return;
+    bot.reloadTimer = stats.reload;
+    bot.burstLeft = 0;
+  }
+
+  /**
+   * Height above the target's feet to aim at: the chest, or the head on a
+   * head burst, measured from where its eyes are now, so a crouched target is
+   * aimed at its crouched chest rather than over its head.
+   */
+  _aimHeight(bot) {
+    let eye;
+    if (bot.targetIsPlayer) {
+      const pl = bot.targetHuman || this.game.player;
+      if (pl && typeof pl.eyePos === 'function' && pl.position) eye = pl.eyePos().y - pl.position.y;
+      else if (pl && pl.crouching) eye = this.game.config.PLAYER.EYE_CROUCH || 1.08;
+      else eye = 1.6;
+    } else {
+      const o = bot.targetBot;
+      eye = o && o.crouching ? this._cfg.EYE * 0.68 : this._cfg.EYE;
+    }
+    return bot.aimHead ? eye - 0.04 : eye - 0.28;
   }
 
   _fireShot(bot, dist, blind) {
     bot.spawnProtection = 0; // shooting forfeits spawn protection
+    const sk = this._skill();
     const stats = GUN[bot.weaponId] || GUN_FALLBACK;
-    // Aim error: gaussian ~1.2 deg, worse when moving/blind/newly spotted,
-    // slightly tighter up close.
-    let err = 1.2 * DEG * (0.55 + 0.45 * Math.min(1, dist / 30));
-    err *= 1 + 0.9 * Math.exp(-bot.trackTime * 2.2); // settle-in period
-    if (bot.moveSpeed > 1.5) err *= 1.55;
+    // Aim error: gaussian at the tier's base, worse when moving, blind, newly
+    // on target, or deep into a burst; slightly tighter up close.
+    let err = sk.aimError * DEG * (0.55 + 0.45 * Math.min(1, dist / 30));
+    err *= 1 + sk.settle[0] * Math.exp(-bot.trackTime * sk.settle[1]); // settle-in period
+    if (bot.moveSpeed > 1.5) err *= sk.moving;
     if (bot.crouching) err *= 0.8;
-    if (blind) err *= 6;
+    if (blind) err *= 6 * sk.blindError;
+    err += (bot.bloom || 0) * DEG;
     err += stats.spread;
 
     const yaw = bot.yaw + gauss() * err;
@@ -2627,6 +2838,7 @@ export default class Bots {
     if (phase !== 'live' && phase !== 'planted') return;
 
     this._perceive(bot);
+    this._dodgeGrenade(bot, this._skill());
 
     // Drop a target that just died — no staring at corpses.
     if (bot.target) {
@@ -2649,6 +2861,7 @@ export default class Bots {
 
     const blind = bot.blindUntil > this.time;
     const hasTarget = bot.target !== null;
+    const sk = this._skill();
 
     // Engagement supersedes everything except an in-progress defuse race.
     if (hasTarget) {
@@ -2656,17 +2869,27 @@ export default class Bots {
         bot.state = 'engage';
         bot.strafeTimer = 0;
       }
-      bot.crouching = bot.wantCrouch && !blind;
+      bot.crouching = bot.wantCrouch && !blind && !(bot.reloadTimer > 0);
       // Refresh visibility timestamp for the trigger.
+      const wasVisible = bot.targetVisible;
       bot.targetVisible = this._canSee(
         bot,
         bot.targetIsPlayer ? bot.targetHuman : bot.targetBot,
         bot.targetIsPlayer
       );
       if (bot.targetVisible) {
+        // A target that went behind cover and comes back out has to be
+        // reacquired: a re-peek used to be shot the instant it reappeared.
+        if (!wasVisible && this.time - bot.lastSeenTime > 0.4) {
+          bot.reactionTimer = Math.max(bot.reactionTimer,
+            rand(sk.reaction[0], sk.reaction[1]) * sk.repeek);
+          bot.trackTime = Math.min(bot.trackTime, 0.1);
+        }
         bot.lastSeenTime = this.time;
         this._targetPos(bot, bot.lastSeenPos);
-      } else if (this.time - bot.lastSeenTime > LOSE_TARGET_TIME) {
+      } else if (this.time - bot.lastSeenTime > 0.7 && !blind && this._tryGrenade(bot, sk)) {
+        // Thrown at the corner it ducked behind; the fight goes on.
+      } else if (this.time - bot.lastSeenTime > sk.loseTime) {
         // Lost them — push toward their last known spot.
         bot.target = null;
         bot.targetBot = null;
@@ -2689,19 +2912,32 @@ export default class Bots {
       return;
     }
 
-    bot.crouching = false;
+    // A planting or defusing bot stays on its knees; everyone else stands.
+    bot.crouching = bot.state === 'plant' || bot.state === 'defuse';
     bot.wantCrouch = false;
 
-    // React to recent damage from an unseen attacker: face and hunt the spot.
-    if (this.time - bot.damageTime < 1.2 && bot.state !== 'investigate') {
-      bot.state = 'investigate';
-      this._setGoal(bot, bot.damageFromPos);
-      return;
+    // Out of the fight with a part-empty magazine: reload now, not mid-duel.
+    if (bot.reloadTimer <= 0) {
+      const gun = GUN[bot.weaponId] || GUN_FALLBACK;
+      if (bot.mag < gun.mag * 0.6) this._startReload(bot, gun);
+    }
+
+    // React to every new hit from an unseen attacker: face and hunt the spot.
+    // An investigating bot used to ignore fresh hits and walk on to the old
+    // noise while someone else shot it.
+    if (this.time - bot.damageTime < 1.2 && bot.damageTime !== bot.damageHandled &&
+        bot.state !== 'plant' && bot.state !== 'defuse') {
+      bot.damageHandled = bot.damageTime;
+      if (!this._offLeash(bot, bot.damageFromPos)) {
+        bot.state = 'investigate';
+        this._setGoal(bot, bot.damageFromPos);
+        return;
+      }
     }
 
     // Fresh enemy noise is a reason to leave a post; ordinary patrol timing is
     // not. Consume it before issuing another routine tactical destination.
-    if (this.time - bot.heardTime < 3 &&
+    if (this.time - bot.heardTime < 3 && this.time >= (bot.deafUntil || 0) &&
         bot.state !== 'plant' && bot.state !== 'defuse' &&
         bot.state !== 'investigate' &&
         !this._bombPlanted &&
@@ -2710,8 +2946,12 @@ export default class Bots {
       // Make the 60% reaction decision once. Leaving heardTime fresh on a miss
       // retried the roll ten times per second and made every sound effectively
       // mandatory, pulling whole teams onto the same coordinate.
+      // Sustained noise (a firefight next door) re-armed the timer every
+      // shot, so the roll repeated until it passed; a decision now stands
+      // for a few seconds.
       bot.heardTime = -99;
-      if (Math.random() < 0.6 && !this._offLeash(bot, bot.heardPos)) {
+      bot.deafUntil = this.time + 3;
+      if (Math.random() < sk.investigate && !this._offLeash(bot, bot.heardPos)) {
         bot.state = 'investigate';
         this._setGoal(bot, bot.heardPos);
         return;
@@ -2768,7 +3008,7 @@ export default class Bots {
       bot.scanTimer -= THINK_INTERVAL;
       if (bot.scanTimer <= 0) {
         bot.scanTimer = rand(1.5, 4);
-        bot.scanYaw = bot.yaw + rand(-1.2, 1.2);
+        bot.scanYaw = this._scanYaw(bot, sk);
       }
       bot.yaw += angleDiff(bot.scanYaw, bot.yaw) * 0.12;
     }
@@ -2807,14 +3047,21 @@ export default class Bots {
     for (const other of this.all) consider(other, other.pos);
     const player = this.game.player;
     // An enemy UAV over the player's team sharpens the bots' hunt; Ghost
-    // keeps the player off that picture.
+    // keeps the player off that picture. In free-for-all every bot is the
+    // player's enemy.
     const streaks = this.game.streaks;
+    const againstPlayer = isFfa(this.game) || bot.team !== ((player && player.team) || 'ct');
     const uavUp = !!(streaks && typeof streaks.enemyUavActive === 'function' && streaks.enemyUavActive()) &&
-      bot.team !== ((player && player.team) || 'ct');
+      againstPlayer;
     if (player && !(uavUp && player.perk === 'ghost')) consider(player, player.position);
+    // Online, remote humans are hunted too (they were invisible to this).
+    const mp = this.game.multiplayer;
+    if (mp && mp.active && typeof mp.humans === 'function') {
+      for (const human of mp.humans()) if (human !== player) consider(human, human.position);
+    }
     // The player's Counter-UAV scatters the enemy side's hunt.
     const jammed = !!(streaks && typeof streaks.counterUavActive === 'function' && streaks.counterUavActive()) &&
-      bot.team !== ((player && player.team) || 'ct');
+      againstPlayer;
     let goal = null;
     const weight = objective && Number.isFinite(objective.goalWeight) ? objective.goalWeight : 0.75;
     if (objectiveGoal && (inZone || Math.random() < weight)) {
@@ -2822,7 +3069,7 @@ export default class Bots {
       // or hardpoint is wide enough to spread the arrivals across its nodes.
       const spread = Number.isFinite(objective.goalSpread) ? objective.goalSpread : 3;
       goal = spread > 0 ? this._diverseNear(bot, objectiveGoal, spread) : objectiveGoal;
-    } else if (nearest && Math.random() < (uavUp ? 0.95 : jammed ? 0.35 : 0.7)) {
+    } else if (nearest && Math.random() < (uavUp ? 0.95 : jammed ? 0.35 : this._skill().huntSense)) {
       goal = this._diverseNear(bot, nearest, 12);
     } else {
       const nodes = this.game.world && this.game.world.waypoints && this.game.world.waypoints.nodes;
@@ -2968,7 +3215,7 @@ export default class Bots {
     if (bot.state === 'plant') {
       // Plant progress is timed here in think ticks; interrupted by damage or a
       // visible enemy (damage resets state in _damageBot).
-      if (this._enemyVisibleQuick(bot)) {
+      if (bot.blindUntil > this.time || this._enemyVisibleQuick(bot)) {
         bot.plantTimer = 0;
         bot.state = 'hold';
         return;
@@ -2979,6 +3226,8 @@ export default class Bots {
         bot.holdTimer = rand(2, 4);
         bot.plantTimer = 0;
         this._bombPlanted = true;
+        bot.sneak = false;
+        bot.crouching = false;
         this._bombPos.copy(bot.pos);
         this.game.events.emit('bomb:planted', { site: site.name, pos: bot.pos.clone() });
         this._setGoal(bot, this._diverseNear(bot, this._bombPos, 7));
@@ -2991,8 +3240,9 @@ export default class Bots {
 
     if (inSite) {
       bot.sneak = true;
-      // Settle: only start planting after 1.5 s with no enemy in sight.
-      if (this._enemyVisibleQuick(bot)) {
+      // Settle: only start planting after 1.5 s with no enemy in sight (a
+      // flashed carrier cannot tell, so it waits).
+      if (bot.blindUntil > this.time || this._enemyVisibleQuick(bot)) {
         bot.plantClearTimer = 0;
       } else {
         bot.plantClearTimer += THINK_INTERVAL;
@@ -3102,52 +3352,86 @@ export default class Bots {
   // -------------------------------------------------------------------------
 
   _perceive(bot) {
-    if (bot.target) return; // keep the current fight; loss handled in _think
-    const engage2 = this._cfg.ENGAGE_RANGE * this._cfg.ENGAGE_RANGE;
+    // A flashed bot sees nothing new; it keeps (or sprays at) its memory.
+    if (bot.blindUntil > this.time) return;
+    const sk = this._skill();
+    const current = bot.target;
+    if (current && !this._wantsRescan(bot, sk)) return;
 
-    let bestD2 = engage2;
-    let bestBot = null;
-    let bestHuman = null;
+    const range = sk.engageRange;
+    const attackerFresh = bot.attacker && this.time - bot.damageTime < 2;
+    let best = null;
     let bestIsPlayer = false;
+    let bestScore = Infinity;
+    const consider = (actor, pos, isPlayer) => {
+      const d2 = bot.pos.distanceToSquared(pos);
+      if (d2 > range * range) return;
+      let score = Math.sqrt(d2);
+      if (actor === current) {
+        // Hysteresis: a target in hand has to be beaten clearly.
+        score *= sk.switching === 'threat' ? 0.75 : 0.5;
+      } else if (attackerFresh && actor === bot.attacker && sk.switching !== 'none') {
+        score *= 0.4;
+      }
+      if (sk.switching === 'threat' && Number.isFinite(actor.yaw)) {
+        // Someone looking straight at this bot is the bigger danger.
+        const toMe = yawFromDir(bot.pos.x - pos.x, bot.pos.z - pos.z);
+        if (Math.abs(angleDiff(toMe, actor.yaw)) < 0.45) score *= 0.75;
+      }
+      if (score >= bestScore) return;
+      if (!this._canSee(bot, actor, isPlayer)) return;
+      bestScore = score;
+      best = actor;
+      bestIsPlayer = isPlayer;
+    };
 
     // Any local or remote human on the opposing team is a valid target.
     const mp = this.game.multiplayer;
     const humans = mp && mp.active ? mp.humans() : [this.game.player];
     for (const human of humans) {
       if (!human || !hostile(this.game, human, bot) || !human.alive || !human.position) continue;
-      const d2 = bot.pos.distanceToSquared(human.position);
-      if (d2 < bestD2 && this._canSee(bot, human, true)) {
-        bestD2 = d2;
-        bestHuman = human;
-        bestBot = null;
-        bestIsPlayer = true;
-      }
+      consider(human, human.position, true);
     }
-
     for (let i = 0; i < this.all.length; i++) {
       const o = this.all[i];
-      if (!hostile(this.game, o, bot) || !o.alive) continue;
-      const d2 = bot.pos.distanceToSquared(o.pos);
-      if (d2 >= bestD2) continue;
-      if (this._canSee(bot, o, false)) {
-        bestD2 = d2;
-        bestBot = o;
-        bestHuman = null;
-        bestIsPlayer = false;
-      }
+      if (o === bot || !hostile(this.game, o, bot) || !o.alive) continue;
+      consider(o, o.pos, false);
     }
 
-    if (bestBot || bestHuman) {
-      bot.target = bestIsPlayer ? bestHuman : bestBot;
-      bot.targetBot = bestBot;
-      bot.targetIsPlayer = bestIsPlayer;
-      bot.targetHuman = bestHuman;
-      bot.targetVisible = true;
-      bot.lastSeenTime = this.time;
-      this._targetPos(bot, bot.lastSeenPos);
-      bot.trackTime = 0;
-      bot.reactionTimer = rand(this._cfg.REACTION_MIN, this._cfg.REACTION_MAX);
-    }
+    if (!best || best === current) return;
+    const switching = !!current;
+    bot.target = best;
+    bot.targetBot = bestIsPlayer ? null : best;
+    bot.targetIsPlayer = bestIsPlayer;
+    bot.targetHuman = bestIsPlayer ? best : null;
+    bot.targetVisible = true;
+    bot.lastSeenTime = this.time;
+    this._targetPos(bot, bot.lastSeenPos);
+    bot.trackTime = 0;
+    bot.bloom = 0;
+    bot.aimHead = Math.random() < sk.headChance;
+    // A bot already in a fight swings to a new enemy faster than it notices
+    // one cold; a stun slows both.
+    let reaction = rand(sk.reaction[0], sk.reaction[1]) * (switching ? 0.6 : 1);
+    if (bot.stunUntil > this.time) reaction += 0.45;
+    bot.reactionTimer = Math.max(bot.reactionTimer || 0, reaction);
+  }
+
+  /**
+   * Whether a bot already fighting someone looks around for a better target
+   * this think. Every tier gives up on a target that went behind cover when
+   * another is in the open; Regular also turns on whoever shoots it, and
+   * Veteran re-weighs every enemy in view a few times a second.
+   */
+  _wantsRescan(bot, sk) {
+    if (!bot.targetVisible) return true;
+    if (sk.switching === 'none') return false;
+    const hit = this.time - bot.damageTime < 0.25 && bot.attacker && bot.attacker !== bot.target;
+    if (hit) return true;
+    const every = sk.switching === 'threat' ? 0.3 : 0.6;
+    if (this.time < (bot.rescanAt || 0)) return false;
+    bot.rescanAt = this.time + every;
+    return true;
   }
 
   _canSee(bot, otherBot, isPlayer) {
@@ -3164,9 +3448,11 @@ export default class Bots {
       this._botEye(otherBot, _eyeB);
     }
 
+    if (bot.blindUntil > this.time) return false;
+    const sk = this._skill();
     _v5.copy(_eyeB).sub(_eyeA);
     const dist = _v5.length();
-    if (dist > this._cfg.ENGAGE_RANGE || dist < 0.001) return false;
+    if (dist > sk.engageRange || dist < 0.001) return false;
     _v5.multiplyScalar(1 / dist);
 
     // FOV cone around current facing.
@@ -3174,7 +3460,7 @@ export default class Bots {
     const flat = Math.hypot(_v5.x, _v5.z);
     if (flat > 0.05) {
       const dot = (_v5.x / flat) * facingX + (_v5.z / flat) * facingZ;
-      const cosHalf = Math.cos((this._cfg.FOV_DEG * DEG) / 2);
+      const cosHalf = Math.cos((sk.fov * DEG) / 2);
       if (dot < cosHalf && dist > 2.2) return false; // point-blank ignores FOV
     }
 
@@ -3260,7 +3546,8 @@ export default class Bots {
     const occupied = [];
     for (let i = 0; i < this.all.length; i++) {
       const teammate = this.all[i];
-      if (teammate === bot || !teammate.alive || teammate.team !== bot.team) continue;
+      // Free-for-all has no teams, so everyone spreads from everyone.
+      if (teammate === bot || !teammate.alive || (teammate.team !== bot.team && !isFfa(this.game))) continue;
       occupied.push(teammate.pos);
       if (teammate.hasGoal) occupied.push(teammate.goal);
     }

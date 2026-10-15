@@ -15,6 +15,7 @@ import {
   roomPresentation,
 } from './room-directory.js';
 import { GAME_MODES, isRespawnMode, normalizeModeId } from '../game/tdm.js';
+import { DEFAULT_BOT_SKILL, botSkill, normalizeBotSkill } from '../ai/skill.js';
 
 const SEND_HZ = 20;
 const SNAPSHOT_HZ = 12;
@@ -204,6 +205,7 @@ export default class Multiplayer {
     this.mode = 'mixed';
     // Ruleset the room plays (sd/tdm/kc/dom/hp/ffa); the host picks it.
     this.gameMode = 'sd';
+    this.botSkill = DEFAULT_BOT_SKILL;
     this.roster = [];
     this.remotePlayers = [];
     this._remoteById = new Map();
@@ -346,6 +348,7 @@ export default class Multiplayer {
       room,
       mode,
       gameMode: normalizeModeId(this.game.selectedMode),
+      botSkill: normalizeBotSkill(this.game.botSkill),
       mapId: normalizeMapId(this.game.selectedMapId || this.mapId),
       leaderboardToken,
       authorityProtocol: AUTHORITY_PROTOCOL_VERSION,
@@ -992,6 +995,11 @@ export default class Multiplayer {
     this._send({ type: 'set_game_mode', gameMode: normalizeModeId(mode) });
   }
 
+  setBotSkill(skill) {
+    if (!this.connected || this.active || !this.isHost) return;
+    this._send({ type: 'set_bot_skill', botSkill: normalizeBotSkill(skill) });
+  }
+
   /** Authority: revive a player (remote or itself) at a pose in a respawn mode. */
   sendRespawn(targetId, spawn) {
     if (!this.active || !this.isAuthority() || !targetId) return;
@@ -1140,6 +1148,15 @@ export default class Multiplayer {
         this._applyRoomMap(this.mapId);
         // hud:notice draws in the in-game layer; the lobby has its own line.
         this._status('Only the room host can change the map.', true);
+      }
+    });
+    ev.on('ui:bot-skill-select', (data) => {
+      const requested = normalizeBotSkill(data && data.skill);
+      if (!this.connected || this.active || !this.localId || requested === this.botSkill) return;
+      if (this.isHost) this.setBotSkill(requested);
+      else {
+        this._mirrorRoomBotSkill();
+        this._status('Only the room host can change the bots.', true);
       }
     });
     ev.on('ui:mode-select', (data) => {
@@ -1384,6 +1401,7 @@ export default class Multiplayer {
         this.roomCode = message.room;
         this.mode = message.mode;
         this._acceptGameMode(message.gameMode);
+        this._acceptBotSkill(message.botSkill);
         this.reconnectToken = String(message.reconnectToken || this.reconnectToken || '');
         this._canPersistResumeTicket = this._seatRanked;
         this._persistResumeTicket();
@@ -1436,6 +1454,7 @@ export default class Multiplayer {
         })) break;
         this.mode = message.mode;
         if (!this.active) this._acceptGameMode(message.gameMode);
+        if (!this.active) this._acceptBotSkill(message.botSkill);
         if (!this.active) this._applyRoomMap(message.mapId);
         else this.mapId = normalizeMapId(message.mapId || this.mapId);
         this._acceptRoster(message.players);
@@ -1484,6 +1503,7 @@ export default class Multiplayer {
           this.matchId = message.matchId || this.matchId;
           this.mode = message.mode === 'humans' ? 'humans' : 'mixed';
           this._acceptGameMode(message.gameMode);
+          this._acceptBotSkill(message.botSkill);
           this.mapId = normalizeMapId(message.mapId || this.mapId);
           this._acceptRoster(message.players, this.roster);
           if (this.active) this._syncActiveRoster();
@@ -1733,6 +1753,7 @@ export default class Multiplayer {
     this.matchId = message.matchId || null;
     this.mode = message.mode === 'humans' ? 'humans' : 'mixed';
     this._acceptGameMode(message.gameMode);
+    this._acceptBotSkill(message.botSkill);
     this.hostId = message.hostId;
     this.isHost = this.localId === this.hostId;
     this._acceptRoster(message.players);
@@ -2111,7 +2132,12 @@ export default class Multiplayer {
     actor._stepAccum = (actor._stepAccum || 0) + moved;
     if (actor._stepAccum >= 2.4) {
       actor._stepAccum = 0;
-      this.game.events.emit('bot:footstep', { pos: pos.clone(), replica: true });
+      this.game.events.emit('bot:footstep', {
+        pos: pos.clone(),
+        replica: true,
+        human: !!actor.position,
+        team: actor.team || null,
+      });
     }
   }
 
@@ -2464,6 +2490,20 @@ export default class Multiplayer {
     if (!this.active) this._mirrorRoomMode();
   }
 
+  _acceptBotSkill(value) {
+    if (value === undefined) return;
+    this.botSkill = normalizeBotSkill(value);
+    if (!this.active) this._mirrorRoomBotSkill();
+  }
+
+  /** Show the room's bot tier in the menu picker without saving it. */
+  _mirrorRoomBotSkill() {
+    const hud = this.game.hud;
+    if (hud && typeof hud._selectBotSkill === 'function') {
+      hud._selectBotSkill(this.botSkill, { persist: false, notify: false });
+    }
+  }
+
   /** Show the room's mode in the menu picker without saving it as a preference. */
   _mirrorRoomMode() {
     const hud = this.game.hud;
@@ -2717,7 +2757,8 @@ export default class Multiplayer {
   _renderLobby() {
     if (!this._ui || !this._ui.roster) return;
     const gameMode = GAME_MODES[this.gameMode] || GAME_MODES.sd;
-    this._ui.code.textContent = `${this.roomCode} · ${gameMode.short} · ${this.mode === 'humans' ? 'HUMANS ONLY' : 'HUMANS + BOTS'} · ${mapById(this.mapId).name.toUpperCase()}`;
+    const bots = this.mode === 'humans' ? 'HUMANS ONLY' : `HUMANS + ${botSkill(this.botSkill).label} BOTS`;
+    this._ui.code.textContent = `${this.roomCode} · ${gameMode.short} · ${bots} · ${mapById(this.mapId).name.toUpperCase()}`;
     this._ui.mode.value = this.mode;
     // The create form's select is hidden in the lobby; the host switches
     // fill here.

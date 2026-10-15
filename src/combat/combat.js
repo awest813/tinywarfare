@@ -144,6 +144,9 @@ export default class Combat {
     ev.on('weapon:fire', (e) => this._onWeaponFire(e));
     ev.on('bot:fire', (e) => this._onBotFire(e));
     ev.on('grenade:throw', (e) => this._onGrenadeThrow(e));
+    // A bot's frag: its own event, since grenade:throw drives the player's
+    // viewmodel, sound and spawn protection.
+    ev.on('bot:grenade', (e) => { if (e && e.bot) this._onGrenadeThrow({ ...e, thrower: e.bot }); });
     ev.on('bomb:detonated', (e) => this._onBombDetonated(e));
     ev.on('bot:death', (e) => this._onBotDeath(e));
     ev.on('remote:death', (e) => this._onRemoteDeath(e));
@@ -183,6 +186,15 @@ export default class Combat {
       if (cx * cx + cy * cy + cz * cz < sm.radius * sm.radius) return true;
     }
     return false;
+  }
+
+  /** Live frag and semtex grenades, for bots to run from. */
+  liveExplosives() {
+    const out = [];
+    for (const p of this._projectiles) {
+      if (p.active && (p.type === 'hegrenade' || p.type === 'semtex')) out.push(p);
+    }
+    return out;
   }
 
   update(dt) {
@@ -937,6 +949,7 @@ export default class Combat {
     if (mp && mp.active && !mp.isAuthority() && !e.thrower) return;
     const type = e.type || 'hegrenade';
     const p = this._acquireProjectile(type);
+    p.throwId = (this._throwSeq = (this._throwSeq || 0) + 1);
 
     p.pos.set(e.origin.x, e.origin.y, e.origin.z);
     this._v1.set(e.dir.x, e.dir.y, e.dir.z);

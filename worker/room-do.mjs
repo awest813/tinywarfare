@@ -1,5 +1,6 @@
 import { LEADERBOARD_MAPS, rankedOutcome } from '../src/shared/leaderboard-core.mjs';
 import { mapForMode } from '../src/maps/catalog.js';
+import { normalizeBotSkill } from '../src/ai/skill.js';
 import {
   acceptAuthoritySnapshot,
   applyAuthoritativeDamageResult,
@@ -110,6 +111,7 @@ export function roomPayload(room) {
     room: room.code,
     mode: room.mode,
     gameMode: cleanGameMode(room.gameMode),
+    botSkill: normalizeBotSkill(room.botSkill),
     mapId: room.mapId,
     started: room.started,
     hostId: room.hostId,
@@ -136,6 +138,7 @@ function welcomePayload(room, client, resumed = false) {
     room: room.code,
     mode: room.mode,
     gameMode: cleanGameMode(room.gameMode),
+    botSkill: normalizeBotSkill(room.botSkill),
     mapId: room.mapId,
     ranked: !!client.leaderboardPlayerId,
     reconnectToken: client.reconnectToken,
@@ -167,6 +170,7 @@ function matchResumePayload(room, player) {
     mapId: room.mapId,
     mode: room.mode,
     gameMode: cleanGameMode(room.gameMode),
+    botSkill: normalizeBotSkill(room.botSkill),
     players: Object.values(room.players).map((entry) => ({
       ...publicPlayer(entry, room.hostId),
       stats: statsFor(entry),
@@ -440,6 +444,7 @@ export class RoomDurableObject {
       code,
       mode: message.mode === 'humans' ? 'humans' : 'mixed',
       gameMode: cleanGameMode(message.gameMode),
+      botSkill: normalizeBotSkill(message.botSkill),
       // A map can be out of a mode's rotation (Frostline in S&D).
       mapId: mapForMode(cleanMapId(message.mapId), cleanGameMode(message.gameMode)),
       hostId: connection.id,
@@ -596,6 +601,7 @@ export class RoomDurableObject {
         mapId: room.mapId,
         mode: room.mode,
         gameMode: cleanGameMode(room.gameMode),
+        botSkill: normalizeBotSkill(room.botSkill),
         players: Object.values(room.players).map((entry) => publicPlayer(entry, room.hostId)),
         // Respawn rooms have no round to wait for: the authority deploys
         // late joiners within seconds, so they are not spectators.
@@ -676,6 +682,7 @@ export class RoomDurableObject {
       mapId: room.mapId,
       mode: room.mode,
       gameMode: cleanGameMode(room.gameMode),
+      botSkill: normalizeBotSkill(room.botSkill),
       ...authoritySnapshotEnvelope(room, null),
       hostId: room.hostId,
       players: players.map((entry) => publicPlayer(entry, room.hostId)),
@@ -859,6 +866,13 @@ export class RoomDurableObject {
       case 'set_map':
         if (!room.started && room.hostId === player.id) {
           room.mapId = mapForMode(cleanMapId(message.mapId), cleanGameMode(room.gameMode));
+          dirty = true;
+          this._broadcastLobby(room);
+        }
+        break;
+      case 'set_bot_skill':
+        if (!room.started && room.hostId === player.id) {
+          room.botSkill = normalizeBotSkill(message.botSkill);
           dirty = true;
           this._broadcastLobby(room);
         }
