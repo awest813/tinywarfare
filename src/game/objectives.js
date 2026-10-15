@@ -622,7 +622,11 @@ export class Domination {
 export const HP = Object.freeze({
   // m. Was 5: in a 20-match soak no zone was ever contested, because
   // attackers dropped the holder from outside it before stepping in.
-  RADIUS: 8,
+  RADIUS: 10,
+  MIN_SPACING: 16,    // m between two zones of a rotation
+  // s of sole hold per team point. Was 1: slower scoring gives the other side
+  // time to push into the zone before a hold decides the match.
+  SCORE_EVERY: 1.5,
   ROTATE: 60,         // s each zone stays live
   POINTS_EVERY: 5,    // s of solo holding per personal award
   HOLD_POINTS: 50,
@@ -633,7 +637,7 @@ export function hardpointZones(world) {
   const flags = dominationPoints(world);
   const zones = [];
   const add = (pos) => {
-    if (pos && !zones.some((z) => z.distanceTo(pos) < HP.RADIUS * 2)) zones.push(pos.clone());
+    if (pos && !zones.some((z) => z.distanceTo(pos) < HP.MIN_SPACING)) zones.push(pos.clone());
   };
   const mid = flags.find((f) => f.name === 'B');
   if (mid) add(mid.pos);
@@ -652,8 +656,8 @@ export class Hardpoint {
     // Arrivals spread across the zone, not onto its centre.
     this.goalSpread = HP.RADIUS - 2.5;
     this.goalWeight = 0.9;
-    // ...and do not chase noises or lost enemies away from it.
-    this.leash = 20;
+    // ...and do not chase noises or lost enemies far away from it.
+    this.leash = HP.RADIUS + 15;
     this.zones = hardpointZones(game.world);
     this.index = 0;
     this.clock = 0;          // s into the current zone
@@ -712,8 +716,8 @@ export class Hardpoint {
 
     const s = this.game.state;
     this._fraction[holder] += dt;
-    while (this._fraction[holder] >= 1) {
-      this._fraction[holder] -= 1;
+    while (this._fraction[holder] >= HP.SCORE_EVERY) {
+      this._fraction[holder] -= HP.SCORE_EVERY;
       s.scores[holder] = (s.scores[holder] || 0) + 1;
     }
     // Personal hold time per human in the zone (bots earn nothing).

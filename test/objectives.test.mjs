@@ -152,9 +152,10 @@ test('Hardpoint: one zone scores for a sole holder, freezes when contested, and 
   let moved = 0;
   game.events.on('objective:hardpoint', () => moved++);
   game.player.position.copy(hp.current());
-  hp.update(3.5);
+  hp.update(HP.SCORE_EVERY * 3 + 0.2);
   assert.equal(hp.owner, 'ct');
-  assert.equal(game.state.scores.ct, 3, 'one point per second held');
+  assert.equal(game.state.scores.ct, 3, 'one point per SCORE_EVERY held');
+  assert.ok(HP.SCORE_EVERY > 1, 'scoring is slower than a point a second');
 
   game.bots.all[0].pos.copy(hp.current());
   hp.update(2);
