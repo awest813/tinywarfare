@@ -237,3 +237,24 @@ test('Kill Confirmed bots go for confirms first and the killer is sent to its ta
   engine._retaskKiller(null);
   assert.deepEqual(retasked, [killer]);
 });
+
+test('Kill Confirmed: a bot mid-firefight does not deny by accident, but confirms', () => {
+  const game = makeGame('kc');
+  const kc = new KillConfirmed(game);
+  game.player.alive = false;
+  const fighter = { team: 't', alive: true, pos: v(10, 10), state: 'engage' };
+  game.bots.all = [fighter];
+
+  kc.onDeath('t', v(10, 10.5));      // its teammate falls beside it
+  kc.update(0.1);
+  assert.equal(kc.tags.length, 1, 'strafing over it mid-fight leaves the tag');
+
+  fighter.state = 'move';            // between fights it denies as before
+  kc.update(0.1);
+  assert.equal(kc.tags.length, 0);
+
+  fighter.state = 'engage';
+  kc.onDeath('ct', v(10, 10.5));     // an enemy tag: a fighter still confirms it
+  kc.update(0.1);
+  assert.equal(game.state.scores.t, 1);
+});

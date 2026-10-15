@@ -109,6 +109,18 @@ function livingActors(game) {
 // Kill Confirmed
 // ----------------------------------------------------------------------------
 
+/**
+ * A bot in a firefight does not deny by accident. Tags drop beside the
+ * victim's teammates, and a soak found half of all bot denies were bots
+ * strafing over a fallen teammate's tag mid-fight (only one in seven went
+ * for the tag), so four tags in five were denied and matches ran out the
+ * clock. Bots still deny on purpose or between fights; humans deny on touch.
+ */
+function botMidFightOnOwnTag(entry, tag) {
+  return !entry.isPlayer && !entry.remoteId && entry.team === tag.team &&
+    !!entry.actor && entry.actor.state === 'engage';
+}
+
 export class KillConfirmed {
   constructor(game) {
     this.game = game;
@@ -149,7 +161,8 @@ export class KillConfirmed {
         tag.mesh.position.y = tag.pos.y + 0.75 + Math.sin(this._time * 3 + i) * 0.08;
       }
       const collector = actors.find((a) =>
-        horizontalDistance(a.pos, tag.pos) <= KC.PICKUP_RADIUS && Math.abs(a.pos.y - tag.pos.y) < 2.2);
+        horizontalDistance(a.pos, tag.pos) <= KC.PICKUP_RADIUS && Math.abs(a.pos.y - tag.pos.y) < 2.2 &&
+        !botMidFightOnOwnTag(a, tag));
       if (!collector) continue;
       const confirmed = collector.team !== tag.team;
       if (confirmed) s.scores[collector.team] = (s.scores[collector.team] || 0) + 1;
