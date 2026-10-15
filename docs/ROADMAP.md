@@ -393,11 +393,14 @@ Shipped solo and online (`src/game/objectives.js`, driven by the respawn engine 
 Both modes use classes, streaks, and spawn protection.
 
 Also shipped:
-- **Hardpoint** (first to 150):
+- **Hardpoint** (first to 100; was 150 until scoring slowed and captures took 3 s):
   - One zone (10 m radius, zones at least 16 m apart) that rotates every 60 s:
     mid first, then the home flags and the bomb sites.
-  - A side holding it alone scores 1 point every 1.5 s (was every second).
-    Contested time scores nothing. Holding it alone is worth 50 personal points every 5 s.
+  - A side alone on a zone it does not own captures it in 3 s; an enemy
+    stepping in freezes the capture, an empty zone falls neutral, and a side
+    that clears the holders captures again from zero. The owner, alone,
+    scores 1 point every 1.5 s (was every second, with no capture). Contested
+    time scores nothing. Holding it alone is worth 50 personal points every 5 s.
   - It shows as a ring and light beam in the holder's colour, an "HP" chip
     whose bar is the time left on the zone, a radar marker, and a "HARDPOINT
     MOVED" banner.

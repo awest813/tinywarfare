@@ -40,13 +40,15 @@ Every mode plays solo against bots or online; an online room plays the mode
 its host has selected in the menu when the match starts. All modes are ranked.
 
 - **Search & Destroy** (solo or online): the original round-based bomb mode
-  with an economy and buy menu. First side to 8 rounds wins.
+  with an economy and buy menu. First side to 8 rounds wins. Played on every
+  map except Frostline.
 - **Kill Confirmed**: every death drops a dog tag. Grab enemy
   tags to score and your own team's to deny them. First to 30.
 - **Domination**: capture and hold flags A (near the U.S.
   side), B (mid), and C (near the Russian side). Every held flag scores a point every 5 seconds. First to 150.
 - **Hardpoint**: hold the single zone, which moves every
-  minute. One point per second while your side holds it alone. First to 150.
+  minute. Hold it alone for 3 seconds to capture it, then score a point every
+  1.5 seconds while your side holds it alone. First to 100.
 - **Free-for-all**: no teams, first soldier to 30 kills.
 - **Team Deathmatch**: respawn after 3 seconds with an
   M4/AK starter class. First side to 50 kills, or the higher score after
