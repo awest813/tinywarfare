@@ -642,8 +642,10 @@ export function hardpointZones(world) {
 export class Hardpoint {
   constructor(game) {
     this.game = game;
-    // Bots on the live hardpoint hold it instead of wandering off to hunt.
+    // Bots on the live hardpoint hold it instead of wandering off to hunt,
+    // and most orders go to it: the zone is the whole game.
     this.goalRadius = HP.RADIUS;
+    this.goalWeight = 0.9;
     this.zones = hardpointZones(game.world);
     this.index = 0;
     this.clock = 0;          // s into the current zone
@@ -671,6 +673,11 @@ export class Hardpoint {
       this.owner = null;
       this._placeZone();
       this.game.events.emit('objective:hardpoint', { moved: true, index: this.index });
+      // Everyone drops their errand for the new zone now, not after it.
+      const bots = this.game.bots;
+      if (bots && typeof bots.retask === 'function' && Array.isArray(bots.all)) {
+        for (const bot of bots.all) bots.retask(bot);
+      }
     }
 
     let ct = 0;

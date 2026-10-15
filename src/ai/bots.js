@@ -2804,7 +2804,8 @@ export default class Bots {
     const jammed = !!(streaks && typeof streaks.counterUavActive === 'function' && streaks.counterUavActive()) &&
       bot.team !== ((player && player.team) || 'ct');
     let goal = null;
-    if (objectiveGoal && (inZone || Math.random() < 0.75)) {
+    const weight = objective && Number.isFinite(objective.goalWeight) ? objective.goalWeight : 0.75;
+    if (objectiveGoal && (inZone || Math.random() < weight)) {
       // A dog tag is picked up within 1.5 m, so walk onto it exactly; a flag
       // or hardpoint is wide enough to spread the arrivals across its nodes.
       const spread = Number.isFinite(objective.goalSpread) ? objective.goalSpread : 3;

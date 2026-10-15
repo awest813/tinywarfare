@@ -161,9 +161,13 @@ test('Hardpoint: one zone scores for a sole holder, freezes when contested, and 
   assert.equal(hp.contested, true);
   assert.equal(game.state.scores.ct, 3, 'contested time scores nothing');
 
+  const retasked = [];
+  game.bots.retask = (bot) => retasked.push(bot);
   hp.update(HP.ROTATE);
   assert.equal(moved, 1);
   assert.equal(hp.index, 1);
+  assert.equal(retasked.length, game.bots.all.length, 'every bot heads for the new zone at once');
+  assert.ok(hp.goalWeight > 0.75, 'most orders go to the hardpoint');
   assert.equal(hp.hud()[0].name, 'HP');
   hp.stop();
   assert.equal(game.scene.children.length, 0);
