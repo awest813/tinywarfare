@@ -71,6 +71,34 @@ from ~1.58 m up to the helmet top stay headshots; a shot through the neck, or
 one climbing up through the chest from below, is a body hit
 (`combat.js` `_rayCharacter`, covered by `test/combat-hitboxes.test.mjs`).
 
+### Mode soak (2026-10-15)
+
+Twenty full matches of every respawn mode and 5 Search & Destroy matches (62
+rounds), rotating the five maps, driven by a headless harness: bots plus a
+scripted player with a 0.35 s reaction and aim error. Each match logged
+scores, kills, spawn deaths, stuck bots, out-of-bounds actors, page errors and
+per-mode objective timing. No match logged an error, NaN or out-of-bounds
+actor; two bots stuck in 140+ matches, both in S&D.
+
+| Mode | Found | Fix | After |
+|---|---|---|---|
+| TDM | Healthy: every match to 50 in 250-300 s, margins 5-15 | none | |
+| Kill Confirmed | 6 of 20 matches reached 30; about 75% of pickups were denies. Diagnostic: half the bot denies were bots strafing over a fallen teammate's tag mid-fight, a fifth bots running to the gunfire; one in seven went for the tag | Bots in `engage` or `investigate` do not collect their own side's tags (they still deny on purpose or on patrol, humans on touch) | 12 of 20 reached 30; Harbor and Dustyard 4/4 with more confirms than denies |
+| Domination | Healthy on four maps; Dustyard 0-4 for the U.S. (four samples) | none (sample too small to retune the layout) | |
+| Hardpoint | Zone empty 57% of the match; 2 of 5 timed out. Bots spent 72% of the time 20 m+ from the zone: holds capped at 1.6 s, one order in four went hunting, investigations dragged bots away, and respawns maximised distance from the enemies sitting on the zone | Bots in the zone hold it (`goalRadius`); 90% of orders go to it (`goalWeight`); a rotation retasks every bot; a 20 m `leash` stops chasing noises away from it; respawns are pulled toward it (`spawnFocus`, `SPAWN_ANCHOR`) | Empty 42%; 0 of 20 timed out; matches 504 s to 400 s; spawn deaths 1.3% of kills |
+| FFA | 10.6% of kills within 3 s of a respawn, many inside the 1.5 s protection: bots spawned in sight and fired at once, which ends protection | Bots hold fire while protected | 7.7%. Edge-midpoint spawn candidates (also added) did not move it measurably |
+| S&D | 1 bot defuse in 23 plants. At most detonations every attacker was already dead and only the player was left; on Frostline the defenders never got within 31 m of the bomb (attackers 8-2 twice) | none: a retake balance and site-cover question for the map, not a code fault | |
+
+Also from the soak: a free-for-all respawn raycast every candidate against every
+enemy, 10-30 ms per spawn (a frame hitch). It now raycasts best-first and stops
+once nothing can win: 1.6-8.5 ms, same choice (tested against the exhaustive
+search). Hardpoint zones were never contested in 20 matches: attackers kill the
+holder from outside the 5 m radius; a larger zone would change that. Kill
+Confirmed tags on Neon Foundry's mid bridge expire uncollected: the bridge is a
+killing ground. The Domination spawn change was first tried with the same hard
+pull as Hardpoint; it spawned both teams around mid and flag B never changed
+hands, so Domination keeps its gentle lean.
+
 ## Architecture moves that unlock everything
 
 Three couplings block every MW-style feature. Do these first:
