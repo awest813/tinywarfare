@@ -2716,8 +2716,9 @@ export default class Bots {
     // Can we actually see them right now?
     const seen = bot.targetVisible && this.time - bot.lastSeenTime < 0.35;
     if (!seen && !blind) {
-      // Nothing to shoot: top the magazine up behind cover.
-      if (bot.mag < stats.mag * 0.5 && this.time - bot.lastSeenTime > 0.6) this._startReload(bot, stats);
+      // Nothing to shoot: top the magazine up behind cover (after the
+      // grenade decision at 0.7 s, which a reload would block).
+      if (bot.mag < stats.mag * 0.5 && this.time - bot.lastSeenTime > 1.0) this._startReload(bot, stats);
       return;
     }
     if (bot.reactionTimer > 0) return;
