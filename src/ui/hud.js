@@ -29,6 +29,15 @@ import {
 
 const clamp = THREE.MathUtils.clamp;
 
+/** Smooth scrolling, unless the player asked for reduced motion. */
+function scrollBehavior() {
+  try {
+    return globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ? 'auto' : 'smooth';
+  } catch {
+    return 'smooth';
+  }
+}
+
 function humanCallsign(game, value, playerId, preferred = '') {
   const multiplayer = game?.multiplayer;
   if (multiplayer && typeof multiplayer._humanCallsign === 'function') {
@@ -441,6 +450,7 @@ export default class HUD {
       killcamFill: $('hud-killcam-fill'),
       deathMain: $('hud-death-main'),
       deathKiller: $('hud-death-killer'),
+      deathHint: $('hud-death-hint'),
       deathClass: $('hud-death-class'),
       scoreboard: $('hud-scoreboard'),
       sbScore: $('hud-sb-score'),
@@ -794,7 +804,7 @@ export default class HUD {
       requestAnimationFrame(() => {
         const panel = this._root && this._root.querySelector('#mp-panel');
         if (panel && typeof panel.scrollIntoView === 'function') {
-          panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+          panel.scrollIntoView({ block: 'nearest', behavior: scrollBehavior() });
         }
       });
     }
@@ -815,7 +825,7 @@ export default class HUD {
     }
     if (this._settingsOpen && typeof requestAnimationFrame === 'function') {
       requestAnimationFrame(() => {
-        this._el.settingsPanel?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+        this._el.settingsPanel?.scrollIntoView?.({ block: 'nearest', behavior: scrollBehavior() });
       });
     }
     if (panelHadFocus) this._el.settingsOpen?.focus?.();
@@ -1274,7 +1284,7 @@ export default class HUD {
       : null;
     if (this._el.careerRival) {
       this._el.careerRival.textContent = rival
-        ? Math.max(0, rival.score - standing.score + 1).toLocaleString() + ' POINTS TO PASS ' + rival.playerName.toUpperCase()
+        ? Math.max(0, rival.score - standing.score + 1).toLocaleString() + ' POINTS TO PASS ' + String(rival.playerName || 'THE NEXT OPERATIVE').toUpperCase()
         : standing.ranks.overall === 1
           ? 'YOU SET THE PACE · DEFEND #1'
           : standing.ranks.overall
@@ -1663,6 +1673,11 @@ export default class HUD {
       }
       return '🔒 ' + pending + (pending === 1 ? ' PICK UNLOCKS' : ' PICKS UNLOCK') + ' WITH RANK';
     };
+    // Rebuilding the row would drop keyboard focus to the page: remember
+    // which card had it and give it back.
+    const focusedIndex = el.classRow.contains(document.activeElement)
+      ? document.activeElement?.dataset?.classIndex
+      : undefined;
     el.classRow.innerHTML = loadouts.classes.map((c, i) => {
       // Cards show what you actually deploy with at your rank; picks that
       // are still locked are counted, not shouted.
@@ -1680,6 +1695,7 @@ export default class HUD {
         (pending ? '<small class="mn-class-lock">' + esc(lockNote(c, shown, pending)) + '</small>' : '') +
         '</button>';
     }).join('');
+    if (focusedIndex !== undefined) el.classRow.querySelector('[data-class-index="' + focusedIndex + '"]')?.focus?.({ preventScroll: true });
     const active = loadouts.active();
     if (el.className && document.activeElement !== el.className) el.className.value = active.name;
     const progression = this.game?.progression;
@@ -1844,7 +1860,9 @@ export default class HUD {
     }
     let rows = '';
     for (const entry of visible) {
-      const kd = entry.deaths > 0 ? (entry.kills / entry.deaths).toFixed(2) : entry.kills.toFixed(2);
+      const kills = Number(entry.kills) || 0;
+      const deaths = Number(entry.deaths) || 0;
+      const kd = deaths > 0 ? (kills / deaths).toFixed(2) : kills.toFixed(2);
       const winRate = Number(entry.winRate) > 0
         ? Math.round(entry.winRate)
         : (entry.matches > 0 ? Math.round(entry.wins / entry.matches * 100) : 0);
@@ -2065,8 +2083,8 @@ export default class HUD {
         this._setLeaderboardOpen(false);
         return;
       }
-      if ((this._profileOpen || this._leaderboardOpen) && e.key === 'Tab') {
-        const modal = this._profileOpen ? this._el.profile : this._el.leaderboard;
+      if ((this._howtoOpen || this._profileOpen || this._leaderboardOpen) && e.key === 'Tab') {
+        const modal = this._howtoOpen ? this._el.howto : this._profileOpen ? this._el.profile : this._el.leaderboard;
         const focusable = modal ? [...modal.querySelectorAll(
           'button:not([disabled]), input:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
         )] : [];
@@ -2427,7 +2445,9 @@ export default class HUD {
 
   _onBotFire(d) {
     const bot = d.bot;
-    if (!bot || !bot.pos || bot.team === 'ct') return;
+    // Only enemy fire reveals a bot on the radar (works for either side).
+    const me = this.game.player;
+    if (!bot || !bot.pos || !me || !hostile(this.game, bot, me)) return;
     const list = this._enemyFire;
     list.push({ x: bot.pos.x, z: bot.pos.z, t: this._time });
     if (list.length > 16) list.shift();
@@ -2480,7 +2500,7 @@ export default class HUD {
     const money = Math.max(0, Math.round(Number.isFinite(st.money) ? st.money : 0));
     if (money !== c.money) {
       c.money = money;
-      if (this._el.moneyNum) this._el.moneyNum.textContent = String(money);
+      if (this._el.moneyNum) this._el.moneyNum.textContent = money.toLocaleString('en-US');
       if (this._el.moneyBox) {
         this._el.moneyBox.classList.remove('pulse');
         void this._el.moneyBox.offsetWidth; // restart animation (rare — on change only)
@@ -3335,7 +3355,7 @@ export default class HUD {
       if (this._el.defuseLabel) this._el.defuseLabel.textContent = planting ? 'PLANTING…' : 'DEFUSING…';
       if (planting && this._el.defuseNote) {
         c.kitNote = null;
-        this._el.defuseNote.textContent = 'ARMING C4 — HOLD STEADY';
+        this._el.defuseNote.textContent = 'ARMING THE BOMB — HOLD STEADY';
         this._el.defuseNote.classList.remove('kit');
       }
       if (Math.abs(frac - c.defuse) > 0.004) {
@@ -3406,7 +3426,7 @@ export default class HUD {
         : 'ENEMY';
       if (this._el.killcamKiller) {
         this._el.killcamKiller.textContent = name.toUpperCase();
-        this._el.killcamKiller.className = 'kc-killer ' + (killer && killer.team === 'ct' ? 'ct' : 't');
+        this._el.killcamKiller.className = 'kc-killer ' + (isFfa(this.game) ? 'ffa' : killer && killer.team === 'ct' ? 'ct' : 't');
       }
       const bits = [];
       if (info.weaponId) bits.push(String(this._names[info.weaponId] || info.weaponId).toUpperCase());
@@ -3415,7 +3435,7 @@ export default class HUD {
       if (this._el.killcamDetail) this._el.killcamDetail.textContent = bits.join(' · ');
       if (this._el.killcamSkip) {
         this._el.killcamSkip.textContent = this.game.input?.touchMode
-          ? 'TAP JUMP TO SKIP'
+          ? 'TAP NEXT TO SKIP'
           : this._bindingLabel('jump') + ' OR CLICK TO SKIP';
       }
     }
@@ -3471,9 +3491,16 @@ export default class HUD {
         const next = this.game.loadouts?.active?.();
         if (this._el.deathKiller) {
           const recap = this._deathRecap ? ' · ' + this._deathRecap : '';
-          this._el.deathKiller.textContent = (this._deathKiller
+          this._el.deathKiller.textContent = this._deathKiller
             ? 'ELIMINATED BY ' + this._deathKiller.toUpperCase() + recap
-            : 'ELIMINATED') + (next && !touch ? '  ·  NEXT CLASS: ' + next.name + ' [' + this._classKeysLabel() + ']' : '');
+            : 'ELIMINATED';
+        }
+        // The class switch is what the player can act on: its own line, so
+        // a long recap never cuts it off.
+        if (this._el.deathHint) {
+          const hint = next && !touch ? 'NEXT CLASS: ' + next.name + '  ·  CHANGE WITH ' + this._classKeysLabel() : '';
+          this._el.deathHint.hidden = !hint;
+          if (this._el.deathHint.textContent !== hint) this._el.deathHint.textContent = hint;
         }
         if (this._el.deathClass) {
           this._el.deathClass.hidden = !(touch && next);
@@ -3671,7 +3698,7 @@ export default class HUD {
         row.innerHTML =
           buyIcon(id) + '<div class="bi-info"><div class="bi-top">' +
           '<span class="bi-name">' + esc(this._names[id] || id) + '</span>' +
-          '<span class="bi-price">' + (Number.isFinite(price) ? '$' + price : '—') + '</span>' +
+          '<span class="bi-price">' + (Number.isFinite(price) ? '$' + price.toLocaleString('en-US') : '—') + '</span>' +
           '<span class="bi-owned">✓ OWNED</span></div>' + bars + '</div>';
         row.addEventListener('click', () => this._tryBuy(id));
         cd.appendChild(row);
@@ -4391,6 +4418,7 @@ export default class HUD {
       '<div id="hud-wedges"></div>' +
       '<div id="hud-death"><div class="death-inner"><div class="death-main" id="hud-death-main">YOU ARE DEAD</div>' +
       '<div class="death-sub" id="hud-death-killer">SPECTATING</div>' +
+      '<div class="death-hint" id="hud-death-hint" hidden></div>' +
       '<button id="hud-death-class" class="death-class" type="button" hidden>CHANGE CLASS</button></div></div>' +
 
       // crosshair + hitmarker
@@ -4440,7 +4468,7 @@ export default class HUD {
 
       // top-center: timer / scores / round
       '<div class="hud-panel" id="hud-top">' +
-      '<div id="hud-timer"><span id="hud-bomb-ico">C4</span>' +
+      '<div id="hud-timer"><span id="hud-bomb-ico">BOMB</span>' +
       '<span class="hud-num" id="hud-timer-num">0:00</span></div>' +
       '<div id="hud-scores"><i class="sc-flag" id="hud-flag-ct">' + FLAG_SVG.ct + '</i><span class="sc-ct" id="hud-score-ct-label">' + FACTIONS.ct.short + '</span> <span class="hud-num" id="hud-score-ct">0</span>' +
       '<span class="sc-colon">:</span><span class="hud-num" id="hud-score-t">0</span> <span class="sc-t" id="hud-score-t-label">' + FACTIONS.t.short + '</span><i class="sc-flag" id="hud-flag-t">' + FLAG_SVG.t + '</i></div>' +
@@ -4541,7 +4569,7 @@ export default class HUD {
       '<div class="mn-podium" id="hud-career-podium"><span>CONTACTING MATCH SERVERS…</span></div></div>' +
       '<div class="mn-daily"><header><span id="hud-daily-title">DAILY BOT OPS</span><b id="hud-daily-reward">+250 BONUS XP</b></header>' +
       '<p id="hud-daily-description">Win against bots and sharpen your combat record.</p>' +
-      '<strong id="hud-daily-progress">0/3 MATCHES · 0/2 WINS · 0/25 KILLS</strong>' +
+      '<strong id="hud-daily-progress">0/3 MATCHES · 0/2 WINS · 0/20 KILLS</strong>' +
       '<div class="mn-daily-track"><span id="hud-daily-fill"></span></div></div>' +
       '<span class="mn-career-sync" id="hud-career-sync">SYNCING SAVED CAREER…</span>' +
       '</div></section>' +
@@ -4887,7 +4915,7 @@ export default class HUD {
 .pod.ct { border-color:rgba(95,159,224,.6); } .pod.t { border-color:rgba(224,96,60,.6); }
 .sc-t { color: var(--t); font-weight: 800; letter-spacing: .08em; }
 .sc-colon { color: var(--olive-dim); }
-#hud-round { font-size: 9.5px; letter-spacing: .26em; color: var(--olive-dim); margin-top: 3px; }
+#hud-round { font-size: 10.5px; letter-spacing: .26em; color: var(--olive-dim); margin-top: 3px; }
 #hud-objective { display:flex; justify-content:center; gap:6px; margin-top:5px; }
 #hud-objective[hidden] { display:none; }
 .obj-flag { position:relative; width:26px; height:22px; display:grid; place-items:center; overflow:hidden;
@@ -4927,8 +4955,9 @@ export default class HUD {
   border-color: rgba(226, 80, 62, 0.8);
   background: linear-gradient(180deg, rgba(52, 13, 9, 0.82), rgba(30, 7, 5, 0.86));
 }
+/* Below the top bar, under the modal screens (pause 40, menus 50, how-to 70). */
 #hud-progression-toasts {
-  position:absolute; z-index:72; top:172px; left:18px; width:min(360px,calc(100vw - 36px));
+  position:absolute; z-index:38; top:96px; left:50%; transform:translateX(-50%); width:min(360px,calc(100vw - 36px));
   display:flex; flex-direction:column; gap:8px; pointer-events:none;
 }
 .progress-toast {
@@ -4945,12 +4974,12 @@ export default class HUD {
 .progress-toast.leaving { animation:progress-toast-out .25s ease both; }
 .progress-toast-mark { flex:0 0 42px; width:42px; height:42px; display:grid; place-items:center; font-size:22px; color:#e6cf7b; border:1px solid rgba(214,229,184,.3); background:rgba(154,178,107,.09); transform:rotate(0); }
 .progress-toast-copy { min-width:0; display:flex; flex-direction:column; }
-.progress-toast-copy small { font-size:9.5px; font-weight:900; letter-spacing:.2em; color:#92aa6e; }
+.progress-toast-copy small { font-size:10.5px; font-weight:900; letter-spacing:.2em; color:#92aa6e; }
 .progress-toast-copy strong { margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:18px; line-height:1.05; letter-spacing:.08em; }
 .progress-toast-copy em { margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:10px; font-style:normal; color:#b4c3a2; }
 @keyframes progress-toast-in { from { opacity:0; transform:translateX(-24px) scale(.97); } to { opacity:1; transform:none; } }
 @keyframes progress-toast-out { to { opacity:0; transform:translateX(-18px); } }
-.kf-name { text-shadow: 0 1px 3px #000; }
+.kf-name { text-shadow: 0 1px 3px #000; max-width: 14ch; overflow: hidden; text-overflow: ellipsis; }
 .kf-mine .kf-name { text-shadow: 0 0 8px rgba(190, 220, 150, 0.5), 0 1px 3px #000; }
 .kf-ct { color: var(--ct); }
 .kf-t { color: var(--t); }
@@ -5020,6 +5049,15 @@ export default class HUD {
 .ch-dot { width: 2px; height: 2px; left: -1px; top: -1px; }
 #hud-crosshair .ch { transition: opacity .12s, background-color .08s; }
 #hud-crosshair.enemy .ch { background: #ff4a3a !important; box-shadow: 0 0 3px rgba(255,74,58,.7); }
+/* Not colour alone: over an enemy the lines also thicken and a ring appears. */
+#hud-crosshair.enemy .ch-h { height: 3px; top: -1.5px; }
+#hud-crosshair.enemy .ch-v { width: 3px; left: -1.5px; }
+#hud-crosshair::after {
+  content: ''; position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid #ff4a3a; box-shadow: 0 0 0 1px rgba(0,0,0,.45); opacity: 0; transform: scale(.6);
+  transition: opacity .08s, transform .08s;
+}
+#hud-crosshair.enemy::after { opacity: .9; transform: none; }
 #hud-tags { position:absolute; inset:0; pointer-events:none; z-index:3; overflow:hidden; }
 .hud-tag { position:absolute; left:0; top:0; display:none; padding:1px 5px; font-size:10px; font-weight:900; letter-spacing:.08em;
   color:#bfe0ff; background:rgba(20,40,70,.45); border-bottom:2px solid #5f9fe0; white-space:nowrap; text-shadow:0 1px 2px #000; }
@@ -5086,6 +5124,9 @@ export default class HUD {
 
 /* ---------- scope ---------- */
 #hud-scope { position: absolute; inset: 0; display: none; z-index: 1; }
+/* The corner panels stay readable through the scope's black and the red
+   damage and death washes (z 1-2). */
+#hud-status, #hud-money, #hud-ammo, #hud-streaks, #hud-top, #hud-radar { z-index: 3; }
 .scope-hole {
   position: absolute; left: 50%; top: 50%; width: 94vmin; height: 94vmin;
   transform: translate(-50%, -50%); border-radius: 50%;
@@ -5188,7 +5229,8 @@ export default class HUD {
   font-weight: 800; letter-spacing: .16em; white-space: nowrap; overflow: hidden;
 }
 .kc-label { font-size: 12px; color: #0a0806; background: #d4562c; padding: 4px 9px; letter-spacing: .22em; }
-.kc-killer { font-size: 18px; font-weight: 900; letter-spacing: .12em; }
+.kc-killer { font-size: 18px; font-weight: 900; letter-spacing: .12em; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.kc-killer.ffa { color: #e8eedc; }
 .kc-killer.ct { color: var(--ct); }
 .kc-killer.t { color: var(--t); }
 .kc-detail { font-size: 12px; color: #c7cfbb; overflow: hidden; text-overflow: ellipsis; }
@@ -5200,7 +5242,12 @@ export default class HUD {
 #hud.killcam-on #hud-tags, #hud.killcam-on #hud-usehint, #hud.killcam-on #hud-death,
 #hud.killcam-on #hud-deathfx, #hud.killcam-on #hud-vignette, #hud.killcam-on #hud-wedges,
 #hud.killcam-on #hud-hitmarker, #hud.killcam-on #hud-weapon-name, #hud.killcam-on #hud-objective,
-#hud.killcam-on #hud-scope, #hud.killcam-on #hud-radio { display: none !important; }
+#hud.killcam-on #hud-scope, #hud.killcam-on #hud-radio, #hud.killcam-on #hud-msg,
+#hud.killcam-on #hud-killcue, #hud.killcam-on #hud-score-pop, #hud.killcam-on #hud-tips,
+#hud.killcam-on #hud-defuse, #hud.killcam-on #hud-protect, #hud.killcam-on #hud-flash,
+#hud.killcam-on #hud-progression-toasts { display: none !important; }
+/* Touch: the NEXT button sits over the strip's right end. */
+html.touch-device .kc-row { padding-right: 104px; }
 @media (prefers-reduced-motion: reduce) { .kc-top, .kc-bottom { animation: none; } }
 
 /* ---------- death ---------- */
@@ -5233,6 +5280,11 @@ export default class HUD {
   font-size: 17px; font-weight: 900; letter-spacing: .2em; text-transform: uppercase;
   color: #eef5df; text-shadow: 0 2px 5px #000;
 }
+.death-hint {
+  margin-top: 5px; font-size: 10.5px; font-weight: 800; letter-spacing: .16em; color: var(--olive-bright);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.death-hint[hidden] { display: none; }
 .death-sub {
   font-size: 10px; font-weight: 700; letter-spacing: .18em; color: #b9aa9b;
   margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -6227,6 +6279,26 @@ html.touch-device .mn-id { min-height:52px; }
   .lb-state.loading .lb-state-mark { animation:none!important; }
   .mn-xp-track span,.mn-daily-track span,.end-xp > div span { transition:none!important; }
 }
+
+/* Reduced motion: no pulsing, blinking, sliding or popping. Animations that
+   fade an element out (kill cue, money pop) keep their timing but lose the
+   movement and scale. */
+@media (prefers-reduced-motion: reduce) {
+  #hud-health.low, #hud-money.pulse, #hud-reload, #hud-bomb-ico, .kf-entry, .rd-entry,
+  #hud-defuse-fill, #hud.killcam-on .kc-bar, #hud-death.transitioning .death-inner,
+  .buy-item.purchased, .pause-main, #hud-end-rank.pending, .lb-state.loading .lb-state-mark,
+  .mn-title::after { animation: none !important; }
+  #hud-killcue.show { animation-name: killcue-fade !important; }
+  .money-pop { animation-name: money-fade !important; }
+}
+@keyframes killcue-fade {
+  0% { opacity: 0; transform: translate(-50%, -50%); } 10%, 72% { opacity: 1; transform: translate(-50%, -50%); }
+  100% { opacity: 0; transform: translate(-50%, -50%); }
+}
+@keyframes money-fade { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+/* Touch: the STREAK button already shows when a streak is ready, and the
+   rail would sit under the USE and CROUCH buttons. */
+html.touch-device #hud-streaks { display: none; }
 
 /* Focus rings sit inside the button: the cut-corner clip-paths on most of
    the menu clip an outer outline away entirely. */

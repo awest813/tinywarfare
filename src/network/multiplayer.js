@@ -17,6 +17,10 @@ import {
 import { GAME_MODES, isRespawnMode, normalizeModeId } from '../game/tdm.js';
 import { DEFAULT_BOT_SKILL, botSkill, normalizeBotSkill } from '../ai/skill.js';
 
+
+function escHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
 const SEND_HZ = 20;
 const SNAPSHOT_HZ = 12;
 const TEAM_SIZE = 5;
@@ -966,20 +970,26 @@ export default class Multiplayer {
       return;
     }
 
+    // Room data comes from whichever service this build points at: escape
+    // every string and coerce every count before it becomes markup.
     this._ui.rooms.innerHTML = visible.map((room) => {
       const view = roomPresentation(room);
       const colors = view.map.colors;
+      const code = escHtml(String(room.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6));
+      const players = Math.max(0, Math.floor(Number(room.players) || 0));
+      const reserved = Math.max(0, Math.floor(Number(room.reservedPlayers) || 0));
+      const maxPlayers = Math.max(0, Math.floor(Number(room.maxPlayers) || 0));
       const unavailable = room.joinable ? '' : ' unavailable';
       const disabled = room.joinable && !this._connecting ? '' : ' disabled';
-      const current = room.reservedPlayers > room.players
-        ? `${room.players}<small>+${room.reservedPlayers - room.players}</small>`
-        : String(room.players);
-      return `<button type="button" class="mp-room-card${unavailable}" data-room-code="${room.code}"${disabled} ` +
-        `style="--room-a:${colors[0]};--room-b:${colors[1]};--room-c:${colors[2]}" aria-label="Join room ${room.code}">` +
+      const current = reserved > players
+        ? `${players}<small>+${reserved - players}</small>`
+        : String(players);
+      return `<button type="button" class="mp-room-card${unavailable}" data-room-code="${code}"${disabled} ` +
+        `style="--room-a:${escHtml(colors[0])};--room-b:${escHtml(colors[1])};--room-c:${escHtml(colors[2])}" aria-label="Join room ${code}">` +
         '<span class="mp-room-art" aria-hidden="true"><i></i></span>' +
-        `<span class="mp-room-copy"><strong>${room.code}</strong><small>${view.map.name.toUpperCase()} · ${view.modeLabel}</small></span>` +
-        `<span class="mp-room-phase"><b>${view.status.label}</b><small>${view.status.detail}</small></span>` +
-        `<span class="mp-room-count"><strong>${current}<em>/${room.maxPlayers}</em></strong><small>PLAYERS</small></span>` +
+        `<span class="mp-room-copy"><strong>${code}</strong><small>${escHtml(view.map.name.toUpperCase())} · ${escHtml(view.modeLabel)}</small></span>` +
+        `<span class="mp-room-phase"><b>${escHtml(view.status.label)}</b><small>${escHtml(view.status.detail)}</small></span>` +
+        `<span class="mp-room-count"><strong>${current}<em>/${maxPlayers}</em></strong><small>PLAYERS</small></span>` +
         '</button>';
     }).join('');
     for (const button of this._ui.rooms.querySelectorAll('.mp-room-card:not(.unavailable)')) {
