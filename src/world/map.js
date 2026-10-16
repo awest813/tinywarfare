@@ -163,8 +163,19 @@ export default class World {
     // Chromebook preset: the map's practical lamps go dark (their fixtures
     // still glow). Every visible point light is a loop in every lit pixel,
     // and hiding them up front, never mid-match, keeps the shaders stable.
+    // Their light comes back as a flat warm floor on the interior ambient
+    // (no per-light cost), or night maps go nearly black.
+    this._lampFill = null;
     if (this.game.gfx?.mapLights === false) {
-      this.environment.traverse((o) => { if (o.isPointLight) o.visible = false; });
+      const color = new THREE.Color(0, 0, 0);
+      let count = 0;
+      this.environment.traverse((o) => {
+        if (!o.isPointLight) return;
+        o.visible = false;
+        color.add(o.color);
+        count++;
+      });
+      if (count) this._lampFill = { color: color.multiplyScalar(1 / count), amount: Math.min(0.36, 0.035 * count) };
     }
 
     this.game.scene.add(this.environment);
@@ -819,6 +830,15 @@ export default class World {
     // 0.14 puts it about 2.7 stops under, which reads as "indoors" and still
     // lets you find a body in the corner of the B room.
     interior.intensity = Math.min(1.1, 0.14 * Math.max(sky.sunLight.intensity, 0.6));
+    // Chromebook preset: the hidden lamps' share, as flat warm fill.
+    const lamps = this._lampFill;
+    if (lamps) {
+      const c = interior.color.multiplyScalar(interior.intensity);
+      c.r += lamps.color.r * lamps.amount;
+      c.g += lamps.color.g * lamps.amount;
+      c.b += lamps.color.b * lamps.amount;
+      interior.intensity = 1;
+    }
   }
 
   /**

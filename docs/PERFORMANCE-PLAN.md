@@ -1,6 +1,7 @@
 # Performance and graphics options plan
 
-Status: phase 0 (the Chromebook preset) is built; the rest is proposed.
+Status: phase 0 (the Chromebook preset) is built, and most of phase 1;
+the rest is proposed.
 Written October 2026 from a read of the renderer, materials, sky, world,
 bots, HUD and loader, plus headless measurements of every map. File and line
 references are to the tree at the time of writing.
@@ -109,7 +110,22 @@ Resource counts per map on High (1280x720, pixel ratio 1):
 Programs and textures accumulate across maps in one session (the counts
 above are cumulative in visiting order).
 
-PRESET_COST_TABLE
+Frame cost per preset. Each frame is forced to finish (a 1-pixel read-back)
+and timed, the match paused so every frame draws the same view. Software
+rendering runs shaders on the CPU, so absolute times are meaningless, but
+the ratios track pixel-shading cost, which is what limits a Chromebook GPU:
+
+| Preset | Dustyard frame | Neon Foundry frame | Draw calls | Triangles | Lit lights | Drawing buffer | Map load |
+|---|---|---|---|---|---|---|---|
+| High | 9.4 s | 10.3 s | 466-498 | 2.4 M | 14-22 | 1280x720 | 232-320 s |
+| Low | 7.5 s | 9.0 s | 234-256 | 1.2 M | 14-22 | 1280x720 | 196-305 s |
+| Chromebook | 1.9 s (5x less) | 1.4 s (6x less) | 235-266 | 1.2-1.3 M | 5 | 1024x576 | 49-84 s |
+
+High draws twice the geometry of Low (the SSAO depth pass). Chromebook's
+gain over Low is about 1.6x from resolution and the rest from the shading:
+no lamp or effect lights in the light loop, a 4-tap shadow filter instead
+of 16, and the lite material layers. Its map loads are 4x faster: fewer and
+cheaper shader programs (57-62 against 62-110) and smaller texture bakes.
 
 ## Graphics presets
 
@@ -121,12 +137,12 @@ gameplay (`src/world/dressing.js:4226`).
 | Render scale | 1.0, pixel ratio up to 1.5 | 1.0, up to 1.5 | 0.8, pixel ratio 1 |
 | HDR post, bloom, SSAO | on | off | off |
 | Antialiasing | MSAA in the post chain | canvas MSAA | none |
-| Shadow map | 3072, soft PCF, every frame | 2048, soft PCF, every frame | 1024, hard (1 tap), every other frame |
+| Shadow map | 3072, soft PCF (16 taps), every frame | 2048, soft PCF, every frame | 1024, bilinear (4 taps), every other frame |
 | Texture sets | 1024 | 512 | 512 |
 | Material layers | all | all | no parallax, de-tiling, macro relief, sheen, anisotropy |
 | Anisotropic filtering | 8x | 8x | 4x |
 | Effect point lights (muzzle, explosions, bomb) | on | on | off (flash sprites stay) |
-| Map lamps | on | on | off (fixtures still glow) |
+| Map lamps | on | on | off (fixtures still glow; their light returns as flat ambient fill) |
 | Sky re-bake | 2048, every 0.4 s | 512, every 0.8 s | 512, every 3 s |
 | Rain and snow | 100% | 50% | 30% |
 
@@ -167,7 +183,7 @@ preset and marked "custom" once touched:
 |---|---|---|
 | Render scale | 50-100% in 5% steps, plus Auto (dynamic) | live |
 | Frame rate cap | 30 / 60 / unlimited | live |
-| Shadows | Off / Low (1024 hard) / Medium (2048) / High (3072 soft) | on reload |
+| Shadows | Off / Low (1024 bilinear) / Medium (2048) / High (3072 soft) | on reload |
 | Lighting effects | muzzle and explosion lights on/off | on reload |
 | Surface detail | Low (lite layers) / High | on reload |
 | Texture quality | Low (512) / High (1024) | on reload |
@@ -191,29 +207,35 @@ Chromebook.
 - Settings: Chromebook option, Auto's remembered floor (`graphicsAutoFloor`,
   migrating the older `graphicsAutoLow` flag), what-Auto-picked note and a
   reload button.
-- Renderer: render scale below 1, MSAA per preset, hard shadows and the
-  every-other-frame shadow cadence per preset.
+- Renderer: render scale below 1, MSAA per preset, a 4-tap bilinear shadow
+  filter (`src/gfx/shadow-bilinear.js`) and the every-other-frame shadow
+  cadence per preset.
 - Materials: lite shading switch; sky and precipitation sizes per preset;
-  effect and map lights hidden for the session on Chromebook.
+  effect and map lights hidden for the session on Chromebook, with the
+  lamps' light returned as flat ambient fill so night maps stay readable.
 - Auto-graphics steps down one preset per visit, down to Chromebook.
 - The scene renders 4 times a second behind the opaque menu and end screens.
 
 ### Phase 1: quick wins (all presets, low risk)
 
-1. Stop the SSAO pass hiding the effects' lights (hide the effect meshes
-   instead): removes the per-frame program re-validation of every lit
-   material on High (`src/gfx/post/ssao.js:553`).
-2. Sub-step physics and movement only; run HUD, audio, sky, effects and the
-   viewmodel once per frame (`src/main.js` loop).
-3. `matrixAutoUpdate = false` on static world meshes after the map is built.
-4. HUD: guard the teammate tag style writes, cache the use-hint markup, drop
-   the per-frame crosshair ray to 20 Hz, stop allocating arrays per frame in
-   `_updateTags` and the radar.
-5. Fetch each grenade GLB once (semtex and stun alias them).
-6. Build bot sightlines at map load instead of on the first scan.
-7. A `?perf` overlay: fps, frame time, draw calls, triangles, programs,
-   preset, pixel ratio; and a Show FPS setting.
-8. Fix the stale comments (sky texture sizes, viewScene).
+Done:
+1. The SSAO pass hides the effects' drawables but not their lights,
+   removing the per-frame program re-validation of every lit material on
+   High; rain and snow are kept out of the depth pass too.
+2. Only gameplay is sub-stepped; the sky, effects, HUD, audio and material
+   housekeeping run once per frame.
+3. World meshes stop recomposing their matrices once the map is built.
+4. HUD: the crosshair's enemy raycast runs at 20 Hz; teammate tags reuse
+   their array and only write styles when they move; the use-hint markup is
+   cached; the radar redraws at 10 Hz on the Chromebook preset.
+5. Grenade models shared by two weapons are fetched and parsed once.
+6. Bot sightlines are built at map load and round start.
+7. A Show FPS setting (frame rate and frame time in the corner).
+8. Stale sky comments corrected.
+
+Left:
+- A `?perf` overlay with draw calls, triangles, programs, preset and
+  pixel ratio, for testers.
 
 ### Phase 2: load time and first-use hitches
 
