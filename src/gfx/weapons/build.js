@@ -1,5 +1,5 @@
 // ============================================================================
-// TINY STRIKE — procedural weapon assembly.
+// TINY WARFARE — procedural weapon assembly.
 //
 // The model builders (models/*.js) return material-bucketed geometry plus a
 // table of named nodes. This turns one of those into a THREE.Object3D that

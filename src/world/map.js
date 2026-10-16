@@ -1,5 +1,5 @@
 // ============================================================================
-// TINY STRIKE — World maps, collision, and navigation graphs.
+// TINY WARFARE — World maps, collision, and navigation graphs.
 //
 // Coordinates: X east(+)/west(-), Z south(+)/north(-). CT spawn north (z<0),
 // T spawn south (z>0). Playable bounds roughly x[-50,50], z[-40,40].

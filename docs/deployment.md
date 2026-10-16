@@ -60,13 +60,29 @@ served from, so no client configuration is needed.
 | `TINY_STRIKE_DATA_DIR` | `./.tiny-strike` | leaderboard JSON directory (mount a volume) |
 | `TINY_STRIKE_LEADERBOARD_PATH` | — | explicit leaderboard file instead |
 | `TINY_STRIKE_SEASON` | `season-1` | leaderboard season id |
-| `TINY_STRIKE_RECONNECT_GRACE_MS` | `120000` | how long a dropped seat is held |
+| `TINY_STRIKE_RECONNECT_GRACE_MS` | `120000` | how long a dropped seat is held (at most 120000) |
 | `TINY_STRIKE_MAX_SOCKETS_PER_IP` | `32` | concurrent sockets per address |
 | `TINY_STRIKE_MAX_ROOMS` | `500` | room cap |
 | `TINY_STRIKE_MAX_SESSIONS_PER_MINUTE` | `20` | new leaderboard sessions per address per minute |
 
 Behind a proxy that hides client addresses, the per-IP limits apply to the
 proxy; raise them or terminate TLS on the box.
+
+Run **one** Node server process. Rooms live in its memory and the leaderboard
+is one JSON file it rewrites; two processes behind a load balancer would split
+rooms and overwrite each other's results. To scale out, use the Cloudflare
+Worker, whose rooms and leaderboard live in Durable Objects.
+
+The origin allowlist stops other websites' pages from using your server from a
+visitor's browser. It is not an abuse control: scripts that send no `Origin`
+header are let through, as native clients may be. Abuse is bounded by the
+per-address socket, session and match-result limits (12 results a minute),
+the room cap, a per-connection message budget, and message size and depth
+limits.
+
+The `TINY_STRIKE_*` variable names, the `.tiny-strike` data directory and the
+`dist/tinystrike` default build folder keep the upstream project's names on
+purpose, so existing deployments keep working.
 
 ## Cloudflare Worker
 

@@ -1,5 +1,5 @@
 // ============================================================================
-// TINY STRIKE — src/game/rounds.js
+// TINY WARFARE — src/game/rounds.js
 //
 // Section H: Match flow + economy + bomb + objectives.
 //

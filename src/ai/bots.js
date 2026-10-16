@@ -1,4 +1,4 @@
-// src/ai/bots.js — Bot AI, humanoid bodies, and team behavior for TINY STRIKE.
+// src/ai/bots.js — Bot AI, humanoid bodies, and team behavior for TINY WARFARE.
 // Section G of SPEC.md. Default-exports class Bots (constructor(game)).
 //
 // Design notes:

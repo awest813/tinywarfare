@@ -1,5 +1,5 @@
 /**
- * TINY STRIKE — Section J: Procedural audio (`AudioSys`).
+ * TINY WARFARE — Section J: Procedural audio (`AudioSys`).
  *
  * Every sound is synthesized with WebAudio — zero assets. The AudioContext is
  * created lazily on the first user gesture ('ui:start' / 'input:lock' / any

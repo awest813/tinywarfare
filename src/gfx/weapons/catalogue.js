@@ -1,5 +1,5 @@
 // ============================================================================
-// TINY STRIKE — the weapon rack.
+// TINY WARFARE — the weapon rack.
 //
 // Seven guns derived from three procedurally modelled platforms. Nothing here
 // touches ballistics: damage, rate of fire, spread, recoil and price all stay

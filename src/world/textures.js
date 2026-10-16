@@ -1,5 +1,5 @@
 // ============================================================================
-// TINY STRIKE — procedural canvas textures.
+// TINY WARFARE — procedural canvas textures.
 // All deterministic (seeded PRNG, never Math.random), no external assets.
 // Every texture: RepeatWrapping, SRGBColorSpace, 512x512 unless noted.
 // ============================================================================

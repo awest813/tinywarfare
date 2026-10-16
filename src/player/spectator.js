@@ -1,4 +1,4 @@
-// CS-style above-the-operator death spectating for TINY STRIKE.
+// CS-style above-the-operator death spectating for TINY WARFARE.
 //
 // Target discovery and cycling are exported separately so roster behavior can
 // be covered without constructing Three.js cameras or browser input objects.

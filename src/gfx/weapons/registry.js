@@ -1,5 +1,5 @@
 // ============================================================================
-// TINY STRIKE — one weapon build, many instances.
+// TINY WARFARE — one weapon build, many instances.
 //
 // A rifle costs ~40 k triangles and 250 ms to assemble, and the same weapon is
 // needed by the player's viewmodel and by every soldier carrying it. So each

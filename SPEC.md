@@ -1,3 +1,8 @@
+> **Historical.** This is upstream Tiny Strike's original v1 design, kept
+> for reference. Tiny Warfare has since moved on (respawn modes, classes,
+> scorestreaks, bot tiers, new soldier models); where it disagrees with the
+> code or `README.md`, the code wins.
+
 # TINY STRIKE — Architecture Spec (v1)
 
 A Counter-Strike-style bomb-defusal FPS in the browser. Three.js (v0.166, ES modules via

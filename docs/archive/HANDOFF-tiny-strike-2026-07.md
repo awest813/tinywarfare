@@ -1,3 +1,7 @@
+> **Archived.** Upstream Tiny Strike's session notes from before the fork.
+> The deploy steps below publish to the upstream author's sites; do not run
+> them for Tiny Warfare. See `docs/deployment.md` instead.
+
 # Tiny Strike — session handoff (2026-07-27)
 
 ## Repository, runtime, and deploy truth

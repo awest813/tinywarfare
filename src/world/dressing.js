@@ -1,5 +1,5 @@
 // ============================================================================
-// TINY STRIKE — set dressing.
+// TINY WARFARE — set dressing.
 //
 // The maps are authored as axis-aligned boxes (spec rule 7) because that is
 // what the collision, the nav graph and the bot tactics are validated against.

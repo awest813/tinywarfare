@@ -1,5 +1,5 @@
 // ============================================================================
-// TINY STRIKE — src/weapons/viewmodel.js (module E)
+// TINY WARFARE — src/weapons/viewmodel.js (module E)
 //
 // First-person weapon viewmodels: eleven authored weapon GLBs plus one
 // canonical skinned arm taken from the CT NPC. Primitive weapons remain only

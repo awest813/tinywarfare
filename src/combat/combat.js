@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// TINY STRIKE — Combat resolution (spec section F)
+// TINY WARFARE — Combat resolution (spec section F)
 //
 // Owns: hitscan resolution for player AND bot shots (ray vs vertical capsule),
 // wall penetration, grenade projectile physics (bounce via world.raycast,

@@ -1,5 +1,5 @@
 // ============================================================================
-// TINY STRIKE — per-map atmosphere presets.
+// TINY WARFARE — per-map atmosphere presets.
 //
 // The sky is a physical model (src/gfx/sky): you do not pick a sun colour, you
 // pick a place, a date and a time, and the atmosphere produces the light. Each

@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// TINY STRIKE — src/player/player.js
+// TINY WARFARE — src/player/player.js
 //
 // First-person player controller: CS-style ground/air movement, camera rig
 // (view bob, landing dip, view punch, shake), crouch/walk states, health &

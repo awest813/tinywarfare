@@ -1,5 +1,5 @@
 // ============================================================================
-// TINY STRIKE — theme -> PBR surface binding.
+// TINY WARFARE — theme -> PBR surface binding.
 //
 // Every map material key the layout tables reference (`wallN`, `crate`,
 // `metal`, ...) is bound here to a surface in the procedural library

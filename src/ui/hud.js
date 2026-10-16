@@ -1,5 +1,5 @@
 // ============================================================================
-// TINY STRIKE — src/ui/hud.js
+// TINY WARFARE — src/ui/hud.js
 // The entire 2D layer: status panels, ammo, money, timer/scores, killfeed,
 // rotating radar, dynamic crosshair, hitmarkers, damage feedback, flash
 // whiteout, AWP scope, buy menu, scoreboard, round messages, defuse bar,

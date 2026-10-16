@@ -1,5 +1,5 @@
 // ============================================================================
-// TINY STRIKE — tools/trailer.js
+// TINY WARFARE — tools/trailer.js
 //
 // Cinematic trailer recorder. Loaded by src/main.js when the URL has ?trailer
 // (which also forces game.debug so the input module accepts synthetic events).
@@ -1158,7 +1158,7 @@ class TrailerDirector {
         },
         tick() { /* game steps underneath (menu -> freeze) */ },
         overlay(g, t) {
-          T._drawTitleCard(g, t, 3.5, 'TINY STRIKE', 'TACTICAL BOMB DEFUSAL');
+          T._drawTitleCard(g, t, 3.5, 'TINY WARFARE', 'U.S. VS RUSSIA · BROWSER FPS');
         },
       },
 
@@ -1322,7 +1322,7 @@ class TrailerDirector {
           T.releaseInputs();
           T.tpPlayer(44.2, 0.06, -4.2, Math.PI, 0);
           T.arm(['awp'], 'awp');
-          T.setCaption('A LONG — OVERWATCH', 4.6);
+          T.setCaption('LONG LANE — OVERWATCH', 4.6);
 
           // staged crossing bot, pinned until the scope has settled
           const v3 = T._cast.v3;
@@ -1572,8 +1572,8 @@ class TrailerDirector {
         overlay(g, t) {
           const fadeIn = easeInOutCubic(clamp(t / 0.7, 0, 1));
           T._drawTitleCard(g, Math.max(0.0, t - 0.3), 3.7,
-            'TINY STRIKE', 'PLAY FREE IN YOUR BROWSER',
-            { backdropAlpha: fadeIn, extra: 'GUYZYSKIND.COM/TINYSTRIKE' });
+            'TINY WARFARE', 'PLAY FREE IN YOUR BROWSER',
+            { backdropAlpha: fadeIn, extra: 'GITHUB.COM/AWEST813/TINYWARFARE' });
         },
       },
     ];

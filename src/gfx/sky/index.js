@@ -762,7 +762,7 @@ export class SkySystem {
     this.setTimeOfDay(this.hour);
     this.syncExposure();
 
-    console.info(
+    if (this.debug) console.info(
       `[sky] atmosphere ready · lat ${this.celestial.site.latitudeDeg} · ` +
         `1 unit = ${SCENE_LUX} lx · shadow ${this._shadowMapSize}^2, ` +
         `fitted to the arena (see _fitShadow)`
@@ -1489,14 +1489,14 @@ export class SkySystem {
       metered > e * 1.005 ? 'ceiling' : metered < e * 0.995 ? 'floor' : '';
     if (bind !== this._exposureBind) {
       this._exposureBind = bind;
-      if (bind) {
+      if (this.debug && bind) {
         console.info(
           `[sky] exposure on the ${bind}: metered ${metered.toFixed(3)} -> ${e.toFixed(3)} ` +
             `(${Math.abs(Math.log2(metered / e)).toFixed(2)} EV clipped) · ` +
             `beam ${this._beamLuminance.toFixed(3)} moon ${this._baseMoonIntensity.toFixed(4)} ` +
             `evBias ${this.exposureBias.toFixed(2)} · hour ${this.hour.toFixed(2)}`
         );
-      } else {
+      } else if (this.debug) {
         console.info(`[sky] exposure metered freely at ${e.toFixed(3)}`);
       }
     }

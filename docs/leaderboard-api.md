@@ -1,6 +1,8 @@
-# Tiny Strike leaderboard API
+# Tiny Warfare leaderboard API
 
-The leaderboard is same-origin and JSON-only. The default single-process store
+The leaderboard is JSON-only, served same-origin and to the exact origins in
+`TINY_STRIKE_ALLOWED_ORIGINS` (the `TINY_STRIKE_*` names are kept from the
+upstream project on purpose). The default single-process store
 is `.tiny-strike/leaderboard.json`; set `TINY_STRIKE_LEADERBOARD_PATH` and
 `TINY_STRIKE_SEASON` when deploying. Writes atomically replace the JSON file.
 Session tokens are opaque bearer credentials and only their SHA-256 digests are

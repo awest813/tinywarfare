@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// TINY STRIKE — src/core/input.js
+// TINY WARFARE — src/core/input.js
 //
 // Keyboard / mouse / touch / pointer-lock input subsystem (spec section A).
 //

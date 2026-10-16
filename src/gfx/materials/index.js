@@ -40,6 +40,7 @@ export class MaterialSystem {
    */
   constructor(opts = {}) {
     this._injectedRenderer = opts.renderer ?? null;
+    this.debug = opts.debug ?? false;
     this._sets = new Map(); // bakeKey -> texture set
     this._materials = new Map(); // matKey  -> THREE.Material
     this._forge = null;
@@ -83,7 +84,7 @@ export class MaterialSystem {
     };
     this._built = true;
     const ms = performance.now() - t0;
-    if (ms > 30) console.info(`[materials] shared maps ${ms.toFixed(0)}ms`);
+    if (this.debug && ms > 30) console.info(`[materials] shared maps ${ms.toFixed(0)}ms`);
     return true;
   }
 
@@ -144,7 +145,7 @@ export class MaterialSystem {
     set.name = key;
     this._sets.set(cacheKey, set);
     const ms = performance.now() - t0;
-    if (ms > 40) console.info(`[materials] bake ${key} ${bake.size}px ${ms.toFixed(0)}ms`);
+    if (this.debug && ms > 40) console.info(`[materials] bake ${key} ${bake.size}px ${ms.toFixed(0)}ms`);
     return set;
   }
 

@@ -1,5 +1,5 @@
 // ============================================================================
-// TINY STRIKE — src/weapons/weapons.js (module D)
+// TINY WARFARE — src/weapons/weapons.js (module D)
 //
 // Player inventory + firing state machine. This module NEVER raycasts — it
 // emits 'weapon:fire' and combat resolves hits. It owns:

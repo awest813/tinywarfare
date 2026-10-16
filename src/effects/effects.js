@@ -1,5 +1,5 @@
 // ============================================================================
-// TINY STRIKE — src/effects/effects.js
+// TINY WARFARE — src/effects/effects.js
 // Section K: all visual FX. Everything pooled; zero allocations per frame.
 //
 // Pools:

@@ -1,5 +1,5 @@
 // ============================================================================
-// TINY STRIKE — src/weapons/data.js (module D, data tables)
+// TINY WARFARE — src/weapons/data.js (module D, data tables)
 //
 // Exports:
 //   WEAPONS   — object keyed by weapon id (the 11 real weapons)
