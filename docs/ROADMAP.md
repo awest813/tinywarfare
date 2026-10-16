@@ -100,6 +100,34 @@ it is. The Domination spawn change was first tried with the same hard
 pull as Hardpoint; it spawned both teams around mid and flag B never changed
 hands, so Domination keeps its gentle lean.
 
+### Bot tiers (2026-10-16)
+
+Bots play one of three profiles from `src/ai/skill.js`: Recruit, Regular (the
+original numbers) and Veteran. The menu's BOTS row picks it solo; online it
+is a room setting the host changes (`set_bot_skill`). The same pass fixed
+fifteen bot bugs (no target switching, sight while flashed, aim over crouched
+heads, no aim while reloading, frozen burst pauses, no top-up reloads, instant
+re-peek kills, a free pre-aim after spawn protection, and more) and added
+recoil bloom, lead, head bursts, threat-facing scans, frag throws and grenade
+dodging.
+
+Eight TDM matches per tier (two runs of four, 21-28 min of play each run),
+against the same scripted player (0.35 s reaction, aim error). Second run:
+
+| Tier | Player K/D | Damage taken / min | Bot hit rate | Grenades thrown |
+|---|---|---|---|---|
+| Recruit | 18.2 | 28 | 6.0% | 0 (none carried) |
+| Regular | 3.5 | 95 | 8.1% | 2 |
+| Veteran | 0.74 | 176 | 10.7% | 4 |
+
+The first run agreed (9.6, 3.3 and 0.9 K/D). No errors, no stuck bots.
+Frags stay rare: a bot only throws at a target hidden 5-13 m away (the throw
+reaches about 11 m plus the roll), and almost every target that ducks out of
+sight is farther than that.
+
+Open: bot-match leaderboard points do not depend on the tier yet, so a
+Recruit match counts the same as a Veteran one.
+
 ## Architecture moves that unlock everything
 
 Three couplings block every MW-style feature. Do these first:
