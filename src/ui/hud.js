@@ -11,7 +11,7 @@
 import * as THREE from 'three';
 import { MAP_CATALOG, mapForMode, mapSupportsMode, normalizeMapId } from '../maps/catalog.js';
 import { FACTIONS, FLAG_SVG, faction, scoreLine } from '../shared/factions.js';
-import { GAME_MODES, TDM, isRespawnMode, modeRules, normalizeModeId } from '../game/tdm.js';
+import { GAME_MODES, SD_BRIEF, TDM, isRespawnMode, modeGoal, modeRules, normalizeModeId } from '../game/tdm.js';
 import { STREAKS, STREAK_IDS } from '../game/streaks.js';
 import { BOT_SKILLS, BOT_SKILL_STORAGE_KEY, normalizeBotSkill } from '../ai/skill.js';
 import { ATTACHMENTS, ATTACHMENT_IDS, LETHALS, PRIMARIES, SECONDARIES, TACTICALS, PERKS, PERK1_IDS, PERK2_IDS } from '../game/loadouts.js';
@@ -91,6 +91,10 @@ const FALLBACK_BUY = [
 ];
 
 const MATCH_PHASES = { freeze: 1, live: 1, planted: 1, roundEnd: 1 };
+// The controls strip shows at the start of this many matches, for this long.
+const TIPS_STORAGE_KEY = 'tiny-strike-tips-shown';
+const TIPS_MATCHES = 3;
+const TIPS_SECONDS = 12;
 
 // Selection must paint before the synchronous world-rebuild notification can
 // monopolize the main thread. Keeping this above the 100 ms interaction budget
@@ -519,6 +523,7 @@ export default class HUD {
       progressNewCancel: $('hud-progress-new-cancel'),
       progressNewCommit: $('hud-progress-new-commit'),
       pause: $('hud-pause'),
+      tips: $('hud-tips'),
       end: $('hud-end'),
       endTitle: $('hud-end-title'),
       endSub: $('hud-end-sub'),
@@ -536,6 +541,13 @@ export default class HUD {
       restart: $('hud-restart'),
       endMenu: $('hud-end-menu'),
       pauseMenu: $('hud-pause-menu'),
+      pauseSettings: $('hud-pause-settings'),
+      pauseHowto: $('hud-pause-howto'),
+      pausePanel: $('hud-pause-panel'),
+      howto: $('hud-howto'),
+      howtoBody: $('hud-howto-body'),
+      howtoClose: $('hud-howto-close'),
+      howtoOpen: $('hud-howto-open'),
       restartMain: $('hud-restart-main'),
       restartSub: $('hud-restart-sub'),
       progressToasts: $('hud-progression-toasts'),
@@ -604,8 +616,28 @@ export default class HUD {
         this._returnToMenu();
       });
     }
+    this._el.pauseSettings?.addEventListener('click', (event) => {
+      event.stopPropagation();
+      this._setPauseSettingsOpen(!this._pauseSettingsOpen);
+    });
+    this._el.pauseHowto?.addEventListener('click', (event) => {
+      event.stopPropagation();
+      this._setHowToOpen(true);
+    });
+    this._el.howtoOpen?.addEventListener('click', () => this._setHowToOpen(true));
+    this._el.howtoClose?.addEventListener('click', (event) => {
+      event.stopPropagation();
+      this._setHowToOpen(false);
+    });
+    this._el.howto?.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (event.target === this._el.howto) this._setHowToOpen(false);
+    });
     if (this._el.pause) {
-      this._el.pause.addEventListener('click', () => {
+      this._el.pause.addEventListener('click', (event) => {
+        // Only a click on the backdrop resumes: the settings panel and the
+        // buttons on the overlay must stay usable while paused.
+        if (event.target?.closest?.('button, input, select, label, #hud-pause-panel')) return;
         if (this.game.input && typeof this.game.input.requestLock === 'function') {
           this.game.input.requestLock();
         }
@@ -1933,6 +1965,11 @@ export default class HUD {
     // input module may or may not route keys then). Debounced against the
     // 'ui:toggle-buy' the weapons module emits for the same keydown.
     this._onKeydownDom = (e) => {
+      if (this._howtoOpen && (e.key || '').toLowerCase() === 'escape') {
+        e.preventDefault();
+        this._setHowToOpen(false);
+        return;
+      }
       if (this._settingsOpen && (e.key || '').toLowerCase() === 'escape') {
         e.preventDefault();
         this._setSettingsOpen(false);
@@ -2018,6 +2055,7 @@ export default class HUD {
 
     this._updateOverlays(dt);
     this._updateMsg();
+    this._updateTips(inGame);
     this._updatePause(phase);
     if (g && g.debug) this._updateFps(dt);
   }
@@ -2074,6 +2112,7 @@ export default class HUD {
     switch (d.phase) {
       case 'freeze': {
         const mode = this.game.state && this.game.state.mode;
+        if (isRespawnMode(mode) || Number(this.game.state?.round) === 1) this._maybeShowTips();
         if (isRespawnMode(mode)) {
           this._showMsg(GAME_MODES[mode].label, modeRules(mode).brief, TDM.READY_TIME - 0.5);
           break;
@@ -2082,6 +2121,17 @@ export default class HUD {
         const buyPrompt = this.game.input?.touchMode
           ? 'TAP $ BUY FOR EQUIPMENT'
           : 'PRESS ' + this._bindingLabel('buy') + ' TO BUY EQUIPMENT';
+        // The first round says what the side is for; the buy prompt follows.
+        const brief = Number(this.game.state?.round) === 1 && SD_BRIEF[this.game.player?.team];
+        if (brief) {
+          const briefDur = Math.min(3, dur / 2);
+          this._showMsg(GAME_MODES.sd.label, brief, briefDur);
+          clearTimeout(this._buyPromptTimer);
+          this._buyPromptTimer = setTimeout(() => {
+            if (this.game.state?.phase === 'freeze') this._showMsg('BUY PHASE', buyPrompt, dur - briefDur);
+          }, briefDur * 1000);
+          break;
+        }
         this._showMsg('BUY PHASE', buyPrompt, dur);
         break;
       }
@@ -3620,19 +3670,149 @@ export default class HUD {
 
   _updatePause(phase) {
     const show = !this._locked && !this.game.debug && MATCH_PHASES[phase] === 1 && !this._buyOpen;
-    if (show !== this._pauseShown) {
+    // Solo matches stop while the overlay is up; an online match cannot.
+    const online = !!this.game.multiplayer?.active;
+    this.game.paused = show && !online;
+    if (show !== this._pauseShown || (show && online !== this._pauseOnline)) {
       this._pauseShown = show;
+      this._pauseOnline = online;
       if (this._el.pause) {
         if (show) {
-          const touch = !!this.game.input?.touchMode;
+          const resume = this.game.input?.touchMode ? 'TAP TO RESUME' : 'CLICK TO RESUME';
           const main = this._el.pause.querySelector('.pause-main');
           const sub = this._el.pause.querySelector('.pause-sub');
-          if (main) main.textContent = touch ? 'TAP TO RESUME' : 'CLICK TO RESUME';
-          if (sub) sub.textContent = touch ? 'PAUSED HERE — THE MATCH CONTINUES' : 'POINTER RELEASED — THE MATCH CONTINUES';
+          if (main) main.textContent = online ? resume : 'PAUSED';
+          if (sub) sub.textContent = online ? 'THE MATCH IS STILL RUNNING' : resume;
+        } else {
+          this._setPauseSettingsOpen(false);
+          this._setHowToOpen(false);
         }
         this._el.pause.style.display = show ? 'flex' : 'none';
       }
     }
+  }
+
+  /**
+   * A strip of the main controls at the start of a player's first few
+   * matches, on desktop (touch controls carry their own labels).
+   */
+  _maybeShowTips() {
+    if (!this._el.tips || this.game.input?.touchMode || this.game.debug) return;
+    let shown = 0;
+    try { shown = Number(localStorage.getItem(TIPS_STORAGE_KEY)) || 0; } catch { /* private mode */ }
+    if (shown >= TIPS_MATCHES) return;
+    try { localStorage.setItem(TIPS_STORAGE_KEY, String(shown + 1)); } catch { /* private mode */ }
+    const key = (id) => esc(this._bindingLabel(id));
+    const tip = (keys, what) => '<span><kbd>' + keys + '</kbd>' + what + '</span>';
+    const sd = this.game.state?.mode === 'sd';
+    this._el.tips.innerHTML = [
+      tip(key('moveForward') + key('moveLeft') + key('moveBackward') + key('moveRight'), 'MOVE'),
+      tip(key('sprint'), 'SPRINT'),
+      tip(key('crouch'), 'CROUCH'),
+      tip(key('reload'), 'RELOAD'),
+      tip(key('weapon4'), 'GRENADE'),
+      sd ? tip(key('buy'), 'BUY') : tip(key('streak1'), 'STREAK'),
+      tip('ESC', 'PAUSE · HOW TO PLAY'),
+    ].join('');
+    this._tipsUntil = this._time + TIPS_SECONDS;
+  }
+
+  _updateTips(inGame) {
+    const show = inGame && this._time < (this._tipsUntil || 0);
+    if (show !== !!this._tipsShown) {
+      this._tipsShown = show;
+      this._el.tips?.classList.toggle('show', show);
+    }
+  }
+
+  /**
+   * Settings from the pause overlay: the menu's settings panel is moved into
+   * the overlay while open and put back on close, so there is one set of
+   * controls to keep in sync.
+   */
+  _setPauseSettingsOpen(open) {
+    const panel = this._el.settingsPanel;
+    const host = this._el.pausePanel;
+    if (!panel || !host) return;
+    open = !!open;
+    if (open === !!this._pauseSettingsOpen) return;
+    if (open) {
+      this._setSettingsOpen(false);
+      this._settingsHome = { parent: panel.parentNode, next: panel.nextSibling };
+      host.appendChild(panel);
+      panel.hidden = false;
+      host.hidden = false;
+    } else {
+      this._cancelBindingCapture('panel-closed');
+      panel.hidden = true;
+      host.hidden = true;
+      const home = this._settingsHome;
+      if (home?.parent) home.parent.insertBefore(panel, home.next || null);
+      this._settingsHome = null;
+    }
+    this._pauseSettingsOpen = open;
+    this._el.pause?.classList.toggle('with-panel', open);
+    if (this._el.pauseSettings) {
+      this._el.pauseSettings.setAttribute('aria-expanded', open ? 'true' : 'false');
+      this._el.pauseSettings.textContent = open ? 'CLOSE SETTINGS' : 'SETTINGS';
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // How to play
+  // --------------------------------------------------------------------------
+
+  _setHowToOpen(open) {
+    open = !!open;
+    if (!this._el.howto || open === !!this._howtoOpen) return;
+    this._howtoOpen = open;
+    if (open) {
+      this._howtoReturnFocus = globalThis.document?.activeElement || null;
+      if (this._el.howtoBody) this._el.howtoBody.innerHTML = this._howToHtml();
+    }
+    this._el.howto.hidden = !open;
+    if (open) this._el.howtoClose?.focus?.();
+    else this._howtoReturnFocus?.focus?.();
+  }
+
+  _howToHtml() {
+    const touch = !!this.game.input?.touchMode;
+    const key = (id) => esc(this._bindingLabel(id));
+    const row = (keys, what) => '<li><kbd>' + keys + '</kbd><span>' + esc(what) + '</span></li>';
+    const controls = touch ? [
+      row('MOVE', 'Left stick'),
+      row('DRAG', 'Look around with the right side of the screen'),
+      row('FIRE', 'Shoot (hold)'),
+      row('AIM', 'Aim down sights'),
+      row('JUMP · CROUCH', 'Jump · crouch, slide while sprinting'),
+      row('PRIMARY · SIDEARM', 'Switch weapons'),
+      row('USE', 'Plant / defuse · use objectives'),
+      row('$ BUY', 'Buy menu (Search & Destroy)'),
+      row('STREAK', 'Call in a scorestreak'),
+      row('❚❚', 'Pause · settings'),
+    ] : [
+      row(key('moveForward') + key('moveLeft') + key('moveBackward') + key('moveRight'), 'Move'),
+      row('MOUSE', 'Look · left click shoots · right click aims'),
+      row(key('sprint'), 'Sprint'),
+      row(key('crouch'), 'Crouch · slide while sprinting'),
+      row(key('jump'), 'Jump · next player while spectating'),
+      row(key('reload'), 'Reload'),
+      row(key('weapon1') + ' ' + key('weapon2') + ' ' + key('weapon3'), 'Primary · sidearm · knife'),
+      row(key('weapon4'), 'Grenade'),
+      row(key('use'), 'Plant / defuse · use objectives'),
+      row(key('buy'), 'Buy menu (Search & Destroy)'),
+      row(key('streak1') + ' ' + key('streak2') + ' ' + key('streak3'), 'Call in scorestreaks'),
+      row(key('scoreboard'), 'Scoreboard (hold)'),
+      row('ESC', 'Pause · settings'),
+    ];
+    const goals = Object.values(GAME_MODES).map((mode) =>
+      '<li><strong>' + esc(mode.label) + '</strong><span>' + esc(modeGoal(mode.id)) + '</span></li>'
+    ).join('');
+    return '<h3>CONTROLS</h3><ul class="howto-keys">' + controls.join('') + '</ul>' +
+      '<p class="howto-note">' + (touch
+        ? 'Look sensitivity and more are in Settings.'
+        : 'Every key can be changed in Settings.') + '</p>' +
+      '<h3>MODES</h3><ul class="howto-modes">' + goals + '</ul>';
   }
 
   // --------------------------------------------------------------------------
@@ -4076,6 +4256,7 @@ export default class HUD {
 
       // center: messages / defuse / hint
       '<div id="hud-msg"><div id="hud-msg-main"></div><div id="hud-msg-sub"></div></div>' +
+      '<div id="hud-tips" aria-hidden="true"></div>' +
       '<div class="hud-panel" id="hud-defuse">' +
       '<div class="df-label" id="hud-defuse-label">DEFUSING…</div>' +
       '<div class="df-track"><div id="hud-defuse-fill"></div></div>' +
@@ -4115,10 +4296,21 @@ export default class HUD {
 
       // ------------------------------------------------ pause overlay
       '<div id="hud-pause"><div class="pause-inner">' +
-      '<div class="pause-main">CLICK TO RESUME</div>' +
-      '<div class="pause-sub">POINTER RELEASED — THE MATCH CONTINUES</div>' +
+      '<div class="pause-main">PAUSED</div>' +
+      '<div class="pause-sub">CLICK TO RESUME</div>' +
+      '<div class="pause-actions">' +
+      '<button id="hud-pause-settings" class="pause-menu" type="button" aria-expanded="false" aria-controls="hud-pause-panel">SETTINGS</button>' +
+      '<button id="hud-pause-howto" class="pause-menu" type="button">HOW TO PLAY</button>' +
       '<button id="hud-pause-menu" class="pause-menu" type="button">QUIT TO MAIN MENU</button>' +
+      '</div>' +
+      '<div id="hud-pause-panel" hidden></div>' +
       '</div></div>' +
+
+      // ------------------------------------------------ how to play
+      '<div id="hud-howto" role="dialog" aria-modal="true" aria-labelledby="hud-howto-title" hidden>' +
+      '<div class="howto-card"><div class="howto-head"><strong id="hud-howto-title">HOW TO PLAY</strong>' +
+      '<button id="hud-howto-close" type="button" aria-label="Close how to play">CLOSE</button></div>' +
+      '<div class="howto-body" id="hud-howto-body"></div></div></div>' +
 
       // ------------------------------------------------ main menu
       // One primary action (PLAY), quiet secondary choices, everything else
@@ -4191,6 +4383,7 @@ export default class HUD {
       '<div class="mn-quick" role="group" aria-label="More options">' +
       '<button id="hud-online-open" type="button" aria-expanded="false">PLAY ONLINE<b class="mn-chev" aria-hidden="true">+</b></button>' +
       '<button id="hud-leaderboard-open" type="button">LEADERBOARDS</button>' +
+      '<button id="hud-howto-open" type="button">HOW TO PLAY</button>' +
       '<button id="hud-profile-menu-open" class="hud-profile-open" type="button">PROFILE' +
       '<span class="mn-sr" id="hud-menu-profile-label">OPERATIVE · VANGUARD</span></button>' +
       '<button id="hud-settings-open" type="button" aria-expanded="false" aria-controls="hud-menu-settings">SETTINGS<b class="mn-chev" aria-hidden="true">+</b></button>' +
@@ -4709,6 +4902,19 @@ export default class HUD {
   transition: opacity .32s, transform .32s; z-index: 6; pointer-events: none;
 }
 #hud-msg.show { opacity: 1; transform: translateY(0); }
+#hud-tips {
+  position: absolute; left: 50%; bottom: 24%; transform: translateX(-50%);
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 16px; width: max-content; max-width: 92vw;
+  padding: 9px 16px; background: rgba(5, 7, 4, 0.72); border: 1px solid rgba(154, 178, 107, 0.3);
+  font-size: 12px; font-weight: 700; letter-spacing: .14em; color: #dfe8cf;
+  opacity: 0; transition: opacity .4s; z-index: 6; pointer-events: none;
+}
+#hud-tips.show { opacity: 1; }
+#hud-tips span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+#hud-tips kbd {
+  padding: 1px 5px; font: inherit; font-size: 11px; color: #eef5df;
+  background: rgba(154, 178, 107, 0.18); border: 1px solid rgba(154, 178, 107, 0.45); border-radius: 3px;
+}
 #hud-msg-main {
   font-size: 36px; font-weight: 900; letter-spacing: .24em; text-transform: uppercase;
   color: #eef5df;
@@ -5025,8 +5231,43 @@ export default class HUD {
 #hud-pause {
   position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
   background: rgba(3, 4, 2, 0.6); z-index: 40; pointer-events: auto; cursor: pointer;
+  overflow: auto; padding: 16px;
 }
-.pause-inner { text-align: center; }
+.pause-inner { text-align: center; margin: auto; }
+#hud-pause.with-panel { background: rgba(3, 4, 2, 0.9); }
+.pause-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 26px; }
+.pause-actions .pause-menu { margin-top: 0; }
+#hud-pause-panel { margin: 14px auto 0; width: min(560px, 92vw); text-align: left; cursor: default; }
+#hud-pause-panel[hidden] { display: none; }
+#hud-pause-panel .mn-settings { width: 100%; margin: 0; }
+#hud-howto {
+  position: absolute; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center;
+  padding: 16px; background: rgba(3, 4, 2, 0.78); pointer-events: auto; cursor: default;
+}
+#hud-howto[hidden] { display: none; }
+.howto-card {
+  width: min(640px, 100%); max-height: 100%; overflow: auto; padding: 18px 20px 20px;
+  background: rgba(10, 14, 8, 0.97); border: 1px solid rgba(154, 178, 107, 0.4);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55); color: #dfe8cf;
+}
+.howto-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.howto-head strong { font-size: 17px; letter-spacing: .26em; color: var(--olive-bright); }
+.howto-head button {
+  padding: 8px 14px; background: transparent; border: 1px solid rgba(154, 178, 107, 0.45);
+  color: var(--olive-bright); font: inherit; font-size: 11px; font-weight: 700; letter-spacing: .2em; cursor: pointer;
+}
+.howto-body h3 { margin: 16px 0 8px; font-size: 12px; letter-spacing: .24em; color: var(--olive-dim); }
+.howto-body ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.howto-keys { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.howto-keys li { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.howto-keys kbd {
+  flex: 0 0 auto; min-width: 64px; padding: 3px 6px; text-align: center; font: inherit; font-size: 11px;
+  font-weight: 700; letter-spacing: .08em; color: #eef5df; background: rgba(154, 178, 107, 0.16);
+  border: 1px solid rgba(154, 178, 107, 0.4); border-radius: 3px;
+}
+.howto-modes li { display: grid; gap: 2px; padding: 7px 0; border-top: 1px solid rgba(154, 178, 107, 0.15); font-size: 13px; line-height: 1.4; }
+.howto-modes strong { font-size: 12px; letter-spacing: .18em; color: var(--olive-bright); }
+.howto-note { margin: 10px 0 0; font-size: 12px; color: var(--olive-dim); }
 .pause-main {
   font-size: 30px; font-weight: 800; letter-spacing: .3em; color: var(--olive-bright);
   text-shadow: 0 0 20px rgba(154, 178, 107, 0.4), 0 2px 2px #000;

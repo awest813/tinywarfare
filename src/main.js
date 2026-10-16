@@ -287,6 +287,11 @@ const UPDATE_ORDER = [
   'materials',
 ];
 
+// What still runs while a solo match is paused (game.paused, set by the HUD's
+// pause overlay): the menus, input, sky bakes and audio. The match itself —
+// rounds, actors, projectiles, effects — holds still.
+const PAUSED_SYSTEMS = new Set(['world', 'touchControls', 'multiplayer', 'hud', 'audio', 'input', 'materials']);
+
 const clock = new THREE.Clock();
 let shadowFrame = 0;
 let frames = 0;
@@ -330,6 +335,7 @@ renderer.setAnimationLoop(() => {
     for (const key of UPDATE_ORDER) {
       const sys = game[key];
       if (!sys || typeof sys.update !== 'function') continue;
+      if (game.paused && !PAUSED_SYSTEMS.has(key)) continue;
       try {
         sys.update(dt);
       } catch (error) {

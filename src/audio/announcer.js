@@ -17,9 +17,15 @@ const MODE_LINES = Object.freeze({
   ffa: 'Free for all. Trust no one.',
 });
 
+// Spelled with stops so speech engines say the letters, not "you-av".
+const SD_LINES = Object.freeze({
+  ct: 'Search and destroy. Defend the sites.',
+  t: 'Search and destroy. Plant the bomb.',
+});
+
 const STREAK_LINES = Object.freeze({
-  uav: 'UAV online.',
-  counteruav: 'Counter UAV online.',
+  uav: 'U.A.V. online.',
+  counteruav: 'Counter U.A.V. online.',
   carepackage: 'Care package inbound.',
   airstrike: 'Airstrike inbound.',
 });
@@ -36,11 +42,15 @@ export default class Announcer {
     const ev = game.events;
     ev.on('round:phase', (d) => {
       const mode = game.state && game.state.mode;
-      if (d && d.phase === 'freeze' && isRespawnMode(mode)) this.say(MODE_LINES[mode]);
+      if (!d || d.phase !== 'freeze') return;
+      if (isRespawnMode(mode)) this.say(MODE_LINES[mode]);
+      else if (Number(game.state.round) === 1) this.say(SD_LINES[game.player && game.player.team]);
     });
-    ev.on('streak:ready', (d) => this.say(String(d && d.label ? d.label : 'Streak').toLowerCase() + ' ready.'));
+    ev.on('streak:ready', (d) => this.say(
+      String(d && d.label ? d.label : 'Streak').toLowerCase().replace(/\buav\b/g, 'U.A.V.') + ' ready.'
+    ));
     ev.on('streak:activate', (d) => this.say(STREAK_LINES[d && d.id]));
-    ev.on('streak:enemy', (d) => this.say(d && d.jammed ? 'Enemy UAV jammed.' : 'Enemy UAV spotted.', true));
+    ev.on('streak:enemy', (d) => this.say(d && d.jammed ? 'Enemy U.A.V. jammed.' : 'Enemy U.A.V. spotted.', true));
     ev.on('objective:flag', (d) => {
       const mine = (game.player && game.player.team) || 'ct';
       if (!d) return;

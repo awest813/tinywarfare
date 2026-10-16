@@ -28,6 +28,18 @@ test('the announcer voices streaks, flags, and results, and respects the toggle'
   events.emit('game:end', { winner: 'ct' });
   assert.equal(synth.spoken.at(-1), 'Mission accomplished.');
 
+  game.state = { mode: 'sd', round: 1 };
+  announcer._last = 0;
+  events.emit('round:phase', { phase: 'freeze' });
+  assert.equal(synth.spoken.at(-1), 'Search and destroy. Defend the sites.');
+  game.state.round = 2;
+  announcer._last = 0;
+  events.emit('round:phase', { phase: 'freeze' });
+  assert.equal(synth.spoken.at(-1), 'Search and destroy. Defend the sites.', 'only round one is briefed');
+  announcer._last = 0;
+  events.emit('streak:ready', { label: 'UAV' });
+  assert.equal(synth.spoken.at(-1), 'U.A.V. ready.');
+
   game.settings.announcer = false;
   assert.equal(announcer.say('Hello', true), false);
   assert.equal(new Announcer(game, null).say('x', true), false, 'no speech synthesis: silent');

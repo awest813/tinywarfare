@@ -44,6 +44,26 @@ export const MODE_RULES = Object.freeze({
   ffa: Object.freeze({ scoreLimit: 30, killScore: 0, brief: 'NO TEAMS · FIRST SOLDIER TO 30 KILLS WINS' }),
 });
 
+/** How each mode is won, in one line, for the how-to-play card. */
+export const MODE_GOALS = Object.freeze({
+  sd: 'Rounds with no respawns. Russian forces plant the bomb at site A or B; U.S. forces stop or defuse it. Wiping out the other side also wins. First to 8 rounds.',
+  tdm: 'Every kill scores for your team. First team to 50 wins.',
+  kc: 'Kills drop dog tags. Pick up enemy tags to score; grab your team\'s to deny them. First to 30.',
+  dom: 'Capture flags A, B and C by standing on them. Each flag held scores over time. First to 150.',
+  hp: 'Stand in the hardpoint to score while no enemy contests it. It moves every minute. First to 100.',
+  ffa: 'No teams: everyone is an enemy. First soldier to 30 kills wins.',
+});
+
+export function modeGoal(mode) {
+  return MODE_GOALS[mode] || '';
+}
+
+/** Round-one brief for each Search & Destroy side. */
+export const SD_BRIEF = Object.freeze({
+  ct: 'DEFEND SITES A & B · STOP THE BOMB OR DEFUSE IT',
+  t: 'PLANT THE BOMB AT SITE A OR B · OR WIPE OUT THE DEFENDERS',
+});
+
 export function modeRules(mode) {
   return MODE_RULES[mode] || MODE_RULES.tdm;
 }

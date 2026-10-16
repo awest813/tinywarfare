@@ -160,7 +160,7 @@ Low next time. Preferences are saved on this device.
 | 5 / 6 / 7 | Scorestreak slot 1 / slot 2 / care-package bonus (respawn modes) |
 | 1–5 (while dead) | Pick the class for your next spawn (respawn modes; touch: CLASS button) |
 | Space (while dead, S&D) | Next spectator view |
-| Esc | Release the pointer and pause; QUIT TO MAIN MENU from there |
+| Esc | Pause (solo matches stop; online ones keep running). Settings, How to Play and Quit to Main Menu are on the pause screen |
 
 ## Arsenal
 
