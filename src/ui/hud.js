@@ -462,6 +462,8 @@ export default class HUD {
       brightness: $('hud-brightness'),
       announcer: $('hud-announcer'),
       announcerOutput: $('hud-announcer-output'),
+      showFps: $('hud-show-fps'),
+      showFpsOutput: $('hud-show-fps-output'),
       graphics: $('hud-graphics'),
       graphicsNote: $('hud-graphics-note'),
       graphicsReload: $('hud-graphics-reload'),
@@ -842,6 +844,10 @@ export default class HUD {
       this._syncSettingsUi();
     });
     this._el.graphicsReload?.addEventListener('click', () => globalThis.location?.reload?.());
+    this._el.showFps?.addEventListener('change', (event) => {
+      settings.setShowFps(event.currentTarget.checked);
+      this._syncSettingsUi();
+    });
     this._el.settingsReset?.addEventListener('click', () => {
       // Two steps, like QUIT: one stray click must not wipe every binding.
       const btn = this._el.settingsReset;
@@ -953,6 +959,8 @@ export default class HUD {
     if (this._el.brightness) this._el.brightness.value = String(settings.brightnessEv);
     if (this._el.announcer) this._el.announcer.checked = settings.announcer !== false;
     if (this._el.announcerOutput) this._el.announcerOutput.textContent = settings.announcer !== false ? 'ON' : 'OFF';
+    if (this._el.showFps) this._el.showFps.checked = !!settings.showFps;
+    if (this._el.showFpsOutput) this._el.showFpsOutput.textContent = settings.showFps ? 'ON' : 'OFF';
     if (this._el.graphics) this._el.graphics.value = settings.graphics || 'auto';
     if (this._el.graphicsNote) {
       // The preset is chosen at load: say so once it no longer matches, and
@@ -2105,9 +2113,12 @@ export default class HUD {
       this._updateScoreboard(phase);
       this._updateBuy(st);
 
+      // ~20 Hz; 10 Hz on the Chromebook preset, where the canvas redraw is
+      // a measurable share of a slow CPU's frame.
+      const radarStep = this.game.gfx?.id === 'chromebook' ? 0.1 : 0.05;
       this._radarTimer += dt;
-      if (this._radarTimer >= 0.05) {         // ~20 Hz
-        this._radarTimer %= 0.05;
+      if (this._radarTimer >= radarStep) {
+        this._radarTimer %= radarStep;
         this._drawRadar(st);
       }
     }
@@ -2124,7 +2135,7 @@ export default class HUD {
       }
     }
     this._updatePause(phase);
-    if (g && g.debug) this._updateFps(dt);
+    this._updateFps(dt, !!(g && (g.debug || g.settings?.showFps)));
   }
 
   // --------------------------------------------------------------------------
@@ -2610,6 +2621,10 @@ export default class HUD {
    * identification cue since both factions wear earth tones.
    */
   _updateTarget() {
+    // 20 times a second is plenty for a colour change, and the wall check is
+    // a full world raycast.
+    if (this._time - (this._targetAt ?? -1) < 0.05) return;
+    this._targetAt = this._time;
     const g = this.game;
     const p = g.player;
     const combat = g.combat;
@@ -2642,16 +2657,18 @@ export default class HUD {
     const cam = g.camera;
     const st = g.state || {};
     const live = MATCH_PHASES[st.phase] === 1 && p && p.alive !== false && cam && !isFfa(g);
-    const mates = [];
+    // Reused every frame: no per-frame arrays.
+    const mates = this._tagMates || (this._tagMates = []);
+    mates.length = 0;
     if (live) {
-      const bots = (g.bots && g.bots.all) || [];
-      const remotes = (g.multiplayer && g.multiplayer.active && g.multiplayer.remotePlayers) || [];
-      for (const a of [...bots, ...remotes]) {
+      const consider = (a) => {
         const pos = a && (a.pos || a.position);
-        if (!a || a.alive === false || !pos || a.team !== p.team) continue;
-        if (pos.distanceTo(p.position) > 60) continue;
+        if (!a || a.alive === false || !pos || a.team !== p.team) return;
+        if (pos.distanceToSquared(p.position) > 3600) return;
         mates.push(a);
-      }
+      };
+      for (const a of (g.bots && g.bots.all) || []) consider(a);
+      if (g.multiplayer && g.multiplayer.active) for (const a of g.multiplayer.remotePlayers || []) consider(a);
     }
     while (root.children.length < mates.length) {
       const tag = document.createElement('span');
@@ -2664,15 +2681,23 @@ export default class HUD {
     for (let i = 0; i < root.children.length; i++) {
       const tag = root.children[i];
       const a = mates[i];
-      if (!a) { tag.style.display = 'none'; continue; }
-      const pos = a.pos || a.position;
-      this._tagV.set(pos.x, pos.y + (a.height || 1.83) + 0.35, pos.z).project(cam);
-      if (this._tagV.z > 1 || Math.abs(this._tagV.x) > 1.05 || Math.abs(this._tagV.y) > 1.05) { tag.style.display = 'none'; continue; }
+      const pos = a && (a.pos || a.position);
+      if (pos) this._tagV.set(pos.x, pos.y + (a.height || 1.83) + 0.35, pos.z).project(cam);
+      if (!pos || this._tagV.z > 1 || Math.abs(this._tagV.x) > 1.05 || Math.abs(this._tagV.y) > 1.05) {
+        if (tag._shown !== false) { tag._shown = false; tag.style.display = 'none'; }
+        continue;
+      }
       const name = a.isRemotePlayer ? humanCallsign(g, a.name, a.networkId) : String(a.name || '');
       if (tag.textContent !== name) tag.textContent = name;
-      tag.style.display = 'block';
-      tag.style.transform = 'translate(' + Math.round((this._tagV.x + 1) * 0.5 * w) + 'px,' +
-        Math.round((1 - this._tagV.y) * 0.5 * h) + 'px) translate(-50%,-100%)';
+      if (tag._shown !== true) { tag._shown = true; tag.style.display = 'block'; }
+      // Style writes only when the tag actually moved a pixel.
+      const x = Math.round((this._tagV.x + 1) * 0.5 * w);
+      const y = Math.round((1 - this._tagV.y) * 0.5 * h);
+      if (tag._x !== x || tag._y !== y) {
+        tag._x = x;
+        tag._y = y;
+        tag.style.transform = 'translate(' + x + 'px,' + y + 'px) translate(-50%,-100%)';
+      }
     }
   }
 
@@ -3336,8 +3361,11 @@ export default class HUD {
       if (this._el.useHint) this._el.useHint.style.display = hint ? 'block' : 'none';
     }
     if (hint && this._el.useHint) {
-      this._el.useHint.innerHTML =
-        'HOLD <kbd>' + esc(this._bindingLabel('use')) + '</kbd> TO ' + hintAction;
+      const markup = 'HOLD <kbd>' + esc(this._bindingLabel('use')) + '</kbd> TO ' + hintAction;
+      if (markup !== c.hintHtml) {
+        c.hintHtml = markup;
+        this._el.useHint.innerHTML = markup;
+      }
     }
   }
 
@@ -4219,11 +4247,19 @@ export default class HUD {
   // Debug FPS
   // --------------------------------------------------------------------------
 
-  _updateFps(dt) {
+  _updateFps(dt, show) {
+    if (!show) {
+      if (this._cache.fps !== '') {
+        this._cache.fps = '';
+        if (this._el.fps) this._el.fps.style.display = 'none';
+      }
+      return;
+    }
     this._fpsTimer += dt;
-    if (this._fpsTimer < 0.5) return;
+    if (this._fpsTimer < 0.5 && this._cache.fps) return;
     this._fpsTimer = 0;
-    const text = Math.round(this.game.fps || 0) + ' FPS';
+    const fps = Math.round(this.game.fps || 0);
+    const text = fps + ' FPS · ' + (fps > 0 ? Math.round(1000 / fps) : 0) + ' MS';
     if (text !== this._cache.fps) {
       this._cache.fps = text;
       if (this._el.fps) {
@@ -4518,6 +4554,10 @@ export default class HUD {
       '<output id="hud-announcer-output" for="hud-announcer">' + (settings?.announcer === false ? 'OFF' : 'ON') + '</output></span>' +
       '<small class="mn-setting-note">SPOKEN MATCH CALLOUTS</small>' +
       '<input id="hud-announcer" type="checkbox"' + (settings?.announcer === false ? '' : ' checked') + '></label>' +
+      '<label class="mn-setting mn-setting-toggle" for="hud-show-fps"><span><strong>SHOW FPS</strong>' +
+      '<output id="hud-show-fps-output" for="hud-show-fps">' + (settings?.showFps ? 'ON' : 'OFF') + '</output></span>' +
+      '<small class="mn-setting-note">FRAME RATE IN THE CORNER</small>' +
+      '<input id="hud-show-fps" type="checkbox"' + (settings?.showFps ? ' checked' : '') + '></label>' +
       '</div>' +
       '<section class="mn-bindings-section" aria-labelledby="hud-bindings-title">' +
       '<div class="mn-bindings-head"><strong id="hud-bindings-title">KEY BINDINGS</strong>' +
@@ -6100,8 +6140,8 @@ html.touch-device .mn-id { min-height:52px; }
 
 /* ---------- debug fps ---------- */
 #hud-fps {
-  position: absolute; left: 6px; bottom: 4px; font-size: 10px; letter-spacing: .1em;
-  color: rgba(154, 178, 107, 0.6); text-shadow: 0 1px 1px #000; z-index: 2;
+  position: absolute; left: 8px; bottom: 6px; font-size: 11px; font-weight: 700; letter-spacing: .1em;
+  color: rgba(214, 229, 184, 0.85); text-shadow: 0 1px 2px #000; z-index: 2; pointer-events: none;
 }
 `;
   }

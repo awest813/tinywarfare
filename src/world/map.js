@@ -171,6 +171,12 @@ export default class World {
     this.game.scene.add(this.solids);
     this.solids.updateMatrixWorld(true);
     this.environment.updateMatrixWorld(true);
+    // Nothing in either group moves after this (precipitation animates in its
+    // shader), so their several hundred local matrices need not be
+    // recomposed on every render pass, of which there are up to three a frame.
+    const freeze = (o) => { o.matrixAutoUpdate = false; };
+    this.solids.traverse(freeze);
+    this.environment.traverse(freeze);
     this._loaded = true;
     this.game.selectedMapId = mapId;
     if (this.game.state) this.game.state.mapId = mapId;

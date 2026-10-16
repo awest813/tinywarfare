@@ -550,12 +550,20 @@ export class Ssao {
     //    they would rasterise as 1-pixel dots and small world-space quads at the
     //    wrong depth. They are additive glow with depthWrite off in the beauty
     //    pass and have no business occluding anything.
+    //  - Rain and snow are point and line pools with their own vertex
+    //    animation, which the override material would ignore.
+    //
+    // The effects' lights stay visible: hiding a light changes three's light
+    // hash, and doing that twice a frame made it re-validate the program of
+    // every lit material in every beauty pass. Only their drawables go.
     const dome = game?.world?.sky?.dome?.mesh ?? null;
-    const fx = game?.effects?.root ?? null;
-    const domeVis = dome ? dome.visible : false;
-    const fxVis = fx ? fx.visible : false;
-    if (dome) dome.visible = false;
-    if (fx) fx.visible = false;
+    const precip = game?.world?.precipitation?.object ?? null;
+    const hidden = this._hidden || (this._hidden = []);
+    hidden.length = 0;
+    const hide = (o) => { if (o && o.visible) { o.visible = false; hidden.push(o); } };
+    hide(dome);
+    hide(precip);
+    for (const child of game?.effects?.root?.children ?? []) if (!child.isLight) hide(child);
 
     // renderer.render() re-renders the shadow map on every call, and this pass
     // does not read it. Suppressing it for the prepass and letting the beauty
@@ -574,8 +582,8 @@ export class Ssao {
     scene.overrideMaterial = prevOverride;
     renderer.shadowMap.autoUpdate = shadowAuto;
     renderer.autoClear = prevAutoClear;
-    if (dome) dome.visible = domeVis;
-    if (fx) fx.visible = fxVis;
+    for (const o of hidden) o.visible = true;
+    hidden.length = 0;
 
     // ---- estimate, then blur along each axis ------------------------------
     au.tDepth.value = this.depthRt.depthTexture;

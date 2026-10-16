@@ -1743,6 +1743,9 @@ export default class ViewModel {
       }
     );
 
+    // Each file is fetched and parsed once; weapons that borrow another's
+    // model (semtex, stun) get their own clone of it.
+    const users = new Map(); // file -> [weapon ids]
     for (const id in GLB_POSES) {
       if (!this._models[id]) continue; // no fallback group => nothing to swap
       /**
@@ -1758,18 +1761,26 @@ export default class ViewModel {
        * Skipping the request outright removes the race and seven downloads.
        */
       if (PROCEDURAL_WEAPON_IDS.includes(id)) continue;
+      const file = GLB_SOURCE[id] || id;
+      if (!users.has(file)) users.set(file, []);
+      users.get(file).push(id);
+    }
+    for (const [file, ids] of users) {
       loader.load(
-        GLB_PATH + (GLB_SOURCE[id] || id) + '.glb',
+        GLB_PATH + file + '.glb',
         (gltf) => {
-          try {
-            this._applyGLB(id, gltf);
-          } catch (e) {
-            console.warn('[viewmodel] GLB swap failed for ' + id + ' — keeping procedural model', e);
-          }
+          ids.forEach((id, i) => {
+            try {
+              const copy = i === 0 ? gltf : { ...gltf, scene: cloneSkeleton(gltf.scene), scenes: undefined };
+              this._applyGLB(id, copy);
+            } catch (e) {
+              console.warn('[viewmodel] GLB swap failed for ' + id + ' — keeping procedural model', e);
+            }
+          });
         },
         undefined,
         (err) => {
-          console.warn('[viewmodel] GLB load failed for ' + id + ' — keeping procedural model', err);
+          console.warn('[viewmodel] GLB load failed for ' + ids.join(', ') + ' — keeping procedural model', err);
         }
       );
     }

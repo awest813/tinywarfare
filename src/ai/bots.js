@@ -2123,7 +2123,9 @@ export default class Bots {
     });
 
     // Defensive: if rounds only announces round starts by event, still reset.
+    ev.on('map:changed', () => this._ensureSightlines());
     ev.on('round:start', () => {
+      this._ensureSightlines();
       if (this.time - this._lastResetAt > 0.5) this.resetForRound();
     });
   }
@@ -2198,14 +2200,26 @@ export default class Bots {
     return bot.yaw + rand(-1.2, 1.2);
   }
 
+  /**
+   * Builds the map's sightline table (hundreds of rays, 10-40 ms) once per
+   * map. Done at map load and round start, so it never lands mid-fight.
+   */
+  _ensureSightlines() {
+    const world = this.game.world;
+    const nodes = world && world.waypoints && world.waypoints.nodes;
+    if (!nodes || !nodes.length) return null;
+    if (!this._sight || this._sight.nodes !== nodes) {
+      this._sight = { nodes, open: buildSightlines(world) };
+    }
+    return this._sight;
+  }
+
   /** A sightline-weighted yaw from the waypoint nearest the bot, or null. */
   _laneYaw(bot) {
     const world = this.game.world;
     const nodes = world && world.waypoints && world.waypoints.nodes;
     if (!nodes || !nodes.length || typeof world.nearestWaypoint !== 'function') return null;
-    if (!this._sight || this._sight.nodes !== nodes) {
-      this._sight = { nodes, open: buildSightlines(world) };
-    }
+    this._ensureSightlines();
     const node = world.nearestWaypoint(bot.pos);
     if (!node || Math.hypot(node.pos.x - bot.pos.x, node.pos.z - bot.pos.z) > 6) return null;
     return laneYaw(this._sight.open, node.id);

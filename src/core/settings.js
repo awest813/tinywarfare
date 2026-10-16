@@ -172,6 +172,7 @@ export default class GameSettings {
     this.volume = SETTINGS_LIMITS.volume.default;
     this.fov = SETTINGS_LIMITS.fov.default;
     this.announcer = true;
+    this.showFps = false;
     this.graphics = 'auto';
     // Set when Auto found High too slow on this device: start on Low.
     this.graphicsAutoFloor = '';
@@ -225,6 +226,15 @@ export default class GameSettings {
     if (next === this.fov) return next;
     this.fov = next;
     this._commit('fov');
+    return next;
+  }
+
+  /** Frame-rate readout in the corner of the screen. */
+  setShowFps(on) {
+    const next = !!on;
+    if (next === this.showFps) return next;
+    this.showFps = next;
+    this._commit('showFps');
     return next;
   }
 
@@ -333,6 +343,7 @@ export default class GameSettings {
     this.volume = SETTINGS_LIMITS.volume.default;
     this.fov = SETTINGS_LIMITS.fov.default;
     this.announcer = true;
+    this.showFps = false;
     this.graphics = 'auto';
     this.graphicsAutoFloor = '';
     this.bindings = defaultBindings();
@@ -347,6 +358,7 @@ export default class GameSettings {
       volume: this.volume,
       fov: this.fov,
       announcer: this.announcer,
+      showFps: this.showFps,
       graphics: this.graphics,
       bindings: Object.freeze({ ...this.bindings }),
     });
@@ -367,6 +379,7 @@ export default class GameSettings {
       this.volume = clampStep(parsed.volume ?? SETTINGS_LIMITS.volume.default, SETTINGS_LIMITS.volume);
       this.fov = clampStep(parsed.fov ?? SETTINGS_LIMITS.fov.default, SETTINGS_LIMITS.fov);
       this.announcer = parsed.announcer !== false;
+      this.showFps = parsed.showFps === true;
       this.graphics = GRAPHICS_OPTIONS.includes(parsed.graphics) ? parsed.graphics : 'auto';
       this.graphicsAutoFloor = ['low', 'chromebook'].includes(parsed.graphicsAutoFloor)
         ? parsed.graphicsAutoFloor
@@ -403,6 +416,7 @@ export default class GameSettings {
           volume: this.volume,
           fov: this.fov,
           announcer: this.announcer,
+          showFps: this.showFps,
           graphics: this.graphics,
           graphicsAutoFloor: this.graphicsAutoFloor,
           bindingsVersion: BINDINGS_VERSION,

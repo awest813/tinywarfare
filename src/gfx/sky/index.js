@@ -696,8 +696,8 @@ export class SkySystem {
     this.keyLight = this.sunLight;
 
     // ---- IBL --------------------------------------------------------------
-    // Equirect -> PMREM at cube size 128, which is what three's own equirect
-    // environments use. Baked from the *same* shader and the *same* uniform
+    // Equirect -> PMREM; three sizes the cube at a quarter of the equirect's
+    // width (512 from the 2048 High sky, 128 from 512). Baked from the *same* shader and the *same* uniform
     // objects as the visible sky, so the IBL can never disagree with it.
     /**
      * One equirect serves two jobs: it is the source the PMREM is built from,
@@ -1051,7 +1051,7 @@ export class SkySystem {
     if (this._envDirty && this._envAge > 0.2) this._bakeEnv();
 
     // The visible sky is a texture (see dome.js DOME_TEX_FRAG). Re-blitting it
-    // a couple of times a second at 1024x512 costs a fraction of what
+    // every skyRefresh seconds (2048x1024 on High, 512x256 below) costs a fraction of what
     // evaluating the atmosphere per pixel per frame does, and the only thing
     // moving in it is a cloud deck at walking pace.
     this._skyTexAge += dt;
@@ -1534,7 +1534,7 @@ export class SkySystem {
     return scene.fog;
   }
 
-  /** Re-render the equirect sky. Cheap: 0.5 Mpx of the full atmosphere. */
+  /** Re-render the equirect sky: 2 Mpx of the full atmosphere on High, 0.13 Mpx below. */
   _bakeSkyTexture() {
     blit(this.renderer, this.dome.envMaterial, this.envEquirect);
     this.renderer.setRenderTarget(null);

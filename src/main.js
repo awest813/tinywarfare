@@ -350,6 +350,23 @@ function reportFailure(key, error) {
   console.error(`[${key}] update failed:`, error);
 }
 
+// Only gameplay is sub-stepped. The sky, effects, HUD, audio and material
+// housekeeping are presentation: they run once per frame with the frame's
+// whole time, so a slow frame does not pay for them two or three times over
+// (which is what deepens a slowdown on a weak machine).
+const FRAME_SYSTEMS = new Set(['world', 'effects', 'hud', 'audio', 'materials']);
+
+function runSystem(key, dt) {
+  const sys = game[key];
+  if (!sys || typeof sys.update !== 'function') return;
+  if (game.paused && !PAUSED_SYSTEMS.has(key)) return;
+  try {
+    sys.update(dt);
+  } catch (error) {
+    reportFailure(key, error);
+  }
+}
+
 renderer.setAnimationLoop(() => {
   const rawDt = clock.getDelta();
 
@@ -361,21 +378,18 @@ renderer.setAnimationLoop(() => {
     fpsTime = 0;
   }
 
-  let remaining = Math.min(rawDt, MAX_FRAME);
+  const frameDt = Math.min(rawDt, MAX_FRAME);
+  let remaining = frameDt;
   do {
     const dt = Math.min(remaining, MAX_STEP);
     remaining -= dt;
     for (const key of UPDATE_ORDER) {
-      const sys = game[key];
-      if (!sys || typeof sys.update !== 'function') continue;
-      if (game.paused && !PAUSED_SYSTEMS.has(key)) continue;
-      try {
-        sys.update(dt);
-      } catch (error) {
-        reportFailure(key, error);
-      }
+      if (!FRAME_SYSTEMS.has(key)) runSystem(key, dt);
     }
   } while (remaining > 1e-6);
+  for (const key of UPDATE_ORDER) {
+    if (FRAME_SYSTEMS.has(key)) runSystem(key, frameDt);
+  }
 
   if (SHADOW_INTERVAL > 1) {
     shadowFrame = (shadowFrame + 1) % SHADOW_INTERVAL;
