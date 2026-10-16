@@ -463,3 +463,51 @@ export function publicRoomSummary(room, maxPlayers = MAX_ROOM_PLAYERS) {
     currentRound,
   };
 }
+
+/** Deepest JSON nesting a room message may have; real messages stay under 8. */
+export const MAX_MESSAGE_DEPTH = 24;
+
+/**
+ * True when raw JSON text nests arrays/objects deeper than `max`, checked
+ * before parsing: a 60 KB message of nested brackets parsed fine but then
+ * blew the stack in String()/JSON.stringify and took the whole server down.
+ */
+export function jsonTooDeep(text, max = MAX_MESSAGE_DEPTH) {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (c === 92) escaped = true;          // backslash
+      else if (c === 34) inString = false;        // quote
+      continue;
+    }
+    if (c === 34) inString = true;
+    else if (c === 123 || c === 91) {             // { [
+      if (++depth > max) return true;
+    } else if (c === 125 || c === 93) depth--;    // } ]
+  }
+  return false;
+}
+
+/**
+ * Per-connection inbound message budget (token bucket). Generous enough for
+ * an authority streaming snapshots and effects for a full room; a client
+ * flooding past it has the excess dropped instead of fanned out to the room.
+ */
+export const MESSAGE_RATE = 400;   // messages per second, sustained
+export const MESSAGE_BURST = 800;
+
+export function createMessageBudget(rate = MESSAGE_RATE, burst = MESSAGE_BURST, now = Date.now()) {
+  return { tokens: burst, at: now, rate, burst };
+}
+
+export function takeMessageBudget(budget, now = Date.now()) {
+  budget.tokens = Math.min(budget.burst, budget.tokens + Math.max(0, now - budget.at) / 1000 * budget.rate);
+  budget.at = now;
+  if (budget.tokens < 1) return false;
+  budget.tokens -= 1;
+  return true;
+}

@@ -828,3 +828,27 @@ test('respawn-mode rooms carry the game mode and let the authority revive player
   assert.equal(streak.streakId, 'airstrike');
   assert.equal(hostInfo.id, rooms.get('TDM001').hostId);
 });
+
+test('a malicious deeply nested message does not take the server down', async (t) => {
+  startServer(0);
+  await once(server, 'listening');
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const { port } = server.address();
+  const attacker = await openClient(`ws://127.0.0.1:${port}/ws`);
+  // ~60 KB of nested arrays: parsed fine, then overflowed the stack in
+  // String() and killed the process before the depth guard.
+  const deep = '['.repeat(30_000) + ']'.repeat(30_000);
+  attacker.send(`{"type":"hello","action":"create","room":${deep}}`);
+  attacker.send(`{"type":"player_state","state":${deep}}`);
+  // A room code that is an object instead of a string must not throw either.
+  attacker.send(JSON.stringify({ type: 'hello', action: 'create', room: { a: [[[1]]] }, name: { x: 1 } }));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const player = await openClient(`ws://127.0.0.1:${port}/ws`);
+  const welcome = nextMessage(player, 'welcome');
+  player.send(JSON.stringify({ type: 'hello', action: 'create', room: 'SAFE01', name: 'Alpha', authorityProtocol: 1 }));
+  assert.equal((await welcome).room, 'SAFE01', 'the server still serves new rooms');
+  assert.equal((await fetch(`http://127.0.0.1:${port}/health`)).status, 200);
+  player.terminate();
+  attacker.terminate();
+});

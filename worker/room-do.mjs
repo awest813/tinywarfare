@@ -25,7 +25,14 @@ import {
   sanitizePlayerState,
   snapshotRound,
   transferRoomAuthority,
+  createMessageBudget,
+  jsonTooDeep,
+  takeMessageBudget,
 } from '../src/shared/rooms-core.mjs';
+
+// A pose is relayed at once but written to storage at most this often per
+// room: persisting every pose update was a SQLite write per message.
+const POSE_SAVE_INTERVAL_MS = 2000;
 
 const MAX_PLAYERS = MAX_ROOM_PLAYERS;
 const MAX_MESSAGE_BYTES = 64 * 1024;
@@ -37,12 +44,13 @@ const RANKED_FAILURE_MESSAGE = 'Match rewards could not be recorded. Your existi
 const CHARACTER_IDS = new Set(['vanguard', 'ranger', 'breacher', 'shadow']);
 
 function cleanName(value) {
-  const name = String(value || '').trim().replace(/[^\p{L}\p{N} _.-]/gu, '').slice(0, 20);
+  // Only a string is a name (an object or array arrives as "[object Object]").
+  const name = (typeof value === 'string' ? value : '').trim().replace(/[^\p{L}\p{N} _.-]/gu, '').slice(0, 20);
   return name || 'Operative';
 }
 
 export function cleanRoomCode(value) {
-  return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+  return (typeof value === 'string' ? value : '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
 }
 
 export function connectionAttachment(player) {
@@ -285,6 +293,8 @@ export class RoomDurableObject {
     this.env = env;
     this.sql = ctx.storage.sql;
     this.connections = new Map();
+    this._budgets = new WeakMap();   // ws -> inbound message budget (memory only)
+    this._poseSavedAt = new Map();   // room code -> last pose write
     for (const ws of ctx.getWebSockets()) {
       const attachment = ws.deserializeAttachment();
       if (attachment?.id) this.connections.set(attachment.id, ws);
@@ -925,10 +935,17 @@ export class RoomDurableObject {
             state.alive = false;
             state.health = 0;
           }
-          else if (typeof state.alive === 'boolean') player.alive = state.alive;
+          else if (typeof state.alive === 'boolean') {
+            if (player.alive !== state.alive) dirty = true;
+            player.alive = state.alive;
+          }
           player.characterId = state.characterId;
           player.state = state;
-          dirty = true;
+          const now = Date.now();
+          if (now - (this._poseSavedAt.get(room.code) || 0) >= POSE_SAVE_INTERVAL_MS) {
+            this._poseSavedAt.set(room.code, now);
+            dirty = true;
+          }
           this._broadcast(room, { type: 'player_state', id: player.id, state: publicPlayerState(state) }, player.id);
         }
         break;
@@ -1151,17 +1168,27 @@ export class RoomDurableObject {
       ws.close(1009, 'Message too large.');
       return;
     }
+    let budget = this._budgets.get(ws);
+    if (!budget) { budget = createMessageBudget(); this._budgets.set(ws, budget); }
+    if (!takeMessageBudget(budget)) return;
     let message;
     try {
       const text = typeof rawMessage === 'string' ? rawMessage : new TextDecoder().decode(rawMessage);
+      // Deeply nested input blew the stack later, in String()/JSON.stringify.
+      if (jsonTooDeep(text)) return;
       message = JSON.parse(text);
     } catch {
       return;
     }
     if (!message || typeof message !== 'object' || Array.isArray(message)) return;
     let connection = ws.deserializeAttachment() || newConnection();
-    if (message.type === 'hello') connection = await this._join(ws, connection, message);
-    else connection = await this._handleRoomMessage(ws, connection, message);
+    try {
+      if (message.type === 'hello') connection = await this._join(ws, connection, message);
+      else connection = await this._handleRoomMessage(ws, connection, message);
+    } catch (error) {
+      console.error('Room message failed:', error && error.message ? error.message : error);
+      return;
+    }
     ws.serializeAttachment(connectionAttachment(connection));
   }
 

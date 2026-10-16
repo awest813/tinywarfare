@@ -37,6 +37,9 @@ import {
   sanitizePlayerState,
   snapshotRound,
   transferRoomAuthority,
+  createMessageBudget,
+  jsonTooDeep,
+  takeMessageBudget,
 } from './src/shared/rooms-core.mjs';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
@@ -61,19 +64,28 @@ const socketsByIp = new Map();
 const MAX_SESSIONS_PER_MINUTE = envLimit(process.env.TINY_STRIKE_MAX_SESSIONS_PER_MINUTE, 20);
 const sessionWindows = new Map(); // ip -> { start, count }
 
-function allowSessionCreate(ip, now = Date.now()) {
-  if (MAX_SESSIONS_PER_MINUTE <= 0) return true;
-  let w = sessionWindows.get(ip);
+function allowInWindow(windows, limit, key, now = Date.now()) {
+  if (limit <= 0) return true;
+  let w = windows.get(key);
   if (!w || now - w.start >= 60_000) {
     w = { start: now, count: 0 };
-    sessionWindows.set(ip, w);
-    if (sessionWindows.size > 10_000) {
-      for (const [key, value] of sessionWindows) if (now - value.start >= 60_000) sessionWindows.delete(key);
+    windows.set(key, w);
+    if (windows.size > 10_000) {
+      for (const [k, value] of windows) if (now - value.start >= 60_000) windows.delete(k);
     }
   }
   w.count += 1;
-  return w.count <= MAX_SESSIONS_PER_MINUTE;
+  return w.count <= limit;
 }
+
+function allowSessionCreate(ip, now = Date.now()) {
+  return allowInWindow(sessionWindows, MAX_SESSIONS_PER_MINUTE, ip, now);
+}
+
+// Match results per address per minute, as the Worker's leaderboard allows.
+// Each accepted result rewrites the leaderboard file.
+const MAX_MATCH_SUBMITS_PER_MINUTE = 12;
+const matchWindows = new Map(); // ip -> { start, count }
 
 function respawnPose(msg) {
   const pos = msg && msg.pos;
@@ -150,12 +162,13 @@ const MIME = {
 };
 
 function cleanName(value) {
-  const name = String(value || '').trim().replace(/[^\p{L}\p{N} _.-]/gu, '').slice(0, 20);
+  // Only a string is a name (an object or array arrives as "[object Object]").
+  const name = (typeof value === 'string' ? value : '').trim().replace(/[^\p{L}\p{N} _.-]/gu, '').slice(0, 20);
   return name || 'Operative';
 }
 
 function cleanRoomCode(value) {
-  return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+  return (typeof value === 'string' ? value : '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
 }
 
 function cleanMapId(value) {
@@ -1109,6 +1122,9 @@ async function handleLeaderboardApi(req, res, url) {
       return true;
     }
     if (req.method === 'POST' && url.pathname === '/api/leaderboard/matches') {
+      if (!allowInWindow(matchWindows, MAX_MATCH_SUBMITS_PER_MINUTE, req.socket.remoteAddress || '')) {
+        throw new LeaderboardError(429, 'Too many match results from this address. Try again in a minute.');
+      }
       const body = await readJson(req);
       const token = bearerToken(req) || body.sessionToken;
       const submission = leaderboard.submitMatch(token, body);
@@ -1159,7 +1175,7 @@ function resolveStaticPath(rawPath) {
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || '/', 'http://localhost');
   if ((req.method === 'GET' || req.method === 'HEAD') && url.pathname === '/health') {
-    const payload = JSON.stringify({ ok: true, service: 'tiny-strike', leaderboard: 'ready' });
+    const payload = JSON.stringify({ ok: true, service: 'tiny-warfare', leaderboard: 'ready' });
     res.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',
       'Content-Length': Buffer.byteLength(payload),
@@ -1181,8 +1197,13 @@ const server = createServer(async (req, res) => {
   res.writeHead(200, {
     'Content-Type': MIME[extname(candidate).toLowerCase()] || 'application/octet-stream',
     'Cache-Control': candidate.includes('/node_modules/') ? 'public, max-age=3600' : 'no-cache',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
   });
-  createReadStream(candidate).pipe(res);
+  // A file removed between the stat and the read must not crash the server.
+  createReadStream(candidate)
+    .on('error', () => { if (!res.writableEnded) res.destroy(); })
+    .pipe(res);
 });
 
 const wss = new WebSocketServer({
@@ -1223,15 +1244,25 @@ wss.on('connection', (ws, req) => {
 
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
+  const budget = createMessageBudget();
   ws.on('message', (raw) => {
+    // A flood past the budget is dropped, not fanned out to the room.
+    if (!takeMessageBudget(budget)) return;
+    const text = raw.toString();
+    if (jsonTooDeep(text)) return;
     let msg;
-    try { msg = JSON.parse(raw.toString()); } catch { return; }
-    if (!msg || typeof msg !== 'object') return;
-    if (msg.type === 'hello') {
-      const joined = joinRoom(ws, client, msg);
-      if (joined) client = joined;
+    try { msg = JSON.parse(text); } catch { return; }
+    if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return;
+    // One bad message must never take down every room on the server.
+    try {
+      if (msg.type === 'hello') {
+        const joined = joinRoom(ws, client, msg);
+        if (joined) client = joined;
+      }
+      else if (client.ws === ws) handleRoomMessage(client, msg);
+    } catch (error) {
+      console.error('Room message failed:', error && error.message ? error.message : error);
     }
-    else if (client.ws === ws) handleRoomMessage(client, msg);
   });
   ws.on('close', () => detachFromRoom(client, ws));
   ws.on('error', () => {});
@@ -1253,7 +1284,7 @@ function startServer(port = PORT) {
   return server.listen(port, () => {
     const address = server.address();
     const activePort = address && typeof address === 'object' ? address.port : port;
-    console.log(`Tiny Strike server: http://localhost:${activePort}`);
+    console.log(`Tiny Warfare server: http://localhost:${activePort}`);
   });
 }
 
@@ -1273,3 +1304,14 @@ export {
   setLeaderboardStore,
   startServer,
 };
+
+// Last line of defence when run as the server (not when tests import it):
+// log a stray error and keep serving every other room.
+if (isMain) {
+  process.on('uncaughtException', (error) => {
+    console.error('Uncaught exception:', error && error.stack ? error.stack : error);
+  });
+  process.on('unhandledRejection', (reason) => {
+    console.error('Unhandled rejection:', reason && reason.stack ? reason.stack : reason);
+  });
+}

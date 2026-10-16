@@ -243,3 +243,17 @@ test('movement flags for sprint and slide survive state sanitising', async () =>
   assert.equal(state.sliding, true);
   assert.equal(state.bogus, undefined);
 });
+
+test('room messages are bounded in depth and rate', async () => {
+  const { jsonTooDeep, MAX_MESSAGE_DEPTH, createMessageBudget, takeMessageBudget } = await import('../src/shared/rooms-core.mjs');
+  assert.equal(jsonTooDeep('{"a":[1,{"b":2}]}'), false);
+  assert.equal(jsonTooDeep('['.repeat(MAX_MESSAGE_DEPTH) + ']'.repeat(MAX_MESSAGE_DEPTH)), false);
+  assert.equal(jsonTooDeep('['.repeat(MAX_MESSAGE_DEPTH + 1) + ']'.repeat(MAX_MESSAGE_DEPTH + 1)), true);
+  assert.equal(jsonTooDeep('{"name":"' + '['.repeat(500) + '"}'), false, 'brackets inside strings do not count');
+  assert.equal(jsonTooDeep('{"name":"a\\\\"}'), false, 'an escaped backslash ends cleanly');
+  const budget = createMessageBudget(10, 20, 0);
+  let sent = 0;
+  for (let i = 0; i < 100; i++) if (takeMessageBudget(budget, 0)) sent++;
+  assert.equal(sent, 20, 'a burst is capped');
+  assert.equal(takeMessageBudget(budget, 1000), true, 'and refills over time');
+});
