@@ -6,9 +6,12 @@
 // turns, and settles its aim, how wide it sees and how far it hears, whether
 // it switches to a more dangerous target, and how often it throws grenades.
 //
-// RECRUIT is slow and loose and fights one enemy at a time. REGULAR is the
-// original bot. VETERAN reacts and turns fast, leads moving targets, goes for
-// the head, and fights the most dangerous enemy in view.
+// RECRUIT is slow and loose, fights one enemy at a time, always misses its
+// first shot at a human, and only one Recruit at a time may land hits on any
+// one human (the rest near-miss). REGULAR is the original bot's aim, with up
+// to three on one human. VETERAN reacts and turns fast, leads moving
+// targets, goes for the head, fights the most dangerous enemy in view, and
+// has no such limits.
 //
 // A match runs one tier for every bot. Solo play reads the menu pick; an
 // online room carries the host's pick so a new authority keeps it.
@@ -51,6 +54,8 @@ export const BOT_SKILLS = Object.freeze({
     grenade: 0,               // chance to frag a target that ducked behind cover
     dodge: 0.3,               // chance to run from a live grenade nearby
     reloadCover: false,       // backpedal and strafe away while reloading in a fight
+    tokens: 1,                // bots that may land hits on one human at once (the rest near-miss)
+    firstMiss: 1,             // chance the first shot at a newly spotted human misses
   }),
   regular: Object.freeze({
     id: 'regular',
@@ -84,6 +89,8 @@ export const BOT_SKILLS = Object.freeze({
     grenade: 0.3,
     dodge: 0.7,
     reloadCover: true,
+    tokens: 3,
+    firstMiss: 0.35,
   }),
   veteran: Object.freeze({
     id: 'veteran',
@@ -117,6 +124,8 @@ export const BOT_SKILLS = Object.freeze({
     grenade: 0.55,
     dodge: 1,
     reloadCover: true,
+    tokens: Infinity,
+    firstMiss: 0,
   }),
 });
 

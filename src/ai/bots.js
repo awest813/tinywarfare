@@ -217,6 +217,7 @@ const GHOST_FOOTSTEP_RANGE = 0.45; // Ghost perk: bots hear the player's steps a
 const SUPPRESSED_HEARING = 0.35;
 const STUN_SPEED_SCALE = 0.4;      // stunned bots crawl and track slowly
 const BOT_EXPLOSIVES = new Set(['hegrenade', 'semtex', 'airstrike', 'c4']);  // suppressor: bots hear the player's primary at this fraction
+const NEAR_MISS_OFFSET = 0.7;   // m: a deliberate miss passes at least this far from the body
 const COVER_HEALTH = 45;        // hp below which a bot breaks off to cover
 const COVER_RANGE = 10;         // m it will run for cover
 const COVER_COOLDOWN = 8;       // s between cover decisions
@@ -2857,8 +2858,17 @@ export default class Bots {
     err += (bot.bloom || 0) * DEG;
     err += stats.spread;
 
-    const yaw = bot.yaw + gauss() * err;
-    const pitch = bot.aimPitch + gauss() * err * 0.8;
+    let yaw = bot.yaw + gauss() * err;
+    let pitch = bot.aimPitch + gauss() * err * 0.8;
+    // Against a human, a shot the tier means to miss goes past them, close
+    // enough to read as a near miss: the first shot at someone just spotted,
+    // or any shot from a bot without one of the target's accuracy tokens.
+    if (bot.targetIsPlayer && !blind && this._meansToMiss(bot, sk)) {
+      const side = Math.random() < 0.5 ? -1 : 1;
+      yaw += side * Math.atan2(NEAR_MISS_OFFSET + Math.random() * 0.5, Math.max(dist, 1));
+      pitch += Math.atan2(0.35 * Math.random(), Math.max(dist, 1));
+    }
+    bot.shotsAtTarget = (bot.shotsAtTarget || 0) + 1;
     const cp = Math.cos(pitch);
     const dir = new THREE.Vector3(-Math.sin(yaw) * cp, Math.sin(pitch), -Math.cos(yaw) * cp);
     const origin = this._botEye(bot, _eyeA).clone();
@@ -2875,6 +2885,27 @@ export default class Bots {
     }
     this.game.events.emit('bot:fire', payload);
     bot.fireAnim = 1; // viewkick for the body pose
+  }
+
+  /**
+   * Whether this shot at a human should miss on purpose (Game AI Pro 3,
+   * "Using Your Combat AI Accuracy to Balance Difficulty"; Liden, "Artificial
+   * Stupidity"). Only `sk.tokens` bots may land hits on one human at once:
+   * those that have fought them longest. The rest suppress. And a tier's
+   * first shot at a newly spotted human may miss, so the human hears the
+   * fight before losing it.
+   */
+  _meansToMiss(bot, sk) {
+    if (!(bot.shotsAtTarget > 0) && Math.random() < sk.firstMiss) return true;
+    if (!Number.isFinite(sk.tokens)) return false;
+    let ahead = 0;
+    const since = bot.engagedAt ?? -Infinity;
+    for (const other of this.all) {
+      if (other === bot || !other.alive || other.target !== bot.target || other.state !== 'engage' || !other.targetVisible) continue;
+      const otherSince = other.engagedAt ?? -Infinity;
+      if (otherSince < since || (otherSince === since && other.slot < bot.slot)) ahead++;
+    }
+    return ahead >= sk.tokens;
   }
 
   _targetPos(bot, out) {
@@ -3497,6 +3528,8 @@ export default class Bots {
     this._targetPos(bot, bot.lastSeenPos);
     bot.trackTime = 0;
     bot.bloom = 0;
+    bot.shotsAtTarget = 0;
+    bot.engagedAt = this.time;
     bot.aimHead = Math.random() < sk.headChance;
     // A bot already in a fight swings to a new enemy faster than it notices
     // one cold; a stun slows both.

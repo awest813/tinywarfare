@@ -386,3 +386,40 @@ test('a reloading Regular bot breaks for cover; a Recruit stands and trades', ()
     assert.equal(bot.state, 'engage', 'still fighting (aiming) on the way');
   }
 });
+
+test('against a human, only the token holders hit; the rest and a first shot near-miss', () => {
+  const { brain, events } = makeBrain('recruit');
+  const human = brain.game.player;
+  human.position.set(0, 0, -10);
+  const first = makeBot({ slot: 0, state: 'engage', target: human, targetHuman: human, targetIsPlayer: true, targetVisible: true, engagedAt: 1, shotsAtTarget: 0, trackTime: 9 });
+  const second = makeBot({ slot: 1, pos: new THREE.Vector3(2, 0, 0), state: 'engage', target: human, targetHuman: human, targetIsPlayer: true, targetVisible: true, engagedAt: 2, shotsAtTarget: 5, trackTime: 9 });
+  brain.all = [first, second];
+  const sk = brain._skill();
+  const random = Math.random;
+  Math.random = () => 0.999999; // no gaussian noise
+  try {
+    assert.equal(brain._meansToMiss(first, sk), true, "Recruit's first shot at someone misses");
+    first.shotsAtTarget = 1;
+    assert.equal(brain._meansToMiss(first, sk), false, 'then it holds the token');
+    assert.equal(brain._meansToMiss(second, sk), true, 'one token: the second bot suppresses');
+    // The miss is real: the shot passes clear of a man-sized target.
+    brain._fireShot(second, 10, false);
+    const dir = events.at(-1)[1].dir;
+    const off = Math.abs(Math.atan2(-dir.x, -dir.z) - second.yaw);
+    assert.ok(off > Math.atan2(0.7, 10), `deliberate miss off by ${off.toFixed(3)} rad`);
+    // A bot-against-bot fight is untouched.
+    second.targetIsPlayer = false;
+    brain._fireShot(second, 10, false);
+    const straight = events.at(-1)[1].dir;
+    assert.ok(Math.abs(Math.atan2(-straight.x, -straight.z) - second.yaw) < 0.02);
+  } finally {
+    Math.random = random;
+  }
+  // Veterans have no token limit and no free first shot.
+  const vet = makeBrain('veteran').brain;
+  vet.all = [first, second];
+  second.targetIsPlayer = true;
+  first.shotsAtTarget = 0;
+  assert.equal(vet._meansToMiss(first, vet._skill()), false);
+  assert.equal(vet._meansToMiss(second, vet._skill()), false);
+});

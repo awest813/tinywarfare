@@ -71,12 +71,14 @@ Bots come in three tiers, picked in the menu's BOTS row (online, the host's
 pick applies to the room):
 
 - **Recruit:** slow to react, loose aim, a narrow field of view, and fights one
-  enemy at a time. No grenades.
-- **Regular:** the standard bot. Turns on whoever shoots it, reloads behind
-  cover, and frags an enemy who ducks out of sight.
+  enemy at a time. No grenades. Its first shot at you always misses, and only
+  one Recruit at a time can land hits on you; the rest shoot close.
+- **Regular:** the standard bot. Turns on whoever shoots it, runs to cover to
+  reload or when hurt, and frags an enemy who ducks out of sight. Up to three
+  can land hits on you at once.
 - **Veteran:** reacts and turns fast, leads moving targets, aims for the head
   more often, sees wider and farther, and always fights the most dangerous
-  enemy in view.
+  enemy in view. No limits.
 
 The room server keeps the canonical roster and state fence while leasing bot
 AI, hit resolution, round timers, and objective simulation to one active
