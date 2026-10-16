@@ -18,6 +18,7 @@ import { isRespawnMode } from '../game/tdm.js';
 import { hostile, isFfa } from '../game/hostility.js';
 import { BOT_SKILLS, botSkill } from './skill.js';
 import TeamCommander from './commander.js';
+import { buildSightlines, findCover, laneYaw } from './sightlines.js';
 import { getCharacterPalette } from '../player/profile.js';
 import { buildAnimationSet, OperativeAnimator, IK_FAR_SQ } from './operative-anim.js';
 import {
@@ -216,6 +217,11 @@ const GHOST_FOOTSTEP_RANGE = 0.45; // Ghost perk: bots hear the player's steps a
 const SUPPRESSED_HEARING = 0.35;
 const STUN_SPEED_SCALE = 0.4;      // stunned bots crawl and track slowly
 const BOT_EXPLOSIVES = new Set(['hegrenade', 'semtex', 'airstrike', 'c4']);  // suppressor: bots hear the player's primary at this fraction
+const COVER_HEALTH = 45;        // hp below which a bot breaks off to cover
+const COVER_RANGE = 10;         // m it will run for cover
+const COVER_COOLDOWN = 8;       // s between cover decisions
+const COVER_HOLD_RELOAD = 3.5;  // s at most in cover to reload...
+const COVER_HOLD_HURT = 2.5;    // ...or to collect itself before peeking
 const INVESTIGATE_HOLD_MIN = 2.0;
 const INVESTIGATE_HOLD_MAX = 3.8;
 
@@ -1880,6 +1886,8 @@ export default class Bots {
     bot.grenadeFor = null;
     bot.dodgeUntil = 0;
     if (bot.dodgeSeen) bot.dodgeSeen.clear();
+    bot.coverUntil = 0;
+    bot.coverReadyAt = 0;
     bot.plantClearTimer = 0;
     bot.plantTimer = 0;
     bot.defuseTimer = 0;
@@ -2117,7 +2125,40 @@ export default class Bots {
       const dx = pos.x - bot.pos.x, dz = pos.z - bot.pos.z;
       if (dx * dx + dz * dz > 1) return yawFromDir(dx, dz) + rand(-0.45, 0.45);
     }
+    // Nothing known: watch one of the long lanes from here, not a wall.
+    const lane = this._laneYaw(bot);
+    if (lane !== null) return lane + rand(-0.3, 0.3);
     return bot.yaw + rand(-1.2, 1.2);
+  }
+
+  /** A sightline-weighted yaw from the waypoint nearest the bot, or null. */
+  _laneYaw(bot) {
+    const world = this.game.world;
+    const nodes = world && world.waypoints && world.waypoints.nodes;
+    if (!nodes || !nodes.length || typeof world.nearestWaypoint !== 'function') return null;
+    if (!this._sight || this._sight.nodes !== nodes) {
+      this._sight = { nodes, open: buildSightlines(world) };
+    }
+    const node = world.nearestWaypoint(bot.pos);
+    if (!node || Math.hypot(node.pos.x - bot.pos.x, node.pos.z - bot.pos.z) > 6) return null;
+    return laneYaw(this._sight.open, node.id);
+  }
+
+  /**
+   * Reloading or badly hurt in a fight: Regular and Veteran bots look for a
+   * nearby waypoint out of the enemy's sight, fight their way to it, and peek
+   * again once ready. Recruits stand and trade.
+   */
+  _considerCover(bot, sk) {
+    if (!sk.reloadCover || bot.coverUntil > this.time || this.time < (bot.coverReadyAt || 0)) return;
+    const hurt = bot.health < COVER_HEALTH;
+    if (!(bot.reloadTimer > 0) && !hurt) return;
+    const spot = findCover(this.game.world, bot.pos, bot.lastSeenPos, COVER_RANGE);
+    bot.coverReadyAt = this.time + COVER_COOLDOWN;
+    if (!spot) return;
+    if (!bot.coverPos) bot.coverPos = new THREE.Vector3();
+    bot.coverPos.copy(spot);
+    bot.coverUntil = this.time + (hurt ? COVER_HOLD_HURT : COVER_HOLD_RELOAD);
   }
 
   /**
@@ -2285,6 +2326,18 @@ export default class Bots {
     } else if (blind && bot.state === 'engage') {
       // Blind: freeze and pray.
       wantSpeed = 0;
+    } else if (bot.state === 'engage' && bot.target && bot.coverPos && this.time < bot.coverUntil) {
+      // Breaking for cover: run straight to it (still aiming), then sit tight
+      // until reloaded, and peek again.
+      _delta.set(bot.coverPos.x - bot.pos.x, 0, bot.coverPos.z - bot.pos.z);
+      const d = _delta.length();
+      if (d > 0.45) {
+        _delta.multiplyScalar(1 / d);
+        wantSpeed = this._cfg.RUN_SPEED * 0.85;
+        if (bot.stunUntil > this.time) wantSpeed *= STUN_SPEED_SCALE;
+      } else if (!(bot.reloadTimer > 0) && bot.health >= COVER_HEALTH) {
+        bot.coverUntil = 0; // ready: back out and fight
+      }
     } else if (bot.state === 'engage' && bot.target) {
       // Strafe-jiggle perpendicular to the enemy; occasionally crouch at range.
       bot.strafeTimer -= dt;
@@ -2892,6 +2945,7 @@ export default class Bots {
         }
         bot.lastSeenTime = this.time;
         this._targetPos(bot, bot.lastSeenPos);
+        this._considerCover(bot, sk);
       } else if (this.time - bot.lastSeenTime > 0.7 && !blind && this._tryGrenade(bot, sk)) {
         // Thrown at the corner it ducked behind; the fight goes on.
       } else if (this.time - bot.lastSeenTime > sk.loseTime) {

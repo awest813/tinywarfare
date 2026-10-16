@@ -348,3 +348,41 @@ test('a declined noise is not re-rolled while the noise continues', () => {
   assert.notEqual(bot.state, 'investigate');
   assert.ok(rolls <= 3, `rolled ${rolls} times`);
 });
+
+test('a reloading Regular bot breaks for cover; a Recruit stands and trades', () => {
+  const ray = new THREE.Ray();
+  const hit = new THREE.Vector3();
+  const crate = new THREE.Box3(new THREE.Vector3(-5, 0, -3.5), new THREE.Vector3(-3, 4, -2.5));
+  const world = {
+    waypoints: { nodes: [{ id: 0, pos: new THREE.Vector3(-4, 0, -1) }] },
+    raycast(origin, dir, maxDist) {
+      ray.set(origin, dir);
+      if (!ray.intersectBox(crate, hit)) return null;
+      const distance = hit.distanceTo(origin);
+      return distance <= maxDist ? { distance } : null;
+    },
+    resolveMovement: (pos, delta) => {
+      const next = pos.clone().add(delta);
+      next.y = Math.max(0, next.y);
+      return { pos: next, onGround: next.y === 0 };
+    },
+  };
+  for (const [tier, expectCover] of [['regular', true], ['recruit', false]]) {
+    const { brain } = makeBrain(tier);
+    brain.game.world = world;
+    const enemy = makeBot({ team: 't', pos: new THREE.Vector3(0, 0, -20) });
+    const bot = makeBot({
+      state: 'engage', target: enemy, targetBot: enemy, targetVisible: true,
+      lastSeenTime: brain.time, lastSeenPos: enemy.pos.clone(), reloadTimer: 2, mag: 0, health: 100,
+    });
+    brain.all = [bot, enemy];
+    brain._canSee = () => true;
+    brain._think(bot);
+    assert.equal(bot.coverUntil > brain.time, expectCover, tier);
+    if (!expectCover) continue;
+    assert.deepEqual([bot.coverPos.x, bot.coverPos.z], [-4, -1]);
+    for (let i = 0; i < 40; i++) { brain.time += 1 / 30; brain._moveBot(bot, 1 / 30); }
+    assert.ok(bot.pos.distanceTo(new THREE.Vector3(-4, 0, -1)) < 0.6, `reached cover (${bot.pos.toArray()})`);
+    assert.equal(bot.state, 'engage', 'still fighting (aiming) on the way');
+  }
+});
