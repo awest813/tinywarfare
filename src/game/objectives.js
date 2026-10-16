@@ -129,8 +129,11 @@ export class KillConfirmed {
     this.game = game;
     // Bots path onto a tag itself: a nearby waypoint can sit outside PICKUP_RADIUS.
     this.goalSpread = 0;
-    // Most free orders go to a tag: tags were expiring uncollected.
+    // Most free orders go to a tag, and a tag this close (m) interrupts a
+    // walk or a hold: 44% of tags were expiring uncollected while bots
+    // finished errands that predated them.
     this.goalWeight = 0.9;
+    this.preemptRange = 25;
     this.tags = [];
     this._time = 0;
     this._nextId = 0;

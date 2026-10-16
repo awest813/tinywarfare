@@ -620,3 +620,19 @@ test('Hardpoint bots do not chase noises or lost enemies away from the zone', ()
   brain.game.rounds.tdm.objective = { botGoal: () => zone };
   assert.equal(brain._offLeash(bot, new THREE.Vector3(45, 0, 0)), false, 'no leash outside Hardpoint');
 });
+
+test('a fresh Kill Confirmed tag nearby interrupts a bot walking somewhere else', () => {
+  const { brain } = makeBrain(freeWorld());
+  brain.game.state.mode = 'kc';
+  const tag = new THREE.Vector3(6, 0, 0);
+  brain.game.rounds = { tdm: { objective: { botGoal: () => tag, goalSpread: 0, preemptRange: 25 } } };
+  const bot = makeBot({ state: 'move', plan: 'hunt', hasGoal: true, goal: new THREE.Vector3(-30, 0, 0), path: [new THREE.Vector3(-30, 0, 0)] });
+  brain.all = [bot];
+  brain._thinkHunt(bot);
+  assert.ok(bot.goal.distanceTo(tag) < 0.01, 'heads for the tag');
+  // Without a preempt range (Domination, Hardpoint) the errand stands.
+  const other = makeBot({ state: 'move', plan: 'hunt', hasGoal: true, goal: new THREE.Vector3(-30, 0, 0), path: [new THREE.Vector3(-30, 0, 0)] });
+  brain.game.rounds.tdm.objective = { botGoal: () => tag };
+  brain._thinkHunt(other);
+  assert.equal(other.goal.x, -30);
+});
