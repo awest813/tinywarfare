@@ -621,7 +621,7 @@ test('the commander splits a Domination team between taking and holding flags', 
   assert.equal(count('capture:C'), 2);
   // The held flag comes under attack: a second defender, once jobs have settled.
   objective.flags[0].contested = true;
-  brain.time += 5;
+  brain.time += 11;
   const again = squad.map((b) => brain._commander().orderFor(b)?.key);
   assert.equal(again.filter((x) => x === 'defend:A').length, 2);
 });
@@ -701,4 +701,26 @@ test('a Kill Confirmed bot detours to deny its own tag only when an enemy is nea
   enemy.pos.set(18, 0, 0);                          // 10 m from the tag
   brain.time += 1;
   assert.equal(commander.orderFor(bot)?.key, 'tag:1', 'an enemy could confirm it: deny it');
+});
+
+test('spare Domination slots do not poach bots off their jobs over and over', () => {
+  const { brain } = makeBrain({ findPath: (from, to) => [to.clone()] });
+  brain.game.state.mode = 'dom';
+  const flag = (name, x, owner) => ({ name, pos: new THREE.Vector3(x, 0, 0), owner, control: owner === 'ct' ? 1 : owner === 't' ? -1 : 0, contested: false });
+  // Two flags to take (four slots) and one to hold, for three bots.
+  const objective = { goalRadius: 4.5, flags: [flag('A', -20, 'ct'), flag('B', 0, null), flag('C', 20, 't')] };
+  brain.game.rounds = { tdm: { objective } };
+  const squad = [-40, -38, -36].map((x) => makeBot({ pos: new THREE.Vector3(x, 0, 5), plan: 'hunt', state: 'hold' }));
+  brain.all = squad;
+  const commander = brain._commander();
+  const changes = new Map(squad.map((b) => [b, { id: null, n: 0 }]));
+  for (let i = 0; i < 120; i++) {           // a minute
+    brain.time += 0.5;
+    for (const b of squad) {
+      const id = commander.orderFor(b)?.id ?? null;
+      const c = changes.get(b);
+      if (id !== c.id) { c.n++; c.id = id; }
+    }
+  }
+  for (const [bot, c] of changes) assert.equal(c.n, 1, `bot at ${bot.pos.x} changed job ${c.n} times in a minute`);
 });

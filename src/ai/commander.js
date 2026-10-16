@@ -29,9 +29,8 @@ const DOM_DEFEND_SLOTS = 1;
 const DOM_SPREAD = 3;             // m: arrivals spread inside the 4.5 m flag
 const ENGAGED_RELEASE = 4;        // s in a fight before a job goes to someone else
 const REJECT_TIME = 12;           // s a bot is not resent to a job it could not reach
-const URGENCY_MARGIN = 0.3;       // weight by which a job must outrank another to take its bot
 const LOSING_MEMORY = 8;          // s a flag stays "under attack" after the last sign of it
-const SETTLE_TIME = 4;            // s before a bot's fresh job can be taken for a more urgent one
+const SETTLE_TIME = 10;           // s before a bot's job can be taken for an urgent one
 
 function flatDistance(a, b) {
   return Math.hypot(a.x - b.x, a.z - b.z);
@@ -133,6 +132,7 @@ export default class TeamCommander {
           pos: flag.pos,
           slots: held ? (losing ? 2 : DOM_DEFEND_SLOTS) : DOM_CAPTURE_SLOTS,
           weight: held ? (losing ? 1.3 : 0.6) : 1,
+          urgent: losing,
           range: Infinity,
           radius,
           spread: DOM_SPREAD,
@@ -214,9 +214,11 @@ export default class TeamCommander {
       this._give(bot, task);
     }
 
-    // A clearly more urgent job still short of bots (a held flag under
-    // attack) takes the nearest bot off a lesser one.
-    const urgent = tasks.filter((task) => (used.get(task.key) || 0) < task.slots)
+    // An urgent job still short of bots (a held flag under attack) takes the
+    // nearest bot off a lesser one. Only urgent jobs may: when any heavier
+    // job could, Domination's spare capture slots poached every bot each
+    // time its settle time ran out, and they paced at their spawns.
+    const urgent = tasks.filter((task) => task.urgent && (used.get(task.key) || 0) < task.slots)
       .sort((a, b) => b.weight - a.weight);
     for (const task of urgent) {
       while ((used.get(task.key) || 0) < task.slots) {
@@ -226,7 +228,7 @@ export default class TeamCommander {
           const order = this.orders.get(bot);
           if (!order || order.key === task.key || bot.state === 'engage') continue;
           if (now - order.since < SETTLE_TIME) continue;
-          if (task.weight - (order.weight || 0) < URGENCY_MARGIN) continue;
+          if (order.weight >= task.weight) continue;
           const until = this._rejected.get(bot)?.get(task.key);
           if (until !== undefined && until > now) continue;
           const d = flatDistance(bot.pos, task.pos);
