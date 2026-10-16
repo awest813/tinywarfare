@@ -7,6 +7,7 @@ import TouchControls, { shouldEnableTouchControls } from './core/touch-controls.
 import World from './world/map.js';
 import { MaterialSystem } from './gfx/materials/index.js';
 import { PostChain } from './gfx/post/index.js';
+import { createAutoGraphics } from './gfx/auto-graphics.js';
 import Player from './player/player.js';
 import PlayerProfile from './player/profile.js';
 import Weapons from './weapons/weapons.js';
@@ -45,7 +46,11 @@ if (TRAILER) CONFIG.MATCH.BOTS_PER_TEAM = 6;
 // and only composites to the canvas, so a multisampled canvas would be pure
 // waste (~150 MB at 1080p x1.5 plus a resolve per frame). Decide up front.
 const EARLY_SEARCH = new URLSearchParams(location.search);
-const WANT_POST = EARLY_SEARCH.get('post') !== 'off' && !TOUCH_DEVICE;
+// Device preferences are read before the renderer exists: the graphics tier
+// decides its antialiasing. Trailer capture ignores this browser's settings.
+const settings = new GameSettings(null, TRAILER ? null : undefined);
+const GFX_QUALITY = settings.graphicsQuality(TOUCH_DEVICE);
+const WANT_POST = EARLY_SEARCH.get('post') !== 'off' && GFX_QUALITY !== 'low';
 const renderer = new THREE.WebGLRenderer({ antialias: !WANT_POST, powerPreference: 'high-performance' });
 
 function layoutViewportSize() {
@@ -80,7 +85,14 @@ function syncViewportCss(layout) {
   root.setProperty('--app-top', `${visible.top}px`);
 }
 
+// Auto graphics can cap the pixel ratio mid-match on a slow device.
+let pixelRatioCap = Infinity;
+
 function targetPixelRatio(width, height) {
+  return Math.min(pixelRatioCap, deviceTargetPixelRatio(width, height));
+}
+
+function deviceTargetPixelRatio(width, height) {
   const device = Math.max(1, Number(window.devicePixelRatio) || 1);
   // Desktop: 1.5 keeps Retina sharp while shading ~44% fewer pixels than 2x
   // (the frame was fill-bound at 2x on high-DPI laptops).
@@ -144,7 +156,7 @@ const game = {
 // get half-resolution texture sets; the shading is identical either way.
 // One graphics tier for the whole session: texture budget, IBL resolution, the
 // baked-sky refresh rate and how much set dressing a map gets all read it.
-game.gfxQuality = TOUCH_DEVICE ? 'low' : 'high';
+game.gfxQuality = GFX_QUALITY;
 game.materials = new MaterialSystem({
   renderer,
   quality: game.gfxQuality,
@@ -180,7 +192,8 @@ game.post =
 // Construction order per SPEC.md — later modules may hold references to earlier ones.
 // Trailer capture is deterministic and must not inherit this browser's personal
 // brightness, sensitivity or keyboard layout.
-game.settings = new GameSettings(game, TRAILER ? null : undefined);
+settings.game = game;
+game.settings = settings;
 // Field of view is a device preference; every FOV reader uses CONFIG.
 const applyFov = () => {
   CONFIG.PLAYER.FOV = game.settings.fov;
@@ -245,6 +258,14 @@ function resizeRenderer() {
 }
 
 window.addEventListener('resize', resizeRenderer, { passive: true });
+
+// Auto graphics (src/gfx/auto-graphics.js): step down on a slow device.
+const autoGraphics = createAutoGraphics(game, settings, {
+  disableSsao: () => !!game.post?.disableSsao?.(),
+  capPixelRatio: () => { pixelRatioCap = 1; resizeRenderer(); },
+  rememberLow: () => settings.setGraphicsAutoLow(true),
+  notify: (text) => game.events.emit('hud:notice', { text }),
+});
 window.visualViewport?.addEventListener?.('resize', resizeRenderer, { passive: true });
 
 const UPDATE_ORDER = [
@@ -319,6 +340,7 @@ renderer.setAnimationLoop(() => {
   } catch (error) {
     reportFailure('render', error);
   }
+  autoGraphics.update();
 });
 
 // A lost graphics context (GPU reset, driver update, a backgrounded mobile

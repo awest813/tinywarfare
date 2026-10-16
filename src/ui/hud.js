@@ -451,6 +451,8 @@ export default class HUD {
       lookSensitivityOutput: $('hud-look-sensitivity-output'),
       brightness: $('hud-brightness'),
       announcer: $('hud-announcer'),
+      graphics: $('hud-graphics'),
+      graphicsNote: $('hud-graphics-note'),
       brightnessOutput: $('hud-brightness-output'),
       settingsReset: $('hud-settings-reset'),
       settingsStatus: $('hud-settings-status'),
@@ -794,6 +796,11 @@ export default class HUD {
       settings.setAnnouncer(event.currentTarget.checked);
       this._syncSettingsUi();
     });
+    this._el.graphics?.addEventListener('change', (event) => {
+      settings.setGraphics(event.currentTarget.value);
+      this._graphicsChanged = true;
+      this._syncSettingsUi();
+    });
     this._el.settingsReset?.addEventListener('click', () => {
       this._cancelBindingCapture('reset');
       settings.reset();
@@ -890,6 +897,15 @@ export default class HUD {
     }
     if (this._el.brightness) this._el.brightness.value = String(settings.brightnessEv);
     if (this._el.announcer) this._el.announcer.checked = settings.announcer !== false;
+    if (this._el.graphics) this._el.graphics.value = settings.graphics || 'auto';
+    if (this._el.graphicsNote) {
+      // The tier is chosen at load: say so once it no longer matches.
+      const wanted = typeof settings.graphicsQuality === 'function'
+        ? settings.graphicsQuality(!!this.game?.touchControls?.enabled) : null;
+      this._el.graphicsNote.textContent = this._graphicsChanged && wanted && wanted !== this.game?.gfxQuality
+        ? 'APPLIES AFTER RELOAD'
+        : settings.graphics === 'auto' ? 'AUTO ADJUSTS TO YOUR DEVICE' : 'FIXED · ' + settings.graphics.toUpperCase();
+    }
     if (this._el.volume) this._el.volume.value = String(settings.volume);
     if (this._el.volumeOutput) {
       const label = settings.volume > 0 ? Math.round(settings.volume * 100) + '%' : 'MUTED';
@@ -4204,6 +4220,12 @@ export default class HUD {
       '<input id="hud-fov" type="range" min="' + SETTINGS_LIMITS.fov.min +
       '" max="' + SETTINGS_LIMITS.fov.max + '" step="' + SETTINGS_LIMITS.fov.step +
       '" value="' + fov + '"></label>' +
+      '<label class="mn-setting mn-setting-toggle" for="hud-graphics"><span><strong>GRAPHICS</strong>' +
+      '<output id="hud-graphics-note">AUTO ADJUSTS TO YOUR DEVICE</output></span>' +
+      '<select id="hud-graphics">' +
+      [['auto', 'AUTO'], ['high', 'HIGH'], ['low', 'LOW']].map(([id, label]) =>
+        '<option value="' + id + '"' + ((settings?.graphics || 'auto') === id ? ' selected' : '') + '>' + label + '</option>').join('') +
+      '</select></label>' +
       '<label class="mn-setting mn-setting-toggle" for="hud-announcer"><span><strong>ANNOUNCER VOICE</strong>' +
       '<output>RADIO CALLOUTS</output></span>' +
       '<input id="hud-announcer" type="checkbox"' + (settings?.announcer === false ? '' : ' checked') + '></label>' +
@@ -5277,6 +5299,12 @@ export default class HUD {
   width:100%; height:20px; cursor:pointer; accent-color:#a9c87b; background:transparent;
 }
 .mn-setting input[type="range"]:focus-visible { outline:2px solid var(--olive-bright); outline-offset:3px; }
+.mn-setting select {
+  pointer-events:auto; height:26px; padding:0 6px; cursor:pointer; font:inherit; font-size:10px; font-weight:900;
+  letter-spacing:.1em; color:#eef5e5; background:#080d08; border:1px solid rgba(154,178,107,.38);
+}
+.mn-setting select:focus-visible { outline:2px solid var(--olive-bright); outline-offset:2px; }
+.mn-setting input[type="checkbox"] { width:18px; height:18px; cursor:pointer; accent-color:#a9c87b; }
 .mn-bindings-section { display:grid; gap:7px; }
 .mn-bindings { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
 .mn-binding {

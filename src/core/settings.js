@@ -11,6 +11,10 @@ export const SETTINGS_LIMITS = Object.freeze({
   fov: Object.freeze({ min: 65, max: 100, step: 1, default: 74 }),
 });
 
+// Graphics tier: 'auto' picks High on desktops (and steps down in a match
+// that runs slowly), Low on phones and tablets; High and Low pin it.
+export const GRAPHICS_OPTIONS = Object.freeze(['auto', 'high', 'low']);
+
 // v2 moved Crouch off Ctrl: holding Ctrl while pressing W closes the browser
 // tab. Layouts still on the v1 defaults are migrated once.
 const BINDINGS_VERSION = 2;
@@ -148,6 +152,9 @@ export default class GameSettings {
     this.volume = SETTINGS_LIMITS.volume.default;
     this.fov = SETTINGS_LIMITS.fov.default;
     this.announcer = true;
+    this.graphics = 'auto';
+    // Set when Auto found High too slow on this device: start on Low.
+    this.graphicsAutoLow = false;
     this.bindings = defaultBindings();
     this._physicalToCanonical = new Map();
     this._load();
@@ -210,6 +217,32 @@ export default class GameSettings {
     return next;
   }
 
+  /** 'auto' | 'high' | 'low' (applies on the next load). */
+  setGraphics(value) {
+    const next = GRAPHICS_OPTIONS.includes(value) ? value : 'auto';
+    if (next === this.graphics) return next;
+    this.graphics = next;
+    // A deliberate pick also clears Auto's memory of a slow device.
+    this.graphicsAutoLow = false;
+    this._commit('graphics');
+    return next;
+  }
+
+  /** Auto's verdict on this device: High was too slow. */
+  setGraphicsAutoLow(on) {
+    const next = !!on;
+    if (next === this.graphicsAutoLow) return next;
+    this.graphicsAutoLow = next;
+    this._commit('graphics');
+    return next;
+  }
+
+  /** The tier to start with: 'high' or 'low'. */
+  graphicsQuality(touchDevice = false) {
+    if (this.graphics === 'high' || this.graphics === 'low') return this.graphics;
+    return touchDevice || this.graphicsAutoLow ? 'low' : 'high';
+  }
+
   rebind(actionId, physicalKey) {
     const id = String(actionId || '');
     const definition = DEFINITION_BY_ID.get(id);
@@ -259,6 +292,8 @@ export default class GameSettings {
     this.volume = SETTINGS_LIMITS.volume.default;
     this.fov = SETTINGS_LIMITS.fov.default;
     this.announcer = true;
+    this.graphics = 'auto';
+    this.graphicsAutoLow = false;
     this.bindings = defaultBindings();
     this._rebuildLookup();
     this._commit('reset');
@@ -271,6 +306,7 @@ export default class GameSettings {
       volume: this.volume,
       fov: this.fov,
       announcer: this.announcer,
+      graphics: this.graphics,
       bindings: Object.freeze({ ...this.bindings }),
     });
   }
@@ -290,6 +326,8 @@ export default class GameSettings {
       this.volume = clampStep(parsed.volume ?? SETTINGS_LIMITS.volume.default, SETTINGS_LIMITS.volume);
       this.fov = clampStep(parsed.fov ?? SETTINGS_LIMITS.fov.default, SETTINGS_LIMITS.fov);
       this.announcer = parsed.announcer !== false;
+      this.graphics = GRAPHICS_OPTIONS.includes(parsed.graphics) ? parsed.graphics : 'auto';
+      this.graphicsAutoLow = parsed.graphicsAutoLow === true;
       const stored = parsed.bindings && typeof parsed.bindings === 'object' ? { ...parsed.bindings } : parsed.bindings;
       if (stored && !(parsed.bindingsVersion >= BINDINGS_VERSION) &&
         normalizePhysicalKey(stored.crouch) === 'control') {
@@ -322,6 +360,8 @@ export default class GameSettings {
           volume: this.volume,
           fov: this.fov,
           announcer: this.announcer,
+          graphics: this.graphics,
+          graphicsAutoLow: this.graphicsAutoLow,
           bindingsVersion: BINDINGS_VERSION,
           bindings: this.bindings,
         }));

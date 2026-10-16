@@ -139,6 +139,15 @@ export class PostChain {
     this.setSize();
   }
 
+  /** Drop the AO passes at runtime (Auto graphics stepping down). */
+  disableSsao() {
+    if (!this.ssao) return false;
+    this.ssao.dispose();
+    this.ssao = null;
+    ssaoUniforms.owSsaoP.value.z = 0;
+    return true;
+  }
+
   setSize() {
     const renderer = this.renderer;
     renderer.getDrawingBufferSize(_size);

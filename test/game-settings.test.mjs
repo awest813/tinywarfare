@@ -306,3 +306,24 @@ test('volume and field of view are clamped and persisted', () => {
   assert.equal(reloaded.volume, 1);
   assert.equal(reloaded.fov, 65);
 });
+
+test('graphics: auto picks by device, remembers a slow one, and a pick overrides it', async () => {
+  const { default: GameSettings, GRAPHICS_OPTIONS } = await import('../src/core/settings.js');
+  const store = new Map();
+  const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+  const settings = new GameSettings(null, storage);
+  assert.deepEqual(GRAPHICS_OPTIONS, ['auto', 'high', 'low']);
+  assert.equal(settings.graphics, 'auto');
+  assert.equal(settings.graphicsQuality(false), 'high', 'a desktop starts on High');
+  assert.equal(settings.graphicsQuality(true), 'low', 'a phone starts on Low');
+  settings.setGraphicsAutoLow(true);
+  assert.equal(new GameSettings(null, storage).graphicsQuality(false), 'low', 'a slow desktop is remembered');
+  settings.setGraphics('high');
+  assert.equal(settings.graphicsAutoLow, false, 'a deliberate pick clears it');
+  assert.equal(new GameSettings(null, storage).graphicsQuality(true), 'high', 'and pins the tier');
+  settings.setGraphics('nonsense');
+  assert.equal(settings.graphics, 'auto');
+  settings.setGraphics('low');
+  settings.reset();
+  assert.equal(settings.graphics, 'auto');
+});
