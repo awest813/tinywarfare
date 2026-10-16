@@ -2098,6 +2098,14 @@ export default class HUD {
     this._updateOverlays(dt);
     this._updateMsg();
     this._updateTips(inGame);
+    if (this._buyAutoPending) {
+      if (phase !== 'freeze') this._buyAutoPending = false;
+      else if (this._canOpenBuy() && !this._buyOpen) {
+        this._buyAutoPending = false;
+        this._buyAutoOpened = true;
+        this._setBuyOpen(true);
+      }
+    }
     this._updatePause(phase);
     if (g && g.debug) this._updateFps(dt);
   }
@@ -2183,10 +2191,7 @@ export default class HUD {
             this._showMsg('BUY PHASE', buyPrompt, dur - briefDur);
             // A first-timer who misses the prompt fights rifles with the
             // starting pistol, so the first match of a visit opens the menu.
-            if (!this._buyAutoOpened && !this.game.debug && this._canOpenBuy()) {
-              this._buyAutoOpened = true;
-              this._setBuyOpen(true);
-            }
+            if (!this._buyAutoOpened && !this.game.debug) this._buyAutoPending = true;
           }, briefDur * 1000);
           break;
         }
