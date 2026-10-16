@@ -538,21 +538,17 @@ test('a Kill Confirmed bot paths onto the tag itself, not a nearby waypoint', as
     findPath: (from, to) => [nodes[0].pos.clone(), to.clone()],
   };
   const { brain } = makeBrain(world);
+  brain.game.state.mode = 'kc';
   const kc = new KillConfirmed({ scene: null, player: { team: 'ct' } });
   kc.onDeath('t', tagPos);
   brain.game.rounds = { tdm: { objective: kc } };
-  const random = Math.random;
-  Math.random = () => 0; // take the objective branch
-  try {
-    const bot = makeBot({ hasGoal: false, path: null, state: 'move' });
-    brain._thinkHunt(bot);
-    assert.ok(bot.hasGoal, 'the bot takes an order');
-    const dx = bot.goal.x - tagPos.x;
-    const dz = bot.goal.z - tagPos.z;
-    assert.ok(Math.hypot(dx, dz) <= KC.PICKUP_RADIUS, `goal ${bot.goal.toArray()} is off the tag`);
-  } finally {
-    Math.random = random;
-  }
+  const bot = makeBot({ hasGoal: false, path: null, state: 'move', plan: 'hunt' });
+  brain.all = [bot];
+  brain._thinkHunt(bot);
+  assert.ok(bot.hasGoal, 'the commander sends it to the tag');
+  const dx = bot.goal.x - tagPos.x;
+  const dz = bot.goal.z - tagPos.z;
+  assert.ok(Math.hypot(dx, dz) <= KC.PICKUP_RADIUS, `goal ${bot.goal.toArray()} is off the tag`);
 });
 
 test('a bot on the live hardpoint holds it instead of wandering off to hunt', async () => {
@@ -562,14 +558,18 @@ test('a bot on the live hardpoint holds it instead of wandering off to hunt', as
     .map((pos, id) => ({ id, pos }));
   const world = { waypoints: { nodes }, findPath: (from, to) => [to.clone()] };
   const { brain } = makeBrain(world);
-  const objective = Object.assign(Object.create(Hardpoint.prototype), { goalRadius: HP.RADIUS, zones: [zone], index: 0 });
+  brain.game.state.mode = 'hp';
+  const objective = Object.assign(Object.create(Hardpoint.prototype), {
+    goalRadius: HP.RADIUS, goalSpread: HP.RADIUS - 2.5, zones: [zone], index: 0,
+  });
   brain.game.rounds = { tdm: { objective } };
-  const enemy = makeBot({ team: 't', pos: new THREE.Vector3(40, 0, 0) });
-  brain.all = [enemy];
+  const enemy = makeBot({ team: 't', pos: new THREE.Vector3(40, 0, 0), plan: 'hunt' });
+  const bot = makeBot({ hasGoal: false, path: null, state: 'hold', holdTimer: 10, pos: new THREE.Vector3(1, 0, 0), plan: 'hunt' });
+  const roamer = makeBot({ hasGoal: false, path: null, state: 'move', pos: new THREE.Vector3(30, 0, 0), plan: 'hunt' });
+  brain.all = [enemy, bot, roamer];
   const random = Math.random;
   Math.random = () => 0.99; // the roll that used to send it after the nearest enemy
   try {
-    const bot = makeBot({ hasGoal: false, path: null, state: 'hold', holdTimer: 10, pos: new THREE.Vector3(1, 0, 0) });
     brain._thinkHunt(bot);
     assert.ok(bot.holdTimer > 1.6 && bot.holdTimer <= 4, `holds the zone (${bot.holdTimer} s)`);
     bot.holdTimer = 0;
@@ -577,13 +577,53 @@ test('a bot on the live hardpoint holds it instead of wandering off to hunt', as
     assert.ok(bot.hasGoal, 'takes an order');
     assert.ok(bot.goal.distanceTo(zone) < HP.RADIUS, `next goal ${bot.goal.toArray()} stays on the hardpoint`);
 
-    // Off the zone the old mix still applies.
-    const roamer = makeBot({ hasGoal: false, path: null, state: 'move', pos: new THREE.Vector3(30, 0, 0) });
+    // Two on the side: one holds, the other is left to hunt.
     brain._thinkHunt(roamer);
-    assert.ok(roamer.goal.distanceTo(zone) > HP.RADIUS, 'a bot away from it may still hunt');
+    assert.ok(roamer.goal.distanceTo(zone) > HP.RADIUS, 'the second bot hunts');
   } finally {
     Math.random = random;
   }
+});
+
+test('the commander sends one bot per enemy tag, the nearest, and leaves far own tags alone', async () => {
+  const { KillConfirmed } = await import('../src/game/objectives.js');
+  const { brain } = makeBrain({ findPath: (from, to) => [to.clone()] });
+  brain.game.state.mode = 'kc';
+  const kc = new KillConfirmed({ scene: null, player: { team: 'ct' } });
+  kc.onDeath('t', new THREE.Vector3(10, 0, 0));    // enemy tag for CT
+  kc.onDeath('ct', new THREE.Vector3(-30, 0, 0));  // own tag, far from everyone
+  brain.game.rounds = { tdm: { objective: kc } };
+  const near = makeBot({ pos: new THREE.Vector3(6, 0, 0), plan: 'hunt', hasGoal: false, path: null, state: 'hold', holdTimer: 0 });
+  const far = makeBot({ pos: new THREE.Vector3(-5, 0, 0), plan: 'hunt', hasGoal: false, path: null, state: 'hold', holdTimer: 0 });
+  brain.all = [near, far];
+  const commander = brain._commander();
+  assert.equal(commander.orderFor(near).key, 'tag:1');
+  assert.equal(commander.orderFor(far), null, 'one collector per tag; the own tag is 25 m away');
+  // A collector that cannot reach the tag hands it over.
+  commander.reject(near);
+  brain.time += 1;
+  assert.equal(commander.orderFor(far).key, 'tag:1');
+  assert.equal(commander.orderFor(near), null, 'not resent to it');
+});
+
+test('the commander splits a Domination team between taking and holding flags', async () => {
+  const { brain } = makeBrain({ findPath: (from, to) => [to.clone()] });
+  brain.game.state.mode = 'dom';
+  const flag = (name, x, owner) => ({ name, pos: new THREE.Vector3(x, 0, 0), owner, control: owner === 'ct' ? 1 : 0, contested: false });
+  const objective = { goalRadius: 4.5, flags: [flag('A', -20, 'ct'), flag('B', 0, null), flag('C', 20, 't')] };
+  brain.game.rounds = { tdm: { objective } };
+  const squad = [-22, -18, -2, 2, 18].map((x) => makeBot({ pos: new THREE.Vector3(x, 0, 5), plan: 'hunt', state: 'hold' }));
+  brain.all = squad;
+  const keys = squad.map((b) => brain._commander().orderFor(b)?.key);
+  const count = (k) => keys.filter((x) => x === k).length;
+  assert.equal(count('defend:A'), 1, 'one defender on the held flag');
+  assert.equal(count('capture:B'), 2);
+  assert.equal(count('capture:C'), 2);
+  // The held flag comes under attack: a second defender.
+  objective.flags[0].contested = true;
+  brain.time += 1;
+  const again = squad.map((b) => brain._commander().orderFor(b)?.key);
+  assert.equal(again.filter((x) => x === 'defend:A').length, 2);
 });
 
 test('a spawn-protected bot tracks its target but holds fire until the protection ends', () => {

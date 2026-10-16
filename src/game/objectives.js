@@ -127,10 +127,6 @@ function botMidFightOnOwnTag(entry, tag) {
 export class KillConfirmed {
   constructor(game) {
     this.game = game;
-    // Bots path onto a tag itself: a nearby waypoint can sit outside PICKUP_RADIUS.
-    this.goalSpread = 0;
-    // Most free orders go to a tag: tags were expiring uncollected.
-    this.goalWeight = 0.9;
     this.tags = [];
     this._time = 0;
     this._nextId = 0;
@@ -670,12 +666,11 @@ export function hardpointZones(world) {
 export class Hardpoint {
   constructor(game) {
     this.game = game;
-    // Bots on the live hardpoint hold it instead of wandering off to hunt,
-    // and most orders go to it: the zone is the whole game.
+    // Bots on the live hardpoint hold it instead of wandering off to hunt
+    // (the team commander keeps all but one of each side on it).
     this.goalRadius = HP.RADIUS;
     // Arrivals spread across the zone, not onto its centre.
     this.goalSpread = HP.RADIUS - 2.5;
-    this.goalWeight = 0.9;
     // ...and do not chase noises or lost enemies far away from it.
     this.leash = HP.RADIUS + 15;
     this.zones = hardpointZones(game.world);

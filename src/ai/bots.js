@@ -17,6 +17,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { isRespawnMode } from '../game/tdm.js';
 import { hostile, isFfa } from '../game/hostility.js';
 import { BOT_SKILLS, botSkill } from './skill.js';
+import TeamCommander from './commander.js';
 import { getCharacterPalette } from '../player/profile.js';
 import { buildAnimationSet, OperativeAnimator, IK_FAR_SQ } from './operative-anim.js';
 import {
@@ -520,6 +521,7 @@ export default class Bots {
 
   /** Rebuild transient AI intent from the last canonical network frame. */
   resumeNetworkAuthority() {
+    if (this.commander) this.commander.reset();
     for (let i = 0; i < this.all.length; i++) {
       const bot = this.all[i];
       if (bot.netPos) bot.pos.copy(bot.netPos);
@@ -2602,6 +2604,8 @@ export default class Bots {
   }
 
   _abandonNavigationGoal(bot) {
+    // A job the bot keeps failing to reach goes to someone else.
+    if (this.commander && bot.orderId != null) this.commander.reject(bot);
     bot.path = null;
     bot.hasGoal = false;
     bot.pathIndex = 0;
@@ -3024,19 +3028,35 @@ export default class Bots {
    * the rest sweep a random part of the map so lanes stay contested.
    */
   _thinkHunt(bot) {
-    // Objective modes: most decisions go to the tag / flag the objective picks.
-    const objective = this.game.rounds && this.game.rounds.tdm && this.game.rounds.tdm.objective;
-    const objectiveGoal = objective && typeof objective.botGoal === 'function' ? objective.botGoal(bot) : null;
+    // Objective modes: the team commander hands out the jobs (a tag to
+    // collect, a flag to take or hold, the hardpoint); bots without one hunt.
+    const commander = this._commander();
+    const order = commander.orderFor(bot);
+    const zone = order && order.radius > 0 ? order.radius : 0;
     // Standing in a zone that scores while held (a hardpoint, a flag being
     // captured): stay in it. A bot used to wander off after a 1.6 s hold one
     // order in four, and the soak had hardpoints empty half the match.
-    const zone = objective && Number.isFinite(objective.goalRadius) ? objective.goalRadius : 0;
-    const inZone = !!objectiveGoal && zone > 0 &&
-      Math.hypot(bot.pos.x - objectiveGoal.x, bot.pos.z - objectiveGoal.z) < zone - 0.5 &&
-      Math.abs(bot.pos.y - objectiveGoal.y) < 2.4;
+    const inZone = zone > 0 &&
+      Math.hypot(bot.pos.x - order.pos.x, bot.pos.z - order.pos.z) < zone - 0.5 &&
+      Math.abs(bot.pos.y - order.pos.y) < 2.4;
     const holdMax = inZone ? ZONE_HOLD_MAX : TDM_HOLD_MAX;
     if (bot.state === 'hold' && bot.holdTimer > holdMax) bot.holdTimer = holdMax;
+    // A new job replaces the bot's errand at once; one it cannot path to goes
+    // back to the commander for someone else.
+    if (order && order.id !== bot.orderId) {
+      bot.orderId = order.id;
+      if (!inZone) {
+        if (this._setGoal(bot, this._orderGoal(bot, order))) bot.state = 'move';
+        else commander.reject(bot);
+        return;
+      }
+    }
     if (bot.hasGoal || bot.path || (bot.state === 'hold' && bot.holdTimer > 0)) return;
+    if (order) {
+      if (this._setGoal(bot, this._orderGoal(bot, order))) bot.state = 'move';
+      else commander.reject(bot);
+      return;
+    }
 
     let nearest = null;
     let best = Infinity;
@@ -3064,13 +3084,7 @@ export default class Bots {
     const jammed = !!(streaks && typeof streaks.counterUavActive === 'function' && streaks.counterUavActive()) &&
       againstPlayer;
     let goal = null;
-    const weight = objective && Number.isFinite(objective.goalWeight) ? objective.goalWeight : 0.75;
-    if (objectiveGoal && (inZone || Math.random() < weight)) {
-      // A dog tag is picked up within 1.5 m, so walk onto it exactly; a flag
-      // or hardpoint is wide enough to spread the arrivals across its nodes.
-      const spread = Number.isFinite(objective.goalSpread) ? objective.goalSpread : 3;
-      goal = spread > 0 ? this._diverseNear(bot, objectiveGoal, spread) : objectiveGoal;
-    } else if (nearest && Math.random() < (uavUp ? 0.95 : jammed ? 0.35 : this._skill().huntSense)) {
+    if (nearest && Math.random() < (uavUp ? 0.95 : jammed ? 0.35 : this._skill().huntSense)) {
       goal = this._diverseNear(bot, nearest, 12);
     } else {
       const nodes = this.game.world && this.game.world.waypoints && this.game.world.waypoints.nodes;
@@ -3085,6 +3099,16 @@ export default class Bots {
       this.game.rounds.tdm.objective;
     if (!objective || typeof objective.investigateGoal !== 'function') return pos;
     return objective.investigateGoal(bot, pos) || pos;
+  }
+
+  _commander() {
+    if (!this.commander) this.commander = new TeamCommander(this);
+    return this.commander;
+  }
+
+  /** Where to walk for a job: onto a dog tag exactly; spread across a flag or zone. */
+  _orderGoal(bot, order) {
+    return order.spread > 0 ? this._diverseNear(bot, order.pos, order.spread) : order.pos;
   }
 
   /**
@@ -3118,6 +3142,7 @@ export default class Bots {
 
   /** Switch the roster from bomb plans to TDM hunting with respawn loadouts. */
   prepareTdm() {
+    if (this.commander) this.commander.reset();
     this.bombCarrier = null;
     this._bombPlanted = false;
     this._bombDropped = false;

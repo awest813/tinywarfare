@@ -168,7 +168,6 @@ test('Hardpoint: one zone scores for a sole holder, freezes when contested, and 
   assert.equal(moved, 1);
   assert.equal(hp.index, 1);
   assert.equal(retasked.length, game.bots.all.length, 'every bot heads for the new zone at once');
-  assert.ok(hp.goalWeight > 0.75, 'most orders go to the hardpoint');
   assert.equal(hp.hud()[0].name, 'HP');
   hp.stop();
   assert.equal(game.scene.children.length, 0);
@@ -277,5 +276,4 @@ test('a Kill Confirmed bot checking out a fight goes to an enemy tag dropped the
   assert.deepEqual(kc.investigateGoal(bot, noise).toArray(), [10, 0, 0], 'the enemy tag, not its own');
   const far = new THREE.Vector3(40, 0, 0);
   assert.equal(kc.investigateGoal(bot, far), far, 'no tag near the spot: the spot itself');
-  assert.equal(kc.goalWeight, 0.9);
 });
