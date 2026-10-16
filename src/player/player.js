@@ -395,6 +395,11 @@ export default class Player {
         Math.max(simulatedElapsed, wallElapsed)
       );
       this.spectatorReady = this.deathElapsed >= DEATH_SPECTATE_DELAY;
+      if (this._deathFloorY !== null && this._deathFloorY !== undefined) {
+        this._deathFallV -= (game.config.PLAYER.GRAVITY || 20) * dt;
+        this.position.y = Math.max(this._deathFloorY, this.position.y + this._deathFallV * dt);
+        if (this.position.y <= this._deathFloorY) this._deathFloorY = null;
+      }
       this._updateDeathCamera();
       return;
     }
@@ -837,6 +842,12 @@ export default class Player {
   // Dead: static camera at the death spot, sinking with a slight downward
   // tilt and slump roll. Look input is flushed so respawn doesn't snap.
   _beginDeathTransition() {
+    // Killed in the air (a jump peek, a ledge): the body drops to the floor
+    // under gravity instead of hanging where it died; the death camera, and
+    // what other players and the killcam see, follow it down.
+    const floor = this.onGround ? null : this.game.world?.groundHeightBelow?.(this.position);
+    this._deathFloorY = Number.isFinite(floor) && floor < this.position.y - 0.01 ? floor : null;
+    this._deathFallV = Math.min(0, Number(this.velocity.y) || 0);
     this.velocity.set(0, 0, 0);
     this._deathBlend = 0;
     this._deathEyeStart = this.eyeHeight;

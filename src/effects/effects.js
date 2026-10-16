@@ -677,8 +677,11 @@ export default class Effects {
   _onBotFire(p) {
     if (!p || !p.origin || p.suppressed) return;
     const o = p.origin, d = p.dir;
-    // Push the flash out to roughly the gun tip.
-    if (d) {
+    if (p.muzzle && Number.isFinite(p.muzzle.x)) {
+      // The held gun's own muzzle.
+      _va.set(p.muzzle.x, p.muzzle.y, p.muzzle.z);
+    } else if (d) {
+      // Push the flash out to roughly the gun tip.
       _va.set(o.x + d.x * 0.5, o.y + d.y * 0.5 - 0.12, o.z + d.z * 0.5);
     } else {
       _va.set(o.x, o.y - 0.12, o.z);

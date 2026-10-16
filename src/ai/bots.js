@@ -1820,8 +1820,16 @@ export default class Bots {
   _attachHeldWeapon(bot, family) {
     const library = this.game && this.game.materials;
     const anchor = family && bot.gunMeshes ? bot.gunMeshes[family] : null;
-    if (!library || !anchor || !anchor.parent) return false;
-    if (!hasWeaponModel(bot.weaponId)) return false;
+    // Nothing to hold (knife, grenade, or a weapon with no third-person
+    // model): put the last gun away rather than leave it in the hand.
+    if (!library || !anchor || !anchor.parent || !hasWeaponModel(bot.weaponId)) {
+      if (bot.heldWeapon) {
+        bot.heldWeapon.parent?.remove(bot.heldWeapon);
+        bot.heldWeapon = null;
+        bot.heldWeaponId = null;
+      }
+      return false;
+    }
 
     if (bot.heldWeaponId === bot.weaponId && bot.heldWeapon) return true;
     if (bot.heldWeapon) {
@@ -2011,6 +2019,10 @@ export default class Bots {
         if (this.all.includes(bot.attacker)) this._say(bot.attacker, 'down');
       }
       bot.deathTime = this.time;
+      // Killed mid-drop: the corpse falls to the floor rather than hanging.
+      const floor = this.game.world?.groundHeightBelow?.(bot.pos);
+      bot.deathFloorY = Number.isFinite(floor) && floor < bot.pos.y - 0.01 ? floor : null;
+      bot.deathFallV = Math.min(0, Number(bot.velY) || 0);
       bot.fallAxis = Math.random() < 0.5 ? 'x' : 'z';
       bot.fallSign = Math.random() < 0.5 ? -1 : 1;
       this.game.events.emit('bot:death', {
@@ -2401,6 +2413,11 @@ export default class Bots {
 
     const stationary = bot.state === 'plant' || bot.state === 'defuse' ||
       (bot.state === 'hold' && !bot.hasGoal) || bot.state === 'idle';
+    // Holding and scanning: the same 12%-per-think approach, as a smooth
+    // per-frame ease (1 - 0.88^10 per second).
+    if (bot.scanning && bot.state === 'hold' && !bot.hasGoal && Number.isFinite(bot.scanYaw)) {
+      bot.yaw += angleDiff(bot.scanYaw, bot.yaw) * (1 - Math.exp(-1.28 * dt));
+    }
 
     const sk = this._skill();
     if (bot.dodgeUntil > this.time && bot.dodgeDir) {
@@ -2958,6 +2975,16 @@ export default class Bots {
     const origin = this._botEye(bot, _eyeA).clone();
 
     const payload = { bot, weaponId: bot.weaponId, origin, dir };
+    // The tracer and flash start at the held gun's muzzle (the bullet still
+    // flies from the eye). Last frame's pose is close enough; anything far
+    // from the eye means the rig is not where we think, so it is skipped.
+    const held = bot.heldWeapon;
+    const tip = held && held.userData && held.userData.muzzle;
+    if (tip && held.parent) {
+      const muzzle = new THREE.Vector3(tip[0], tip[1], tip[2]);
+      held.localToWorld(muzzle);
+      if (muzzle.distanceToSquared(origin) < 2.25 && Number.isFinite(muzzle.x)) payload.muzzle = muzzle;
+    }
     if (stats.pellets > 1) {
       payload.pellets = [];
       for (let i = 1; i < stats.pellets; i++) {
@@ -3184,7 +3211,11 @@ export default class Bots {
         bot.scanTimer = rand(1.5, 4);
         bot.scanYaw = this._scanYaw(bot, sk);
       }
-      bot.yaw += angleDiff(bot.scanYaw, bot.yaw) * 0.12;
+      // The turn itself is eased every frame in _moveBot: applied here, at
+      // the 10 Hz think rate, it stepped the body round in visible jumps.
+      bot.scanning = true;
+    } else {
+      bot.scanning = false;
     }
 
   }
@@ -3960,6 +3991,11 @@ export default class Bots {
   _animateDeath(bot, dt) {
     const m = bot.mesh;
     if (!m || bot.deathTime < 0) return;
+    if (bot.deathFloorY !== null && bot.deathFloorY !== undefined && bot.pos) {
+      bot.deathFallV = (bot.deathFallV || 0) - (this.game.config?.PLAYER?.GRAVITY || 20) * dt;
+      bot.pos.y = Math.max(bot.deathFloorY, bot.pos.y + bot.deathFallV * dt);
+      if (bot.pos.y <= bot.deathFloorY) bot.deathFloorY = null;
+    }
 
     if (bot.animator) {
       m.position.copy(bot.pos);

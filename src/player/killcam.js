@@ -28,8 +28,9 @@ export const KILLCAM = Object.freeze({
   SAMPLE: 1 / 30,     // s between recorded poses
   HISTORY: 4,         // s of poses and tracers kept
   BEFORE: 1.7,        // s of replay before the kill
-  AFTER: 0.3,         // s after it (the fall)
+  AFTER: 0.75,        // s after it (the fall lands)
   SLOW_FROM: 0.25,    // s before the kill where slow motion starts
+  SLOW_TO: 0.1,       // s after it where normal speed resumes
   SLOW_RATE: 0.45,    // playback speed in slow motion
   START_AFTER: 1.1,   // s after death the replay starts (the collapse lands first)
   BACK: 1.55,         // m behind the killer's eye
@@ -236,8 +237,8 @@ export default class Killcam {
     const pitch = Math.max(-1.2, Math.min(1.2, pose.pitch));
     const cp = Math.cos(pitch);
     const fwd = _dir.set(-Math.sin(yaw) * cp, Math.sin(pitch), -Math.cos(yaw) * cp);
-    const slow = c.playhead >= c.tDeath - KILLCAM.SLOW_FROM;
-    c.push += ((slow ? 1 : 0) - c.push) * Math.min(1, c.lastDt * 4);
+    const slow = this._rate(c.playhead) < 1 || c.playhead >= c.tDeath;
+    c.push += ((slow ? 1 : 0) - c.push) * (1 - Math.exp(-4 * c.lastDt));
     const back = KILLCAM.BACK + (KILLCAM.BACK_SLOW - KILLCAM.BACK) * c.push;
     // Behind, right and a little above the eye; pulled in if a wall is there.
     const want = _b.copy(eye)
@@ -337,15 +338,26 @@ export default class Killcam {
   // -------------------------------------------------------------- playback --
 
   _duration() {
-    return (KILLCAM.BEFORE - KILLCAM.SLOW_FROM) + (KILLCAM.SLOW_FROM + KILLCAM.AFTER) / KILLCAM.SLOW_RATE;
+    return (KILLCAM.BEFORE - KILLCAM.SLOW_FROM) +
+      (KILLCAM.SLOW_FROM + KILLCAM.SLOW_TO) / KILLCAM.SLOW_RATE +
+      (KILLCAM.AFTER - KILLCAM.SLOW_TO);
+  }
+
+  /** Playback speed at a playhead: slow motion around the kill only. */
+  _rate(playhead) {
+    const c = this.clip;
+    return playhead >= c.tDeath - KILLCAM.SLOW_FROM && playhead < c.tDeath + KILLCAM.SLOW_TO
+      ? KILLCAM.SLOW_RATE
+      : 1;
   }
 
   _timeLeft(playhead) {
     const c = this.clip;
     const slowStart = c.tDeath - KILLCAM.SLOW_FROM;
+    const slowEnd = c.tDeath + KILLCAM.SLOW_TO;
     const end = c.tDeath + KILLCAM.AFTER;
-    if (playhead >= slowStart) return Math.max(0, (end - playhead) / KILLCAM.SLOW_RATE);
-    return (slowStart - playhead) + (end - slowStart) / KILLCAM.SLOW_RATE;
+    const seg = (a, b, rate) => Math.max(0, Math.min(b, end) - Math.max(a, playhead)) / rate;
+    return seg(-Infinity, slowStart, 1) + seg(slowStart, slowEnd, KILLCAM.SLOW_RATE) + seg(slowEnd, end, 1);
   }
 
   _begin() {
@@ -369,6 +381,8 @@ export default class Killcam {
     c.killerMeshVisible = c.killerMesh ? c.killerMesh.visible : false;
     for (const ghost of [victim, killer]) {
       bots.setOperativeAlive?.(ghost, true);
+      // A clean pose: no twist, reload or fall carried over from last time.
+      bots._resetOperativePose?.(ghost);
       ghost.mesh.visible = true;
     }
     this.active = true;
@@ -379,8 +393,7 @@ export default class Killcam {
   _advance(dt) {
     const c = this.clip;
     const g = this.game;
-    const slow = c.playhead >= c.tDeath - KILLCAM.SLOW_FROM;
-    const step = dt * (slow ? KILLCAM.SLOW_RATE : 1);
+    const step = dt * this._rate(c.playhead);
     const from = c.playhead;
     c.playhead += step;
     c.lastDt = dt;
@@ -422,9 +435,10 @@ export default class Killcam {
       const side = k ? Math.sign((v.position.x - k.x) * Math.cos(v.yaw) - (v.position.z - k.z) * Math.sin(v.yaw)) || 1 : 1;
       g.bots?.setOperativeAlive?.(v, false, { fallAxis: 'z', fallSign: side });
     }
-    for (const ghost of [this._ghosts.killer, this._ghosts.victim]) {
-      g.bots?.updateOperativeVisual?.(ghost, step);
-    }
+    // The victim's fall plays at real speed once it starts, so it lands
+    // within the replay; everything else follows the replay clock.
+    g.bots?.updateOperativeVisual?.(this._ghosts.killer, step);
+    g.bots?.updateOperativeVisual?.(this._ghosts.victim, c.fell ? dt : step);
 
     if (c.playhead >= c.tDeath + KILLCAM.AFTER) this._end();
   }

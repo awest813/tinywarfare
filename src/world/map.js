@@ -1967,6 +1967,19 @@ export default class World {
   // last entry, and `recursive = false` below plus `Object3D.raycast` being a
   // no-op is why the merged copy is not a second, surface-less hit.
   // =========================================================================
+  /**
+   * Height of the first floor below `pos` (within `reach` metres), or null.
+   * Used to drop bodies killed in the air to the ground.
+   */
+  groundHeightBelow(pos, reach = 40) {
+    if (!pos) return null;
+    const from = this._groundFrom || (this._groundFrom = new THREE.Vector3());
+    const down = this._groundDown || (this._groundDown = new THREE.Vector3(0, -1, 0));
+    from.set(pos.x, pos.y + 0.25, pos.z);
+    const hit = this.raycast(from, down, reach + 0.25);
+    return hit ? hit.point.y : null;
+  }
+
   raycast(origin, dir, maxDist) {
     const rc = this._raycaster;
     rc.ray.origin.copy(origin);
