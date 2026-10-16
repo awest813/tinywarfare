@@ -338,7 +338,10 @@ export default class Bots {
     this._ctCount = Math.max(0, Math.floor(ctCount || 0));
     this._tCount = Math.max(0, Math.floor(tCount || 0));
     while (this._root.children.length) this._root.remove(this._root.children[0]);
+    // The old bots' rigs go with them (they were dropped undisposed).
+    for (const bot of this.all) this._disposeOperativeRig(bot);
     this.all.length = 0;
+    if (this.commander) this.commander.reset();
     this.bombCarrier = null;
     this._buildRoster();
   }
@@ -1721,6 +1724,14 @@ export default class Bots {
       if (actor.rig) actor.mixer.uncacheRoot(actor.rig);
     }
     if (actor.rig && actor.mesh) actor.mesh.remove(actor.rig);
+    // Each cloned rig has its own skeleton, and each skeleton its own bone
+    // texture on the GPU: undisposed, every remote join/leave and roster
+    // rebuild leaked one (10 join cycles took textures from 50 to 60).
+    if (actor.rig) {
+      const skeletons = new Set();
+      actor.rig.traverse((o) => { if (o.isSkinnedMesh && o.skeleton) skeletons.add(o.skeleton); });
+      for (const skeleton of skeletons) skeleton.dispose();
+    }
     for (const material of (actor.ownedVisualMaterials || [])) material.dispose();
     actor.ownedVisualMaterials = null;
     // The held weapon lives on the OLD rig's hand bone, so it leaves with the

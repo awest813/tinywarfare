@@ -88,6 +88,12 @@ const FALLBACK_DEF = Object.freeze({
   tracerEvery: 1,
 });
 
+
+/** A position or direction with three finite components (network input). */
+function finiteVec(v) {
+  return !!v && Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
+}
+
 export default class Combat {
   constructor(game) {
     this.game = game;
@@ -152,6 +158,9 @@ export default class Combat {
     ev.on('remote:death', (e) => this._onRemoteDeath(e));
     ev.on('player:death', (e) => this._onPlayerDeath(e));
     ev.on('round:start', () => this._onRoundStart());
+    // Grenades still in flight when a player quits to the menu went off
+    // there, scoring kills into a finished match.
+    ev.on('ui:menu', () => this._onRoundStart());
   }
 
   // =========================================================================
@@ -214,7 +223,7 @@ export default class Combat {
 
   /** Resolve a non-host human's shot on the authoritative host. */
   fireRemote(e, shooter) {
-    if (!e || !shooter || !shooter.alive || !e.origin || !e.dir) return;
+    if (!e || !shooter || !shooter.alive || !finiteVec(e.origin) || !finiteVec(e.dir)) return;
     shooter.spawnProtection = 0; // firing ends a fresh spawn's immunity
     // The authority hears the shot here; replicas hear it from the tracer.
     this.game.events.emit('audio:shot', { origin: e.origin, weaponId: e.melee ? 'knife' : e.weaponId });
@@ -944,7 +953,7 @@ export default class Combat {
   // =========================================================================
 
   _onGrenadeThrow(e) {
-    if (!e || !e.origin || !e.dir) return;
+    if (!e || !finiteVec(e.origin) || !finiteVec(e.dir)) return;
     const mp = this.game.multiplayer;
     if (mp && mp.active && !mp.isAuthority() && !e.thrower) return;
     const type = e.type || 'hegrenade';
@@ -956,7 +965,8 @@ export default class Combat {
     if (this._v1.lengthSq() < 1e-8) this._v1.set(0, 0, -1);
     this._v1.normalize();
 
-    const strength = e.strength != null ? e.strength : 14;
+    // A remote throw's strength comes off the wire: keep it finite and sane.
+    const strength = Number.isFinite(e.strength) ? Math.max(0, Math.min(20, e.strength)) : 14;
     p.vel.copy(this._v1).multiplyScalar(strength);
 
     // inherit thrower velocity ×0.3 (only the player throws per spec, but

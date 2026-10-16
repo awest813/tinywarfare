@@ -106,10 +106,12 @@ export default class World {
       const query = new URLSearchParams(location.search).get('map');
       if (query) return normalizeMapId(query);
     }
-    if (typeof localStorage !== 'undefined') {
-      const saved = localStorage.getItem('tiny-strike-map');
+    // Reading localStorage itself throws when the browser blocks site data;
+    // the game must still start.
+    try {
+      const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('tiny-strike-map') : null;
       if (saved) return normalizeMapId(saved);
-    }
+    } catch { /* storage blocked */ }
     return DEFAULT_MAP_ID;
   }
 
@@ -166,7 +168,9 @@ export default class World {
     this._loaded = true;
     this.game.selectedMapId = mapId;
     if (this.game.state) this.game.state.mapId = mapId;
-    if (typeof localStorage !== 'undefined') localStorage.setItem('tiny-strike-map', mapId);
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.setItem('tiny-strike-map', mapId);
+    } catch { /* storage blocked: the pick just is not remembered */ }
 
     if (this.game.debug) this._validateNav();
     if (this.game.events && typeof this.game.events.emit === 'function') {

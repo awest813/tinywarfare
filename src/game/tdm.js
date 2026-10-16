@@ -281,6 +281,10 @@ export default class TeamDeathmatch {
     // Just took over a room's simulation: carry on from replicated state.
     if (this._ffaRows) this._adoptReplicaState();
 
+    // A death the live-phase handler never saw (killed during the countdown,
+    // or a damage message racing a restart) left the player dead for the
+    // rest of the match. Schedule the respawn it missed.
+    this._catchUpPlayerRespawn();
     if (this._playerRespawnAt !== null && this._time >= this._playerRespawnAt) {
       this._respawnPlayer();
     }
@@ -291,6 +295,8 @@ export default class TeamDeathmatch {
       if (!bot.alive && !this._botRespawns.has(bot)) this._botRespawns.set(bot, this._time + TDM.RESPAWN_DELAY);
     }
     for (const [bot, at] of this._botRespawns) {
+      // A bot dropped from a rebuilt roster must not come back as a ghost.
+      if (!bots.includes(bot)) { this._botRespawns.delete(bot); continue; }
       if (this._time < at) continue;
       this._botRespawns.delete(bot);
       if (!bot.alive) this._respawnBot(bot);
@@ -325,7 +331,15 @@ export default class TeamDeathmatch {
   /** Non-authority frame: keep the countdown and objective visuals moving. */
   replicaUpdate(dt) {
     this._time += dt;
+    this._catchUpPlayerRespawn();
     if (this.objective && typeof this.objective.replicaUpdate === 'function') this.objective.replicaUpdate(dt);
+  }
+
+  _catchUpPlayerRespawn() {
+    const player = this.game.player;
+    if (!player || player.alive !== false || player.spectating || this._playerRespawnAt !== null) return;
+    if (this.game.state.phase !== 'live') return;
+    this._playerRespawnAt = this._time + TDM.RESPAWN_DELAY;
   }
 
   /** Non-authority: show the respawn countdown while the authority decides. */

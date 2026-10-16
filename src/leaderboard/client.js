@@ -163,9 +163,11 @@ export class LeaderboardClient {
     if (this.game?.profile && typeof this.game.profile.setName === 'function') {
       this.game.profile.setName(name);
     } else if (storageAvailable(this.storage)) {
-      this.storage.setItem(NAME_KEY, name);
-      // Keep older multiplayer builds in sync during the rename transition.
-      this.storage.setItem(LEGACY_NAME_KEY, name);
+      try {
+        this.storage.setItem(NAME_KEY, name);
+        // Keep older multiplayer builds in sync during the rename transition.
+        this.storage.setItem(LEGACY_NAME_KEY, name);
+      } catch { /* full or blocked storage: the name lives for this session */ }
     }
     if (this.game?.multiplayer) {
       if (!this.game.multiplayer.active) this.game.multiplayer.localName = name;

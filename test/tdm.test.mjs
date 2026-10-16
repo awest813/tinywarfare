@@ -214,3 +214,18 @@ test('objective anchors pull respawns toward the fight without breaking the safe
   const pick = pickSafeSpawn(candidates, enemies, [], { ...noRandom, anchors: [zone] });
   assert.ok(pick.pos.equals(near.pos), `with the zone as anchor: ${pick.pos.toArray()}`);
 });
+
+test('a player killed during the countdown still respawns once the match is live', () => {
+  const { game } = makeGame();
+  const tdm = new TeamDeathmatch(game);
+  tdm.startMatch();
+  // Dies in the get-ready window: the live-phase death handler ignores it.
+  game.player.alive = false;
+  game.events.emit('player:death', {});
+  assert.equal(tdm.playerRespawnIn(), null);
+  tdm.goLive();
+  tdm.update(0.01);
+  assert.equal(tdm.playerRespawnIn() > 0, true, 'the missed respawn is scheduled');
+  tdm.update(TDM.RESPAWN_DELAY + 0.1);
+  assert.equal(game.player.alive, true);
+});

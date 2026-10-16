@@ -272,6 +272,18 @@ game.fps = 60;
 const MAX_STEP = 0.05;
 const MAX_FRAME = 0.15;
 
+// One system throwing must not stop the game: three requests the next frame
+// only after this callback returns, so an uncaught error froze the screen for
+// good with no message. Each failure is logged (at most every 5 s per system)
+// and the loop carries on.
+const failedAt = new Map();
+function reportFailure(key, error) {
+  const now = performance.now();
+  if (now - (failedAt.get(key) || -Infinity) < 5000) return;
+  failedAt.set(key, now);
+  console.error(`[${key}] update failed:`, error);
+}
+
 renderer.setAnimationLoop(() => {
   const rawDt = clock.getDelta();
 
@@ -289,7 +301,12 @@ renderer.setAnimationLoop(() => {
     remaining -= dt;
     for (const key of UPDATE_ORDER) {
       const sys = game[key];
-      if (sys && typeof sys.update === 'function') sys.update(dt);
+      if (!sys || typeof sys.update !== 'function') continue;
+      try {
+        sys.update(dt);
+      } catch (error) {
+        reportFailure(key, error);
+      }
     }
   } while (remaining > 1e-6);
 
@@ -297,5 +314,20 @@ renderer.setAnimationLoop(() => {
     shadowFrame = (shadowFrame + 1) % 2;
     if (shadowFrame === 0) renderer.shadowMap.needsUpdate = true;
   }
-  game.renderFrame();
+  try {
+    game.renderFrame();
+  } catch (error) {
+    reportFailure('render', error);
+  }
 });
+
+// A lost graphics context (GPU reset, driver update, a backgrounded mobile
+// tab) came back with GPU-baked textures, sky tables and lighting empty: a
+// black world until reload. Say so, and reload once the context returns.
+renderer.domElement.addEventListener('webglcontextlost', (event) => {
+  event.preventDefault();
+  game.events.emit('hud:notice', { text: 'GRAPHICS RESET — RELOADING…' });
+}, false);
+renderer.domElement.addEventListener('webglcontextrestored', () => {
+  location.reload();
+}, false);

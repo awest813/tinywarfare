@@ -31,6 +31,8 @@ function hashUnit(value) {
  */
 export function balancedRouteIndices(memberCount, routeCount, seed = 0) {
   if (memberCount <= 0 || routeCount <= 0) return [];
+  // A NaN seed made the stride NaN and the gcd loop below never ended.
+  if (!Number.isFinite(seed)) seed = 0;
   const offset = positiveMod(seed, routeCount);
   let stride = routeCount > 2 ? 1 + positiveMod(seed * 2 + 1, routeCount - 1) : 1;
   while (gcd(stride, routeCount) !== 1) stride++;

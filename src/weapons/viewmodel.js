@@ -1081,6 +1081,8 @@ export default class ViewModel {
 
     if (ud.attachmentGroup) {
       ud.procObject.remove(ud.attachmentGroup);
+      // Each attachment builds fresh geometry (the materials are shared).
+      ud.attachmentGroup.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
       ud.attachmentGroup = null;
     }
     if (ud.muzzle && ud.muzzleBase) ud.muzzle.position.copy(ud.muzzleBase);

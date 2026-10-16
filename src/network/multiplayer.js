@@ -1382,6 +1382,7 @@ export default class Multiplayer {
   }
 
   _onMessage(message) {
+    if (!message || typeof message !== 'object') return;
     // Any live room traffic proves this tab still owns its seat; refresh the
     // ownership ticket even while hidden (timers may be throttled, message
     // dispatch is not). Internally throttled to once a second.
