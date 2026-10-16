@@ -6,7 +6,7 @@
 // 'high' | 'low' switch the remaining modules still branch on.
 //
 // Chromebook is the low-power preset: below Low it renders under native
-// resolution, drops the canvas MSAA, uses a small hard-edged shadow map
+// resolution, drops the canvas MSAA, uses a small 4-tap-filtered shadow map
 // refreshed every other frame, keeps the sky static between rare re-blits,
 // turns off the effects' and maps' point lights (each one is a loop in every
 // lit pixel) and skips the parallax, de-tiling and sheen layers in the
@@ -65,7 +65,7 @@ export const GRAPHICS_PROFILES = Object.freeze({
     maxPixelRatio: 1,
     renderScale: 0.8,
     shadowMapSize: 1024,
-    shadowFilter: 'hard',
+    shadowFilter: 'bilinear',
     shadowInterval: 2,
     skyEquirect: 512,
     skyRefresh: 3,

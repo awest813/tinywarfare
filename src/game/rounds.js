@@ -105,6 +105,8 @@ export default class Rounds {
     // every lit material mid-round (a multi-frame hitch).
     this._bombLight = new THREE.PointLight(0xff3a22, 0, 6, 2);
     this._bombLight.castShadow = false;
+    // Chromebook preset: no scene lights from effects (the LED still glows).
+    this._bombLight.visible = game.gfx?.fxLights !== false;
     if (game.scene && typeof game.scene.add === 'function') game.scene.add(this._bombLight);
     this._bombInScene = false;
     this._bombDefusedVisual = false;

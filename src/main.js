@@ -9,6 +9,7 @@ import { MaterialSystem } from './gfx/materials/index.js';
 import { PostChain } from './gfx/post/index.js';
 import { createAutoGraphics } from './gfx/auto-graphics.js';
 import { graphicsProfile, isChromeOS, probeGpuName } from './gfx/profiles.js';
+import { installBilinearShadows } from './gfx/shadow-bilinear.js';
 import Player from './player/player.js';
 import PlayerProfile from './player/profile.js';
 import Weapons from './weapons/weapons.js';
@@ -118,8 +119,10 @@ syncViewportCss(initialViewport);
 renderer.setPixelRatio(targetPixelRatio(initialViewport.width, initialViewport.height));
 renderer.setSize(initialViewport.width, initialViewport.height);
 renderer.shadowMap.enabled = true;
-// Chromebook: one unfiltered tap per pixel instead of a 16-17 tap PCF kernel.
-renderer.shadowMap.type = GFX.shadowFilter === 'hard'
+// Chromebook: a 4-tap bilinear compare (src/gfx/shadow-bilinear.js) instead
+// of a 16-17 tap PCF kernel.
+const BILINEAR_SHADOWS = GFX.shadowFilter === 'bilinear' && installBilinearShadows(THREE);
+renderer.shadowMap.type = BILINEAR_SHADOWS
   ? THREE.BasicShadowMap
   : TOUCH_DEVICE ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
 // Phones and the Chromebook preset re-rasterize the arena's shadow map every
