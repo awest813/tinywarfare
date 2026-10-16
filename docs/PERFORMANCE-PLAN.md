@@ -146,16 +146,22 @@ gameplay (`src/world/dressing.js:4226`).
 | Sky re-bake | 2048, every 0.4 s | 512, every 0.8 s | 512, every 3 s |
 | Rain and snow | 100% | 50% | 30% |
 
-**Auto** chooses at load:
-- a Chromebook, unless its GPU is an Iris Xe class part, and any device whose
-  GPU is a known low-power part (Mali, PowerVR, older Adreno) or a software
-  renderer: **Chromebook**;
-- a phone or tablet, or a desktop with an older Intel HD/UHD GPU: **Low**;
-- everything else: **High**.
+**Auto** chooses at load, in this order:
+1. a software renderer (SwiftShader, llvmpipe): **Chromebook**;
+2. ChromeOS, laptop or tablet: **Chromebook**, unless the GPU is an Iris Xe,
+   Radeon Vega, Arc or Adreno 630+ class part (then **High**, or **Low** in
+   tablet mode). Stoney Ridge Radeon R2-R7 and Snapdragon 7c (Adreno 618)
+   count as low-power;
+3. a phone or tablet: **Low** (recent flagships use Mali GPUs, so phones are
+   not judged by GPU name);
+4. a laptop or desktop with a low-power GPU (Mali, PowerVR, Adreno below
+   630, Stoney Ridge): **Chromebook**; with an older Intel HD/UHD: **Low**;
+5. everything else: **High**.
 
 ChromeOS is read from `navigator.userAgentData.platform`, falling back to
 `CrOS` in the user agent. The GPU name comes from `WEBGL_debug_renderer_info`
-on a throwaway context, before the real renderer is created.
+on a throwaway context, created before the real renderer and only when the
+Graphics setting is Auto.
 
 During a match on Auto, a device under 40 fps for 6 s drops SSAO, then caps
 the pixel ratio at 1, then remembers the next lighter preset for its next
