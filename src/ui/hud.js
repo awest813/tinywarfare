@@ -2543,7 +2543,8 @@ export default class HUD {
       c.reserve = resDisplay;
       if (this._el.ammoRes) this._el.ammoRes.textContent = resDisplay;
     }
-    const magLow = !spectating && mag !== null && def && Number.isFinite(def.magSize) &&
+    // A grenade 'magazine' is the one in hand, so it would always read low.
+    const magLow = !spectating && mag !== null && def && !def.grenade && Number.isFinite(def.magSize) &&
       mag <= Math.max(1, Math.ceil(def.magSize * 0.25));
     if (magLow !== c.magLow) {
       c.magLow = magLow;
@@ -4269,7 +4270,7 @@ export default class HUD {
       }
       if (this._el.endKd) {
         const s = this._localEndStats();
-        this._el.endKd.textContent = 'YOUR RECORD — ' + s.k + ' KILLS  /  ' + s.d + ' DEATHS';
+        this._el.endKd.textContent = 'YOUR RECORD — ' + s.k + (s.k === 1 ? ' KILL' : ' KILLS') + '  /  ' + s.d + (s.d === 1 ? ' DEATH' : ' DEATHS');
       }
       this._configureEndPrimaryAction();
       this._renderEndRewards(null);
@@ -4296,7 +4297,7 @@ export default class HUD {
     }
     if (this._el.endKd) {
       const s = this._localEndStats();
-      this._el.endKd.textContent = 'YOUR RECORD — ' + s.k + ' KILLS  /  ' + s.d + ' DEATHS';
+      this._el.endKd.textContent = 'YOUR RECORD — ' + s.k + (s.k === 1 ? ' KILL' : ' KILLS') + '  /  ' + s.d + (s.d === 1 ? ' DEATH' : ' DEATHS');
     }
     this._configureEndPrimaryAction();
     this._renderEndRewards(null);
@@ -5491,6 +5492,15 @@ html.touch-device .kc-row { padding-right: 104px; }
 }
 .buy-foot.feedback-error { color: #ffb09c; background: rgba(141,52,35,.18); border-color: rgba(221,100,80,.58); }
 
+/* 768-px laptops: two full teams fit without scrolling the last rows. */
+@media (max-height: 820px) {
+  #hud-scoreboard { padding-block: 14px; }
+  .sb-panel { padding-bottom: 16px; }
+  .sb-titlebar { padding-block: 12px 10px; }
+  .sb-sub { margin: 10px 0 2px; font-size: 21px; }
+  .sb-team { margin-top: 10px; }
+  .sb-team td { font-size: 17px; padding-block: 5px; }
+}
 /* Keep the two data-heavy overlays comfortably inside common laptop and
    narrow-window viewports. Their inner content scrolls before edges clip. */
 @media (max-width: 1100px) {
@@ -6211,6 +6221,15 @@ html.touch-device .mn-id { min-height:52px; }
 
 /* The touch layout intentionally compresses spacing in very short landscape
    viewports, but status labels still need to remain readable at arm's length. */
+/* Phone landscape: the result, podium and the two buttons in one screen. */
+@media (max-height: 500px) {
+  .end-inner { gap: 8px; padding: 14px 26px 16px; }
+  #hud-end-title { font-size: 30px; }
+  #hud-end-score { font-size: 24px; }
+  #hud-end-kd { margin-bottom: 0; }
+  #hud-end-podium { margin: 0; }
+  .end-rewards { padding: 6px 10px; }
+}
 @media (orientation:landscape) and (max-height:500px) {
   html.touch-device .mn-op,
   html.touch-device .mn-id-name span,
@@ -6319,6 +6338,7 @@ html.touch-device #hud-streaks { display: none; }
 #hud.svc-offline #hud-progress-details { display: none !important; }
 
 /* ---------- debug fps ---------- */
+#hud.killcam-on #hud-fps { bottom: calc(9vh + 6px); }
 #hud-fps {
   position: absolute; left: 8px; bottom: 6px; font-size: 11px; font-weight: 700; letter-spacing: .1em;
   color: rgba(214, 229, 184, 0.85); text-shadow: 0 1px 2px #000; z-index: 2; pointer-events: none;

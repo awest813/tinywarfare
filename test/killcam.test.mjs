@@ -83,7 +83,7 @@ test('the killcam replays the last moments over the killer\'s shoulder and lets 
   assert.deepEqual(alive.at(-1), ['killcam-victim', false], 'the victim ghost fell');
 });
 
-test('the replay lasts about two and a half seconds, with the kill in slow motion', () => {
+test('the replay lasts under three seconds, with the kill in slow motion', () => {
   const { kc, run, die } = rig();
   run(2);
   die();

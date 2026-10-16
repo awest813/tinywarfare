@@ -161,7 +161,8 @@ export default class TouchControls {
 
     this.root.classList.toggle('active', active);
     this.root.classList.toggle('dead', dead);
-    this.root.classList.toggle('score-open', this._scoreOpen);
+    // A tablet keyboard's Tab opens the same board as the SCORE button.
+    this.root.classList.toggle('score-open', this._scoreOpen || !!this.game.hud?._sbVisible);
     this.root.setAttribute('aria-hidden', (active || !this._landscape) ? 'false' : 'true');
 
     // Re-take gameplay focus automatically, except while the player paused.
@@ -754,7 +755,7 @@ html.touch-device #hud-killfeed { top:calc(max(8px,env(safe-area-inset-top)) + 1
 html.touch-device .kf-entry { gap:6px; padding:4px 8px; font-size:14px; }
 html.touch-device .kf-weap,html.touch-device .kf-hs { font-size:8px; padding:2px 4px; }
 html.touch-device #hud-usehint { display:none!important; }
-html.touch-device #hud-death { top:18%; bottom:auto; width:min(500px,58vw); }
+html.touch-device #hud-death { top:auto; bottom:calc(max(8px,env(safe-area-inset-bottom)) + 10px); width:min(500px,58vw); }
 html.touch-device .death-inner { padding:9px 13px; }
 html.touch-device .death-sub { white-space:normal; }
 html.touch-device #hud-msg { top:20%; }
@@ -862,7 +863,7 @@ html.touch-device #hud-end { overflow:auto; padding:max(10px,env(safe-area-inset
   html.touch-device .bi-bars { display:none; }
   html.touch-device .buy-foot { min-height:32px; margin:7px 10px 0; padding:7px 9px 0; font-size:11.5px; letter-spacing:.1em; }
   html.touch-device #hud-end { justify-content:flex-start; }
-  html.touch-device .end-inner { width:min(640px,100%); max-height:none; gap:7px; margin:auto 0; padding:13px 20px 12px; clip-path:none; }
+  html.touch-device .end-inner { width:min(640px,100%); max-height:none; gap:4px; margin:auto 0; padding:13px 20px 12px; clip-path:none; }
   html.touch-device #hud-end-title { font-size:32px; line-height:1.05; }
   html.touch-device #hud-end-sub { font-size:10px; letter-spacing:.24em; }
   html.touch-device #hud-end-score { font-size:27px; }

@@ -501,13 +501,13 @@ Shipped:
   - It is silent where the browser has no speech synthesis.
 - **Killcam** (every mode, `src/player/killcam.js`): after the death
   collapse, a replay of the last 1.7 s before the kill over the killer's
-  shoulder, with the shots' tracers and sound, the kill and your fall in half
-  speed, and a letterboxed strip naming the killer, weapon, distance and
+  shoulder, with the shots' tracers and sound, the kill and your fall in slow
+  motion that eases in and out, and a letterboxed strip naming the killer, weapon, distance and
   headshot.
   - A ring buffer records every actor's pose 30 times a second; the killer
     and you are replayed by two stand-in soldiers. The rest of the world is
     live.
-  - In a solo respawn mode the respawn waits for it (about 2.5 s) unless you
+  - In a solo respawn mode the respawn waits for it (about 2.7 s) unless you
     skip it with Jump, a click or a tap; skipped, you respawn at the usual
     time. Online the room decides when you respawn.
   - A KILLCAM setting turns it off.
