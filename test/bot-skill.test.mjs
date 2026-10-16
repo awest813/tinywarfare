@@ -444,3 +444,25 @@ test('a bot holds a grudge against its killer', () => {
   brain._perceive(bot);
   assert.equal(bot.target, nearer);
 });
+
+test('bots call out on the radio, a line at a time, and never in free-for-all', () => {
+  const { brain, events } = makeBrain('regular');
+  const a = makeBot({ name: 'Sarge' });
+  const b = makeBot({ name: 'Ghost' });
+  brain.all = [a, b];
+  const radio = () => events.filter(([type]) => type === 'hud:radio').map(([, d]) => d);
+  brain._callout(a, 'Reloading!');
+  brain._callout(b, 'Frag out!');             // same side, too soon after
+  assert.deepEqual(radio().map((d) => d.text), ['Reloading!']);
+  brain.time += 2;
+  brain._callout(a, 'Contact!');              // Sarge spoke 2 s ago
+  brain._callout(b, 'Frag out!');
+  assert.deepEqual(radio().map((d) => [d.name, d.text, d.team]), [['Sarge', 'Reloading!', 'ct'], ['Ghost', 'Frag out!', 'ct']]);
+  brain.time += 10;
+  brain._orderCallout(a, { key: 'capture:B' });
+  assert.equal(radio().at(-1).text, 'Taking B!');
+  brain.time += 10;
+  brain.game.state.mode = 'ffa';
+  brain._callout(a, 'Contact!');
+  assert.equal(radio().length, 3, 'no radio in free-for-all');
+});

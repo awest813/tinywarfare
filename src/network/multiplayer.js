@@ -46,6 +46,8 @@ const EFFECT_EVENTS = [
   'objective:award', 'streak:airstrike',
   // Airstrike signal smoke.
   'fx:marker',
+  // Bot radio chatter.
+  'hud:radio',
 ];
 const AUTHORITY_OUTBOUND_TYPES = new Set(['snapshot', 'damage', 'event', 'respawn', 'yield_authority']);
 const SYNC_BLOCKED_OUTBOUND_TYPES = new Set([

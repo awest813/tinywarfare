@@ -270,6 +270,7 @@ export default class HUD {
 
     // feed / stats
     this._feed = [];
+    this._radio = [];
     this._stats = new Map();
     this._networkStatsById = new Map();
     this._sbDirty = true;
@@ -393,6 +394,7 @@ export default class HUD {
       scoreT: $('hud-score-t'),
       round: $('hud-round'),
       feed: $('hud-killfeed'),
+      radio: $('hud-radio'),
       radar: $('hud-radar'),
       radarCanvas: $('hud-radar-canvas'),
       crosshair: $('hud-crosshair'),
@@ -1799,6 +1801,7 @@ export default class HUD {
     if (!ev) return;
 
     ev.on('kill', (d) => this._onKill(d || {}));
+    ev.on('hud:radio', (d) => this._addRadio(d || {}));
     ev.on('score:award', (d) => this._onScoreAward(d || {}));
     ev.on('streak:ready', (d) => this._showMsg(String(d?.label || '') + ' READY',
       'PRESS ' + this._bindingLabel('streak' + ((d?.slot ?? 0) + 1)), 2));
@@ -2702,7 +2705,36 @@ export default class HUD {
     }
   }
 
+  /** A line of bot radio chatter, shown for the local player's side only. */
+  _addRadio(d) {
+    const box = this._el.radio;
+    if (!box || !d.text || isFfa(this.game)) return;
+    const mine = (this.game.player && this.game.player.team) || 'ct';
+    if (d.team !== mine) return;
+    const row = document.createElement('div');
+    row.className = 'rd-entry';
+    row.innerHTML = '<span class="rd-name kf-' + (d.team === 't' ? 't' : 'ct') + '">' + esc(d.name || '?') +
+      '</span><span class="rd-text">' + esc(d.text) + '</span>';
+    box.appendChild(row);
+    this._radio.push({ el: row, t: this._time, fading: false });
+    while (this._radio.length > 3) {
+      const old = this._radio.shift();
+      if (old.el.parentNode) old.el.parentNode.removeChild(old.el);
+    }
+  }
+
   _updateFeed() {
+    for (let i = this._radio.length - 1; i >= 0; i--) {
+      const e = this._radio[i];
+      const age = this._time - e.t;
+      if (age > 4.2) {
+        if (e.el.parentNode) e.el.parentNode.removeChild(e.el);
+        this._radio.splice(i, 1);
+      } else if (age > 3.6 && !e.fading) {
+        e.fading = true;
+        e.el.classList.add('kf-fade');
+      }
+    }
     const feed = this._feed;
     for (let i = feed.length - 1; i >= 0; i--) {
       const e = feed[i];
@@ -2720,6 +2752,8 @@ export default class HUD {
   _clearFeed() {
     for (const e of this._feed) if (e.el.parentNode) e.el.parentNode.removeChild(e.el);
     this._feed.length = 0;
+    for (const e of this._radio) if (e.el.parentNode) e.el.parentNode.removeChild(e.el);
+    this._radio.length = 0;
   }
 
   // --------------------------------------------------------------------------
@@ -4016,6 +4050,8 @@ export default class HUD {
 
       // top-right: killfeed
       '<div id="hud-killfeed"></div>' +
+      // under the radar: your side's bot radio chatter
+      '<div id="hud-radio" aria-live="off"></div>' +
 
       // top-left: radar
       '<div class="hud-panel" id="hud-radar">' +
@@ -4535,6 +4571,16 @@ export default class HUD {
 
 /* ---------- top-left: radar ---------- */
 #hud-radar { position: absolute; top: 16px; left: 16px; width: 148px; height: 148px; padding: 3px; }
+/* ---------- under the radar: bot radio ---------- */
+#hud-radio { position: absolute; top: 176px; left: 16px; display: flex; flex-direction: column; gap: 4px;
+  align-items: flex-start; max-width: 34vw; z-index: 3; pointer-events: none; }
+.rd-entry { display: flex; gap: 8px; align-items: baseline; padding: 4px 10px; white-space: nowrap;
+  background: rgba(5, 7, 3, 0.62); border-left: 2px solid rgba(154, 178, 107, 0.55);
+  font-size: 14px; font-weight: 800; letter-spacing: .04em; transition: opacity .6s;
+  animation: kf-in .22s cubic-bezier(.18, .8, .3, 1); }
+.rd-entry.kf-fade { opacity: 0; }
+.rd-name { text-shadow: 0 1px 3px #000; }
+.rd-text { color: #e8eedc; text-shadow: 0 1px 3px #000; }
 #hud-radar-canvas { display: block; width: 140px; height: 140px; border-radius: 2px; }
 
 /* ---------- crosshair ---------- */

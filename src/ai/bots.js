@@ -217,6 +217,17 @@ const GHOST_FOOTSTEP_RANGE = 0.45; // Ghost perk: bots hear the player's steps a
 const SUPPRESSED_HEARING = 0.35;
 const STUN_SPEED_SCALE = 0.4;      // stunned bots crawl and track slowly
 const BOT_EXPLOSIVES = new Set(['hegrenade', 'semtex', 'airstrike', 'c4']);  // suppressor: bots hear the player's primary at this fraction
+const CALLOUT_GAP = 6;          // s between one bot's radio lines
+const RADIO_GAP = 1.2;          // s between lines on one side's radio
+const CONTACT_GAP = 8;          // s without a target before a bot calls a new contact
+const CALLOUTS = {
+  contact: ['Contact!', 'Enemy spotted!', 'Eyes on!'],
+  reload: ['Reloading!', 'Changing mags!'],
+  frag: ['Frag out!'],
+  grenade: ['Grenade!'],
+  cover: ['Moving to cover!'],
+  down: ['Got one!', 'Tango down!'],
+};
 const GRUDGE_TIME = 45;         // s a bot remembers who killed it
 const GRUDGE_HUNT = 0.5;        // chance a free hunt goes after its killer instead of the nearest enemy
 const NEAR_MISS_OFFSET = 0.7;   // m: a deliberate miss passes at least this far from the body
@@ -1986,6 +1997,7 @@ export default class Bots {
       if (bot.attacker) {
         bot.grudge = bot.attacker;
         bot.grudgeUntil = this.time + GRUDGE_TIME;
+        if (this.all.includes(bot.attacker)) this._say(bot.attacker, 'down');
       }
       bot.deathTime = this.time;
       bot.fallAxis = Math.random() < 0.5 ? 'x' : 'z';
@@ -2083,6 +2095,10 @@ export default class Bots {
       this._hearSound(p.pos, null, this._cfg.HEAR_RANGE * 2.5);
     });
 
+    ev.on('player:death', (p) => {
+      if (p && this.all.includes(p.killer)) this._say(p.killer, 'down');
+    });
+
     ev.on('bomb:planted', (p) => {
       this._bombPlanted = true;
       if (p && p.pos) this._bombPos.copy(p.pos);
@@ -2117,6 +2133,37 @@ export default class Bots {
       b.noisePos.copy(pos);
       b.noiseTime = this.time;
     }
+  }
+
+  /**
+   * Radio chatter (F.E.A.R.'s lesson: AI that says what it is doing reads as
+   * smart). Throttled per bot and per side; free-for-all has no radio. The
+   * HUD shows the local player's side only.
+   */
+  _callout(bot, text) {
+    if (!bot || !bot.alive || !text || isFfa(this.game)) return;
+    if (this.time < (bot.calloutAt || 0)) return;
+    if (!this._radioAt) this._radioAt = { ct: 0, t: 0 };
+    if (this.time < (this._radioAt[bot.team] || 0)) return;
+    bot.calloutAt = this.time + CALLOUT_GAP;
+    this._radioAt[bot.team] = this.time + RADIO_GAP;
+    const events = this.game.events;
+    if (events && typeof events.emit === 'function') {
+      events.emit('hud:radio', { name: bot.name, team: bot.team, text });
+    }
+  }
+
+  _say(bot, kind) {
+    const lines = CALLOUTS[kind];
+    if (lines) this._callout(bot, lines[Math.floor(Math.random() * lines.length)]);
+  }
+
+  /** What a bot says when the commander gives it a job. */
+  _orderCallout(bot, order) {
+    const [kind, name] = String(order.key).split(':');
+    if (kind === 'capture') this._callout(bot, `Taking ${name}!`);
+    else if (kind === 'defend') this._callout(bot, `Holding ${name}!`);
+    else if (kind === 'hp') this._callout(bot, 'Moving to the hardpoint!');
   }
 
   /**
@@ -2168,6 +2215,7 @@ export default class Bots {
     if (!bot.coverPos) bot.coverPos = new THREE.Vector3();
     bot.coverPos.copy(spot);
     bot.coverUntil = this.time + (hurt ? COVER_HOLD_HURT : COVER_HOLD_RELOAD);
+    this._say(bot, 'cover');
   }
 
   /**
@@ -2205,6 +2253,7 @@ export default class Bots {
       bot, type: 'hegrenade', origin: eye.clone(), dir, strength: v,
     });
     bot.grenades--;
+    this._say(bot, 'frag');
     bot.pauseTimer = Math.max(bot.pauseTimer, 0.5);
     bot.fireAnim = 1;
     return true;
@@ -2232,6 +2281,7 @@ export default class Bots {
       bot.dodgeDir.set(dx / d, 0, dz / d);
       if (d < 0.2) bot.dodgeDir.set(Math.sin(bot.yaw), 0, Math.cos(bot.yaw));
       bot.dodgeUntil = this.time + Math.min(1.8, p.fuse + 0.25);
+      this._say(bot, 'grenade');
       if (bot.state === 'plant') { bot.plantTimer = 0; bot.state = 'hold'; bot.holdTimer = 0; }
       if (bot.state === 'defuse') this._cancelDefuse(bot);
       return;
@@ -2831,6 +2881,7 @@ export default class Bots {
     if (bot.reloadTimer > 0 || bot.mag >= stats.mag) return;
     bot.reloadTimer = stats.reload;
     bot.burstLeft = 0;
+    if (bot.state === 'engage') this._say(bot, 'reload');
   }
 
   /**
@@ -3138,6 +3189,7 @@ export default class Bots {
     // back to the commander for someone else.
     if (order && order.id !== bot.orderId) {
       bot.orderId = order.id;
+      this._orderCallout(bot, order);
       if (!inZone) {
         if (this._setGoal(bot, this._orderGoal(bot, order))) bot.state = 'move';
         else commander.reject(bot);
@@ -3535,6 +3587,8 @@ export default class Bots {
 
     if (!best || best === current) return;
     const switching = !!current;
+    if (!switching && this.time - (bot.lastContactAt ?? -Infinity) > CONTACT_GAP) this._say(bot, 'contact');
+    bot.lastContactAt = this.time;
     bot.target = best;
     bot.targetBot = bestIsPlayer ? null : best;
     bot.targetIsPlayer = bestIsPlayer;
