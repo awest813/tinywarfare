@@ -3036,16 +3036,6 @@ export default class Bots {
       Math.abs(bot.pos.y - objectiveGoal.y) < 2.4;
     const holdMax = inZone ? ZONE_HOLD_MAX : TDM_HOLD_MAX;
     if (bot.state === 'hold' && bot.holdTimer > holdMax) bot.holdTimer = holdMax;
-    // An objective that appears close by (a fresh dog tag) interrupts an
-    // errand that predates it, checked at most once a second.
-    const preempt = objective && Number.isFinite(objective.preemptRange) ? objective.preemptRange : 0;
-    if (objectiveGoal && preempt > 0 && (bot.state === 'move' || bot.state === 'hold') &&
-        this.time >= (bot.preemptAt || 0) &&
-        !(bot.hasGoal && bot.goal.distanceToSquared(objectiveGoal) < 2.25) &&
-        Math.hypot(bot.pos.x - objectiveGoal.x, bot.pos.z - objectiveGoal.z) < preempt) {
-      bot.preemptAt = this.time + 1;
-      if (this._setGoal(bot, objectiveGoal)) { bot.state = 'move'; return; }
-    }
     if (bot.hasGoal || bot.path || (bot.state === 'hold' && bot.holdTimer > 0)) return;
 
     let nearest = null;
