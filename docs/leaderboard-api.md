@@ -52,6 +52,7 @@ career.
   "playerName": "display-only; identity comes from token",
   "mapId": "dustyard",
   "mode": "solo",
+  "botSkill": "regular",
   "winner": "ct",
   "teamWon": true,
   "scores": { "ct": 8, "t": 5 },
@@ -69,7 +70,9 @@ career.
 `mode` may be `solo` or `bots` for HTTP submissions. Human and mixed results
 are rejected because the WebSocket room server derives them from observed kill
 events and the final authoritative snapshot. `duration` is accepted as an
-alias for `durationSeconds`, and `won` as an alias for `teamWon`.
+alias for `durationSeconds`, and `won` as an alias for `teamWon`. `botSkill`
+is the bot tier the match was played against (`recruit`, `regular` or
+`veteran`; anything else counts as `regular`).
 
 The server validates match completion, round totals, duration, kill/death/headshot
 relationships, objective counts, map, and result age. It calculates all points;
@@ -105,7 +108,9 @@ breakdown, and the player's updated cumulative standings:
 
 The response contains `season`, `generatedAt`, public `rules`, and ranked
 `entries`. Ties sort by score, wins, kills, fewer deaths, name, then player ID.
-Human points are uncapped. Bot points score at full value for five UTC-day
+Human points are uncapped. Bot points are scaled by the bot tier (Recruit
+0.6×, Regular 1×, Veteran 1.4×, reported as `skillMultiplier` in the
+breakdown), then score at full value for five UTC-day
 matches, 50% for matches 6–10, 25% thereafter, with a 1,200 point daily cap.
 This makes continued bot play useful without letting repetitive bot farming
 dominate the overall board. Career XP follows awarded points, adds a 30 XP
@@ -124,3 +129,8 @@ Room creation accepts `mapId`; the host may send `{ "type": "set_map",
 "mapId": "harbor" }` before start. `lobby`, `welcome`, and `match_start`
 include the selected map. Valid IDs are `dustyard`, `frostline`,
 `neon_foundry`, `harbor`, and `citadel`.
+
+The bot tier works the same way: room creation accepts `botSkill`, the host
+may send `{ "type": "set_bot_skill", "botSkill": "veteran" }` before start,
+and `lobby`, `welcome`, `match_start` and `match_resume` include it. Ranked
+results from the room carry it.

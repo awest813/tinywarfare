@@ -296,3 +296,23 @@ test('legacy stats migrate deterministically into lifetime XP and survive reload
   assert.equal(second.progression('legacy').xp, 875);
   assert.equal(second.progression('legacy').lifetime.matches, 4);
 });
+
+test('bot-match points scale with the bot tier, and an unknown tier counts as Regular', (t) => {
+  const { store } = fixture(t);
+  const points = {};
+  for (const tier of ['recruit', 'regular', 'veteran', 'nightmare', undefined]) {
+    const session = store.createSession({ playerName: `Tier ${tier}` });
+    const submission = store.submitMatch(session.token, result({
+      matchId: `tier_${tier || 'none'}`,
+      mode: 'bots',
+      botSkill: tier,
+    }));
+    points[tier] = submission.result.points.bots;
+    if (tier === 'veteran') assert.equal(submission.result.breakdown.bots.skillMultiplier, 1.4);
+  }
+  assert.ok(points.recruit < points.regular && points.regular < points.veteran);
+  assert.ok(Math.abs(points.recruit / points.regular - 0.6) < 0.02);
+  assert.equal(points.nightmare, points.regular);
+  assert.equal(points.undefined, points.regular);
+  assert.deepEqual(store.rules().botSkillMultipliers, { recruit: 0.6, regular: 1, veteran: 1.4 });
+});

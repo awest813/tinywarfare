@@ -264,6 +264,8 @@ export class LeaderboardClient {
       mapId: this.game?.selectedMapId || 'dustyard',
       mode: opponents,
       gameMode,
+      // Online, the room's tier; solo, the menu pick.
+      botSkill: (this.game?.multiplayer?.active ? this.game.multiplayer.botSkill : this.game?.botSkill) || 'regular',
       opponents,
       multiplayer: sessionMode !== 'solo',
       playerTeam,

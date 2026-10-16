@@ -29,6 +29,13 @@ const BOT_DAILY_FULL_VALUE_MATCHES = 5;
 const BOT_DAILY_HALF_VALUE_MATCHES = 10;
 const BOT_DAILY_POINT_CAP = 1200;
 const BOT_MATCH_COMPLETION_XP = 30;
+// Bot-category points by bot difficulty tier (src/ai/skill.js). Applied
+// before the daily taper and cap, so beating Veterans fills the cap sooner.
+export const BOT_SKILL_POINT_SCALE = Object.freeze({ recruit: 0.6, regular: 1, veteran: 1.4 });
+
+function cleanBotSkill(value) {
+  return Object.prototype.hasOwnProperty.call(BOT_SKILL_POINT_SCALE, value) ? value : 'regular';
+}
 const MAX_RESULT_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
 
@@ -563,6 +570,7 @@ function assembleResult(payload, nowMs, fields) {
     mode,
     gameMode: fields.gameMode,
     mapId: fields.mapId,
+    botSkill: cleanBotSkill(payload.botSkill),
     winner: fields.winner,
     result: fields.result,
     scores: fields.scores,
@@ -617,7 +625,7 @@ export function leaderboardDayKey(timestamp) {
 
 export function publicLeaderboardRules() {
   return {
-    summary: 'Season score rewards completed matches, wins, rounds, eliminations, headshots, bomb objectives, efficiency, and time played. Human competition is worth more; repeated bot matches taper each UTC day.',
+    summary: 'Season score rewards completed matches, wins, rounds, eliminations, headshots, bomb objectives, efficiency, and time played. Human competition is worth more; bot matches scale with the bot tier (Recruit 0.6x, Veteran 1.4x) and repeated ones taper each UTC day.',
     humanWeight: 2,
     botWeight: 1,
     humanPolicy: 'full competitive value; no daily point cap',
@@ -626,6 +634,7 @@ export function publicLeaderboardRules() {
     botDailyReducedRate: 0.5,
     botDailyLateRate: 0.25,
     botDailyPointCap: BOT_DAILY_POINT_CAP,
+    botSkillMultipliers: BOT_SKILL_POINT_SCALE,
     botDailyContract: BOT_DAILY_CONTRACT,
     minDurationSeconds: MIN_DURATION_SECONDS,
     scoring: SCORE_WEIGHTS,
@@ -882,13 +891,15 @@ export function submitMatchToData(data, playerId, payload, nowMs) {
     if (split.share <= 0) continue;
     const score = scoreCategory(category, match, split);
     let multiplier = 1;
+    let skillMultiplier = 1;
     let dailyCapAdjustment = 0;
     if (category === 'bots') {
       const key = `${player.id}:${leaderboardDayKey(nowMs)}`;
       const daily = data.daily[key] = ensureDailyShape(data.daily[key]);
       if (daily.botMatches >= BOT_DAILY_HALF_VALUE_MATCHES) multiplier = 0.25;
       else if (daily.botMatches >= BOT_DAILY_FULL_VALUE_MATCHES) multiplier = 0.5;
-      const tapered = Math.round(score.raw * multiplier);
+      skillMultiplier = BOT_SKILL_POINT_SCALE[cleanBotSkill(match.botSkill)];
+      const tapered = Math.round(score.raw * skillMultiplier * multiplier);
       const remaining = Math.max(0, BOT_DAILY_POINT_CAP - daily.botPoints);
       points.bots = Math.min(tapered, remaining);
       dailyCapAdjustment = tapered - points.bots;
@@ -914,6 +925,7 @@ export function submitMatchToData(data, playerId, payload, nowMs) {
     const awarded = points[category];
     breakdown[category] = {
       ...score,
+      skillMultiplier,
       farmingMultiplier: multiplier,
       dailyCapAdjustment,
       awarded,

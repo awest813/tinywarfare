@@ -433,6 +433,7 @@ function finalizeRankedRoom(room, state) {
         mapId: room.mapId,
         mode: room.mode,
         gameMode: cleanGameMode(room.gameMode),
+        botSkill: normalizeBotSkill(room.botSkill),
         winner: outcome.winner,
         teamWon: outcome.teamWon,
         scores: outcome.scores,
