@@ -7,15 +7,15 @@ ENV NODE_ENV=production \
     TINY_STRIKE_DATA_DIR=/data
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
-COPY server.mjs index.html ./
+COPY server.mjs index.html LICENSE ASSETS.md ./
 COPY src ./src
 COPY assets ./assets
+# tools/ holds the ?trailer camera; the qa/ viewers are for development only.
 COPY tools ./tools
-COPY qa ./qa
 # The leaderboard file lives here; mount a volume to keep it across deploys.
 RUN mkdir -p /data && chown node:node /data
 VOLUME ["/data"]
 USER node
 EXPOSE 8020
-HEALTHCHECK --interval=30s --timeout=5s CMD wget -qO- http://127.0.0.1:${PORT}/api/rooms >/dev/null || exit 1
+HEALTHCHECK --interval=30s --timeout=5s CMD wget -qO- http://127.0.0.1:${PORT}/health >/dev/null || exit 1
 CMD ["node", "server.mjs"]

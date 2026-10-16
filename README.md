@@ -4,23 +4,25 @@ A fast browser FPS that runs entirely in the browser — Three.js rendering,
 procedural textures, synthesized WebAudio, bot AI, no build step.
 
 Tiny Warfare is a fork of [Tiny Strike](https://github.com/guyz/tinystrike) by
-Guy Zyskind. It currently plays as a tactical bomb-defusal shooter and is being
-taken toward fast-paced, modern-military arcade combat (respawn modes,
-loadouts, killstreaks). See [docs/ROADMAP.md](docs/ROADMAP.md) for the plan.
+Guy Zyskind. It is a fast modern-military arcade shooter: five respawn modes
+plus round-based Search & Destroy, create-a-class, scorestreaks, three bot
+difficulty tiers, ranks and unlocks. See [docs/ROADMAP.md](docs/ROADMAP.md)
+for what's next.
 
-Soldier character models are from the
-[Quaternius "Toon Shooter Game Kit"](https://quaternius.com/packs/toonshootergamekit.html)
-(CC0), processed headlessly in Blender (mesh pruning, per-loadout weapon
-meshes, GLB export) into `assets/models/`. See [ASSETS.md](ASSETS.md) for the
-complete asset provenance and licensing record.
+Fight across five maps (Dustyard, Frostline, Neon Foundry, Harbor, Citadel)
+in six modes. Play solo with bots, host a humans-only room, or mix humans and
+bots online. Human, bot and overall leaderboards and a persistent career track
+your progress. Phones and tablets get touch controls (play in landscape).
 
-Fight across five distinct maps. Play solo with bots, host a humans-only match, or fill online teams with a
-mix of humans and bots. Full economy, buy menu, rounds, radar, killfeed, and
-bomb objectives are synchronized across the room. Human, bot, and overall
-leaderboards reward match wins, eliminations, objectives, and consistency.
-First team to 8 round wins takes the match.
+Soldier models are built from a low-poly Marine character, animated with clips
+from the [Quaternius Universal Animation Library](https://quaternius.com/) (CC0)
+and retargeted by `tools/build-operatives.mjs`; the first-person arms derive
+from the Quaternius Toon Shooter Game Kit (CC0). See [ASSETS.md](ASSETS.md)
+for full provenance and licensing.
 
 ## Run
+
+Requires Node.js 20 or newer.
 
 ```sh
 npm install
@@ -29,7 +31,8 @@ npm start
 ```
 
 The Node server serves the game and hosts WebSocket rooms. A plain static
-server still works for solo play, but online rooms require `npm start`.
+server also works for solo play (after `npm install`, since the page loads
+three.js from `node_modules`), but online rooms require `npm start`.
 For production hosting (Docker, Node, or the Cloudflare Worker), see
 [docs/deployment.md](docs/deployment.md).
 
@@ -49,15 +52,17 @@ its host has selected in the menu when the match starts. All modes are ranked.
 - **Hardpoint**: hold the single zone, which moves every
   minute. A point every 1.5 seconds while your side holds it alone. First to 100.
 - **Free-for-all**: no teams, first soldier to 30 kills.
-- **Team Deathmatch**: respawn after 3 seconds with an
-  M4/AK starter class. First side to 50 kills, or the higher score after
-  10 minutes, wins. Pick it in the menu's MODE row.
-  Pick one of five editable **classes** in the menu's CLASS row (primary,
-  secondary, frag, tactical, and a perk: Lightweight, Quick Hands, Ghost, or
-  Flak Jacket). While dead, press 1–5 to change class for the next spawn.
-  Score earned since your last death charges the two scorestreaks you pick:
-  **UAV** (500), **Counter-UAV** (600), **Care Package** (750), or
-  **Precision Airstrike** (900).
+- **Team Deathmatch**: first side to 50 kills.
+
+In every respawn mode (all but Search & Destroy) you respawn after 3 seconds,
+and a match that hasn't reached its limit ends after 10 minutes with the
+higher score winning. Pick one of five editable **classes** in the menu's
+CLASS row: a primary with an attachment (Extended Mag, Suppressor, Foregrip or
+Laser), a secondary, a lethal, a tactical, and two perks (perk 1: Lightweight,
+Quick Hands or Scavenger; perk 2: Ghost, Flak Jacket or Hardline). While dead,
+press 1–5 to change class for the next spawn. Score earned since your last
+death charges the two scorestreaks you pick: **UAV** (500), **Counter-UAV**
+(600), **Care Package** (750), or **Precision Airstrike** (900).
 
 Ways to play:
 
@@ -111,8 +116,9 @@ The browser automatically resumes a career using an opaque private progress
 key stored locally; the server stores only its SHA-256 digest. Offline or
 temporarily failed solo results are queued with their owning career and retried
 after the identity is validated. To move devices or survive cleared browser
-storage, copy the private progress key from **Profile → Play on another
-device**, keep it secret, and restore it on the other device. There is no
+storage, open **EDIT PROFILE → CAREER RECOVERY & BACKUP**, use **COPY PRIVATE
+PROGRESS KEY**, keep it secret, and use **RESTORE CAREER** on the other
+device. There is no
 password/account recovery service: possession of that key is possession of the
 career.
 
@@ -127,8 +133,9 @@ and simulates pointer lock for synthetic input).
 ## Controls
 
 Keyboard controls can be remapped from **Settings** on the main menu. Settings
-also provides live look-sensitivity (`0.25×–3.00×`) and brightness
-(`−0.50–+0.50 EV`) controls; preferences are saved on this device.
+also has look sensitivity (`0.25×–3.00×`), field of view (65–100), brightness
+(`−0.50–+0.50 EV`), master volume and an announcer voice toggle; preferences
+are saved on this device.
 
 | Input | Action |
 |---|---|
@@ -143,32 +150,42 @@ also provides live look-sensitivity (`0.25×–3.00×`) and brightness
 | R | Reload |
 | B | Buy menu (during buy time) |
 | E (hold) | Defuse the bomb |
-| E (hold, T carrier) | Plant at site A or B |
-| 1–4 / wheel | Switch weapons |
+| E (hold, Russian bomb carrier) | Plant at site A or B |
+| 1–3 / wheel | Switch weapons |
+| 4 | Grenades (press again to cycle lethal and tactical) |
 | Q | Last weapon |
 | Tab (hold) | Scoreboard |
 | 5 / 6 / 7 | Scorestreak slot 1 / slot 2 / care-package bonus (respawn modes) |
 | 1–5 (while dead) | Pick the class for your next spawn (respawn modes; touch: CLASS button) |
+| Space (while dead, S&D) | Next spectator view |
 | Esc | Release the pointer and pause; QUIT TO MAIN MENU from there |
 
 ## Arsenal
 
-Pistols: G-18, USP-S (silenced), Night Hawk .50 — SMG: MP-5 — Rifles: AK-47,
+Pistols: G-18, USP-S (silenced), Night Hawk — SMG: MP-5 — Rifles: AK-47,
 M4-A1 — Shotgun: M1014 — LMG: M249 SAW — Sniper: AWP — plus knife, HE grenade,
 Semtex, flashbang, stun grenade, and smoke grenade. Higher ranks unlock the
-shotgun, LMG, sniper, Night Hawk, Semtex, stun and the later perks; weapon
-levels unlock attachments.
-Kevlar and defuse kits in the Gear tab of the buy menu.
+shotgun, LMG, sniper, Night Hawk, Semtex, stun, Counter-UAV (rank 3), Care
+Package (rank 6) and the later perks; weapon levels unlock attachments.
+
+The shotgun, LMG, Semtex and stun come from classes in the respawn modes.
+Search & Destroy uses a buy menu instead (pistols, MP-5, AK-47, M4-A1, AWP,
+HE, flash and smoke, with Kevlar and a defuse kit in its Gear tab).
 
 ## Architecture
 
-See [SPEC.md](SPEC.md) for the original gameplay architecture. The gameplay
-modules (world, player, weapons, viewmodel, combat, bots, rounds, HUD, audio,
-effects, input) communicate over a synchronous event bus and are wired in
-[src/main.js](src/main.js). [src/network/multiplayer.js](src/network/multiplayer.js)
-adds room UI, remote human entities, interpolation, client input forwarding,
-and host snapshots. [server.mjs](server.mjs) owns rooms, teams, host selection,
-and WebSocket message routing.
+The gameplay modules (world, player, weapons, viewmodel, combat, bots, rounds,
+HUD, audio, effects, input) communicate over a synchronous event bus and are
+wired in [src/main.js](src/main.js). Respawn modes live in
+`src/game/tdm.js` and `src/game/objectives.js`, with classes, scorestreaks and
+ranks in `loadouts.js`, `streaks.js` and `progression.js`. Bots are
+`src/ai/bots.js`, with difficulty tiers in `skill.js`, the team commander in
+`commander.js` and map sightlines and cover in `sightlines.js`.
+[src/network/multiplayer.js](src/network/multiplayer.js) adds room UI, remote
+human entities, interpolation, client input forwarding, and host snapshots.
+[server.mjs](server.mjs) (Node) and `worker/` (Cloudflare) own rooms, teams,
+host selection, and WebSocket message routing. [SPEC.md](SPEC.md) is the
+original Tiny Strike design and is partly superseded.
 
 ## Tests
 
@@ -176,14 +193,16 @@ and WebSocket message routing.
 npm test
 ```
 
-The protocol test opens two real WebSocket clients and verifies room creation,
-balanced teams, match start, state replication, and shot forwarding.
+`npm test` runs the Node test suite: game rules, bots, maps, leaderboard,
+rooms, the Node server and the Cloudflare Worker, and the Pages build.
 
 ## License
 
 Tiny Warfare's source code is open source under the [ISC License](LICENSE),
-which retains the original Tiny Strike copyright notice. Third-party and
-original asset terms are documented in [ASSETS.md](ASSETS.md).
+which retains the original Tiny Strike copyright notice. Rendering code under
+`src/gfx/` is ported from mshumer/Claude-of-Duty under the MIT License (see
+[src/gfx/LICENSE](src/gfx/LICENSE)). Third-party and original asset terms are
+documented in [ASSETS.md](ASSETS.md).
 
 Tiny Warfare is an independent project inspired by tactical and military
 shooters. It is not affiliated with or endorsed by Valve Corporation or

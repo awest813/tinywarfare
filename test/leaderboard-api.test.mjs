@@ -53,7 +53,7 @@ test('leaderboard HTTP API creates identity, scores facts, deduplicates, and rea
   assert.equal(healthResponse.status, 200);
   assert.deepEqual(await healthResponse.json(), {
     ok: true,
-    service: 'tiny-strike',
+    service: 'tiny-warfare',
     leaderboard: 'ready',
   });
 

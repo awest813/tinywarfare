@@ -29,6 +29,14 @@ const THREE_FILES = [
   ['LICENSE', 'vendor/three/LICENSE.txt'],
 ];
 
+// Licence and provenance notices that must ship with the game: the ISC
+// licence, the MIT notice for the ported rendering code, and the asset record.
+const NOTICE_FILES = [
+  ['LICENSE', 'LICENSE.txt'],
+  ['ASSETS.md', 'ASSETS.md'],
+  ['src/gfx/LICENSE', 'src/gfx/LICENSE'],
+];
+
 function toPosix(value) {
   return value.split(path.sep).join('/');
 }
@@ -278,6 +286,7 @@ export async function verifyPagesBuild(outputDir) {
     'vendor/three/addons/utils/BufferGeometryUtils.js',
     'vendor/three/addons/utils/SkeletonUtils.js',
     'vendor/three/LICENSE.txt',
+    ...NOTICE_FILES.map(([, destination]) => destination),
   ];
   for (const file of required) {
     if (!(await exists(path.join(outputDir, file)))) throw new Error(`Build is missing ${file}`);
@@ -342,6 +351,9 @@ export async function buildPages(options = {}) {
   for (const [source, destination] of THREE_FILES) {
     await copyFileWithParents(path.join(threeRoot, source), path.join(outputDir, destination));
   }
+  for (const [source, destination] of NOTICE_FILES) {
+    await copyFileWithParents(path.join(PROJECT_ROOT, source), path.join(outputDir, destination));
+  }
   const threePackage = JSON.parse(await readFile(path.join(threeRoot, 'package.json'), 'utf8'));
   const verification = await verifyPagesBuild(outputDir);
   const manifest = await createManifest(outputDir, config, threePackage.version);
@@ -350,7 +362,7 @@ export async function buildPages(options = {}) {
 
 function usage() {
   return [
-    'Build a self-contained Tiny Strike artifact for GitHub Pages.',
+    'Build a self-contained Tiny Warfare artifact for GitHub Pages.',
     '',
     'Usage: node tools/build-pages.mjs [options]',
     '',

@@ -116,7 +116,7 @@ export default {
         const storage = health.ok ? await health.json() : { ok: false };
         const response = jsonResponse(health.ok ? 200 : 503, {
           ok: health.ok,
-          service: 'tiny-strike',
+          service: 'tiny-warfare',
           leaderboard: storage,
           multiplayer: 'ready',
         }, cors);
