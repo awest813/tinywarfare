@@ -1,5 +1,7 @@
 # Tiny Warfare
 
+**Play it: https://awest813.github.io/tinywarfare/**
+
 A fast browser FPS that runs entirely in the browser — Three.js rendering,
 procedural textures, synthesized WebAudio, bot AI, no build step.
 
@@ -35,6 +37,15 @@ server also works for solo play (after `npm install`, since the page loads
 three.js from `node_modules`), but online rooms require `npm start`.
 For production hosting (Docker, Node, or the Cloudflare Worker), see
 [docs/deployment.md](docs/deployment.md).
+
+### GitHub Pages
+
+Every push to `main` tests the game and publishes it to GitHub Pages
+(`.github/workflows/pages.yml`). Turn it on once under **Settings → Pages →
+Source: GitHub Actions**. On its own the site is solo play against bots;
+online rooms and leaderboards appear when the repository variable
+`TINY_WARFARE_SERVICE_URL` points at a deployed game service (see
+[docs/deployment.md](docs/deployment.md#github-pages)).
 
 ## Game modes
 

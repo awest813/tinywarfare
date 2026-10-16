@@ -18,6 +18,7 @@ import { ATTACHMENTS, ATTACHMENT_IDS, LETHALS, PRIMARIES, SECONDARIES, TACTICALS
 import { ATTACHMENT_LEVEL } from '../game/progression.js';
 import { hostile, hostileTeams, isFfa } from '../game/hostility.js';
 import { resolveHumanPlayerName } from '../player/profile.js';
+import { serviceOffline } from '../network/endpoints.js';
 import {
   KEY_BINDING_DEFINITIONS,
   SETTINGS_LIMITS,
@@ -370,6 +371,10 @@ export default class HUD {
     this._built = true;
     this._root = root;
     root.style.pointerEvents = 'none';
+    // A build without a game service (a static site on its own) is solo
+    // play: online rooms, leaderboards and the server-saved career are hidden.
+    this._offline = serviceOffline();
+    root.classList.toggle('svc-offline', this._offline);
 
     const style = document.createElement('style');
     style.id = 'hud-style';
@@ -1113,7 +1118,7 @@ export default class HUD {
 
   async _hydrateCareer(force = false) {
     const client = this.game?.leaderboard;
-    if (!client || this._careerLoading || (this._careerLoaded && !force)) return;
+    if (this._offline || !client || this._careerLoading || (this._careerLoaded && !force)) return;
     this._careerLoading = true;
     if (this._el.careerSync) this._el.careerSync.textContent = 'SYNCING PROGRESS…';
     try {
@@ -1160,7 +1165,7 @@ export default class HUD {
     if (cached) this._lastProgression = cached;
     const data = cached || this._lastProgression || {};
     const standing = this._careerStanding(data);
-    const tierName = String(data.tier?.name || 'Recruit').toUpperCase();
+    const tierName = String(data.tier?.name || 'Rookie').toUpperCase();
     const level = Math.max(1, Number(data.level) || 1);
     const xpInto = Math.max(0, Number(data.xpIntoLevel) || 0);
     const xpNeed = Math.max(1, Number(data.xpForNextLevel) || 500);
@@ -1249,7 +1254,7 @@ export default class HUD {
     if (!this._el.leaderboardSelf) return;
     const data = progression || this._lastProgression || {};
     const standing = this._careerStanding(data);
-    const tier = String(data.tier?.name || 'Recruit').toUpperCase();
+    const tier = String(data.tier?.name || 'Rookie').toUpperCase();
     this._el.leaderboardSelf.innerHTML =
       '<span><small>YOUR OVERALL RANK</small><strong>' + this._rankLabel(standing.ranks.overall) + '</strong></span>' +
       '<span><small>SEASON SCORE</small><strong>' + standing.score.toLocaleString() + '</strong></span>' +
@@ -3972,7 +3977,8 @@ export default class HUD {
   }
 
   _renderUnrankedEndState(d = {}) {
-    const modeOnly = d.reason === 'mode';
+    // Device-only results: a build without a game service.
+    const modeOnly = d.reason === 'mode' || d.reason === 'offline';
     // A server-rejected result keeps its rejection line in the rank slot.
     const rejected = d.reason === 'rejected';
     if (!rejected) {
@@ -3985,6 +3991,7 @@ export default class HUD {
       this._el.endRewards.classList.add('unranked');
     }
     const local = modeOnly || rejected ? this._localProgress : null;
+    this._setEndRewardLabels(!!local);
     if (local) {
       // Respawn modes still pay device-local rank XP.
       const names = (ids) => ids.map((id) => String(this._names[id] || PERKS[id]?.label || STREAKS[id]?.label || id).toUpperCase());
@@ -4023,7 +4030,16 @@ export default class HUD {
     }
   }
 
+  /** Device-only results relabel the reward grid; server rewards restore it. */
+  _setEndRewardLabels(local) {
+    for (const label of this._el.endRewards?.querySelectorAll?.('small[data-local]') || []) {
+      label.dataset.server ||= label.textContent;
+      label.textContent = local ? label.dataset.local : label.dataset.server;
+    }
+  }
+
   _renderEndRewards(response = null) {
+    this._setEndRewardLabels(false);
     const payload = response || this._lastReward?.response || {};
     const rewards = payload.rewards || {};
     const result = payload.result || {};
@@ -4050,7 +4066,7 @@ export default class HUD {
     if (this._el.endRewardLevel) {
       const before = Number(rewards.levelBefore);
       const after = Number(rewards.levelAfter ?? progression.level) || 1;
-      const tier = String((rewards.tierAfter || progression.tier)?.name || 'Recruit').toUpperCase();
+      const tier = String((rewards.tierAfter || progression.tier)?.name || 'Rookie').toUpperCase();
       this._el.endRewardLevel.textContent = Number.isFinite(before) && after > before
         ? 'LEVEL ' + before + ' → ' + after + ' · ' + tier
         : 'LEVEL ' + after + ' · ' + tier;
@@ -4570,9 +4586,9 @@ export default class HUD {
       '<div id="hud-end-podium" aria-label="Top players"></div>' +
       '<div id="hud-end-rank"></div>' +
       '<section id="hud-end-rewards" class="end-rewards pending"><div class="end-reward-grid">' +
-      '<span><small>MATCH POINTS</small><strong id="hud-end-reward-points">SYNCING</strong></span>' +
-      '<span><small>OVERALL RANK</small><strong id="hud-end-reward-rank">—</strong></span>' +
-      '<span><small>CAREER</small><strong id="hud-end-reward-level">LEVEL 1 · ROOKIE</strong></span></div>' +
+      '<span><small data-local="RANK XP">MATCH POINTS</small><strong id="hud-end-reward-points">SYNCING</strong></span>' +
+      '<span><small data-local="WEAPON RANK">OVERALL RANK</small><strong id="hud-end-reward-rank">—</strong></span>' +
+      '<span><small data-local="TITLE">CAREER</small><strong id="hud-end-reward-level">LEVEL 1 · ROOKIE</strong></span></div>' +
       '<div class="end-xp"><div><span id="hud-end-xp-fill"></span></div><small id="hud-end-xp-label">VERIFYING MATCH REWARDS…</small></div>' +
       '<div id="hud-end-unlocks" class="end-unlocks"><span class="steady">REWARDS WILL APPEAR HERE</span></div></section>' +
       '<div class="end-actions"><button id="hud-restart"><span class="btn-main" id="hud-restart-main">PLAY AGAIN</span>' +
@@ -6057,6 +6073,11 @@ html.touch-device .mn-id { min-height:52px; }
 #hud input[type="checkbox"]:focus-visible {
   outline: 2px solid var(--olive-bright) !important; outline-offset: -4px !important;
 }
+
+/* Solo-only build: nothing that needs the game service. */
+#hud.svc-offline #hud-online-open, #hud.svc-offline #hud-leaderboard-open,
+#hud.svc-offline #hud-end-leaderboard, #hud.svc-offline #hud-career,
+#hud.svc-offline #hud-progress-details { display: none !important; }
 
 /* ---------- debug fps ---------- */
 #hud-fps {

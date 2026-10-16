@@ -59,3 +59,17 @@ test('Pages verifier reports a missing browser dependency', async (t) => {
     /src\/main\.js has missing dependency \.\/missing-production-module\.js/,
   );
 });
+
+test('an offline Pages build is solo-only and refuses service URLs', async (t) => {
+  const temporary = await mkdtemp(path.join(tmpdir(), 'tiny-strike-pages-offline-'));
+  t.after(() => rm(temporary, { recursive: true, force: true }));
+  const result = await buildPages({ outputDir: temporary, offline: true });
+  assert.equal(result.manifest.endpoints.offline, true);
+  assert.equal(result.manifest.endpoints.leaderboard, null);
+  const runtimeConfig = await readFile(path.join(temporary, 'runtime-config.js'), 'utf8');
+  assert.match(runtimeConfig, /"offline": true/);
+  await assert.rejects(
+    () => buildPages({ outputDir: path.join(temporary, 'mixed'), offline: true, serviceUrl: 'https://x.example.test' }),
+    /--offline cannot be combined/,
+  );
+});

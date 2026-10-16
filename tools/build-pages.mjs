@@ -157,6 +157,12 @@ function normalizeWebSocketEndpoint(value, label) {
 
 function endpoints(options = {}) {
   const serviceValue = options.serviceUrl || '';
+  if (options.offline) {
+    if (serviceValue || options.leaderboardUrl || options.websocketUrl) {
+      throw new Error('--offline cannot be combined with a service, leaderboard, or WebSocket URL.');
+    }
+    return { leaderboard: '', websocket: '', offline: true };
+  }
   let derivedLeaderboard = '';
   let derivedWebSocket = '';
   if (serviceValue) {
@@ -181,6 +187,7 @@ function endpoints(options = {}) {
 
 function runtimeConfigSource(config) {
   const configured = {};
+  if (config.offline) configured.offline = true;
   if (config.leaderboard) configured.leaderboard = config.leaderboard;
   if (config.websocket) configured.websocket = config.websocket;
   return [
@@ -243,6 +250,7 @@ async function createManifest(outputDir, config, threeVersion) {
     endpoints: {
       leaderboard: config.leaderboard || null,
       websocket: config.websocket || null,
+      offline: !!config.offline,
     },
     files,
   };
@@ -370,11 +378,13 @@ function usage() {
     '  --service-url URL         Backend origin; derives /api/leaderboard and /ws',
     '  --leaderboard-url URL     Override the leaderboard API base URL',
     '  --websocket-url URL       Override the multiplayer WebSocket URL',
+    '  --offline                 Solo-only build for a static host with no game',
+    '                            service: hides online play and leaderboards',
     '  --help                    Show this help',
     '',
     'Environment alternatives:',
     '  TINY_STRIKE_SERVICE_URL, TINY_STRIKE_LEADERBOARD_URL,',
-    '  TINY_STRIKE_WEBSOCKET_URL',
+    '  TINY_STRIKE_WEBSOCKET_URL, TINY_WARFARE_OFFLINE=1',
     '',
   ].join('\n');
 }
@@ -385,6 +395,7 @@ function parseArgs(argv, env = process.env) {
     serviceUrl: env.TINY_STRIKE_SERVICE_URL || '',
     leaderboardUrl: env.TINY_STRIKE_LEADERBOARD_URL || '',
     websocketUrl: env.TINY_STRIKE_WEBSOCKET_URL || '',
+    offline: env.TINY_WARFARE_OFFLINE === '1' || env.TINY_WARFARE_OFFLINE === 'true',
   };
   const valueFlags = new Map([
     ['--out', 'outputDir'],
@@ -395,6 +406,10 @@ function parseArgs(argv, env = process.env) {
   for (let index = 0; index < argv.length; index++) {
     const flag = argv[index];
     if (flag === '--help' || flag === '-h') return { help: true };
+    if (flag === '--offline') {
+      parsed.offline = true;
+      continue;
+    }
     const property = valueFlags.get(flag);
     if (!property) throw new Error(`Unknown option: ${flag}`);
     const value = argv[++index];
@@ -411,9 +426,10 @@ async function main() {
     return;
   }
   const result = await buildPages(options);
-  const endpointMode = result.manifest.endpoints.leaderboard ? 'remote service configured' : 'same-origin defaults';
+  const endpointMode = result.manifest.endpoints.offline ? 'offline (solo play only)'
+    : result.manifest.endpoints.leaderboard ? 'remote service configured' : 'same-origin defaults';
   process.stdout.write(
-    `Tiny Strike Pages build: ${result.outputDir}\n` +
+    `Tiny Warfare Pages build: ${result.outputDir}\n` +
     `${result.manifest.files.length} files, ${result.verification.assets} assets, ${endpointMode}.\n`,
   );
 }

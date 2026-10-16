@@ -8,7 +8,7 @@ import {
   normalizePlayerName,
   resolveHumanPlayerName,
 } from '../player/profile.js';
-import { resolveWebSocketEndpoint } from './endpoints.js';
+import { resolveWebSocketEndpoint, serviceOffline } from './endpoints.js';
 import { FACTIONS, faction } from '../shared/factions.js';
 import {
   fetchRoomDirectory,
@@ -255,6 +255,10 @@ export default class Multiplayer {
     this._buildUI();
     this._bindEvents();
     this._bindLifecycle();
+    // A build without a game service has no rooms to list or rejoin; the
+    // menu hides online play.
+    this.offline = serviceOffline();
+    if (this.offline) return;
     this.refreshRooms();
     this._roomRefreshTimer = setInterval(() => this._refreshRoomsIfVisible(), ROOM_REFRESH_MS);
     this._roomRefreshTimer?.unref?.();

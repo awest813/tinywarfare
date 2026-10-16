@@ -1,0 +1,69 @@
+# Builds the game and publishes it to GitHub Pages on every push to main.
+#
+# One-time setup: Settings → Pages → Build and deployment → Source:
+# "GitHub Actions".
+#
+# Without a game service the site is solo play against bots (online rooms
+# and leaderboards are hidden). To turn them on, deploy the Cloudflare Worker
+# (docs/cloudflare-deployment.md) and set the repository variable
+# TINY_WARFARE_SERVICE_URL (Settings → Secrets and variables → Actions →
+# Variables) to its origin, e.g. https://tiny-warfare-service.example.workers.dev
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; a newer push waits rather than cancelling a
+# deployment halfway.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Wrangler (the only dev dependency) is not needed to test or build.
+      - run: npm ci --omit=dev
+
+      - run: npm test
+
+      - name: Build the static site
+        env:
+          SERVICE_URL: ${{ vars.TINY_WARFARE_SERVICE_URL }}
+        run: |
+          if [ -n "$SERVICE_URL" ]; then
+            npm run build:pages -- --service-url "$SERVICE_URL"
+          else
+            npm run build:pages -- --offline
+          fi
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/tinystrike
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

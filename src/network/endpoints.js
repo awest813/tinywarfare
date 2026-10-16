@@ -1,3 +1,11 @@
+/**
+ * True for a static deployment built without a game service (a GitHub Pages
+ * site with no Worker): solo play only, with no leaderboard or online rooms.
+ */
+export function serviceOffline(config = globalThis.TINY_STRIKE_API) {
+  return !!(config && config.offline);
+}
+
 function locationBase(locationLike) {
   if (locationLike && locationLike.href) return locationLike.href;
   const protocol = locationLike?.protocol || 'http:';

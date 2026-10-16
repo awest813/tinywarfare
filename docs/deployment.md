@@ -99,8 +99,8 @@ npm run build:pages -- --service-url https://WORKER_HOST
 
 The last step writes `dist/tinystrike/` with a `runtime-config.js` pointing
 the client at the Worker for rooms and the leaderboard; publish that folder to
-the static host (for GitHub Pages, push it to the `gh-pages` branch or use a
-Pages workflow).
+the static host (for GitHub Pages, the workflow in [GitHub Pages](#github-pages)
+does this for you).
 
 ## Checking a deployment
 
@@ -112,3 +112,33 @@ curl https://HOST/api/leaderboard/rules    # scoring rules
 Then open two browsers, create a room with Team Deathmatch selected, join it
 from the other, and start: both should show TDM, kills should score, and a
 killed player should respawn after about three seconds.
+
+## GitHub Pages
+
+`.github/workflows/pages.yml` runs the tests, builds the static site and
+publishes it on every push to `main` (or from **Actions → Deploy to GitHub
+Pages → Run workflow**). Enable it once under **Settings → Pages → Build and
+deployment → Source: GitHub Actions**. The site is served from
+`https://OWNER.github.io/REPO/`; every path in the build is relative, so the
+subpath needs no configuration.
+
+- **Without a service** (the default): the workflow builds with `--offline`.
+  The site is solo play against bots. Online play, leaderboards and the
+  server-saved career are hidden, no requests leave the site, and rank XP and
+  unlocks are kept in the browser.
+- **With a service**: deploy the Cloudflare Worker (or a Node server with TLS),
+  add the Pages origin to its `ALLOWED_ORIGINS`, and set the repository
+  variable `TINY_WARFARE_SERVICE_URL` (**Settings → Secrets and variables →
+  Actions → Variables**) to its origin, e.g. `https://tiny-warfare-service.example.workers.dev`.
+  The next deployment points the client at it.
+
+The same builds by hand:
+
+```sh
+npm run build:pages -- --offline                     # solo-only
+npm run build:pages -- --service-url https://HOST    # with a game service
+```
+
+GitHub Pages caches files for up to ten minutes, so for a few minutes after a
+deployment a returning visitor can load a mix of old and new files; a reload
+fixes it.

@@ -4,6 +4,8 @@ import {
   normalizePlayerName,
 } from '../player/profile.js';
 
+import { serviceOffline } from '../network/endpoints.js';
+
 export { normalizePlayerName } from '../player/profile.js';
 const RESPAWN_GAME_MODES = new Set(['tdm', 'kc', 'dom', 'hp', 'ffa']);
 const PENDING_KEY = 'tiny-strike-pending-matches';
@@ -70,7 +72,10 @@ export class LeaderboardClient {
     this.baseUrl = String(
       options.baseUrl || globalThis.TINY_STRIKE_API?.leaderboard || DEFAULT_BASE_URL
     ).replace(/\/$/, '');
-    this.fetch = options.fetchImpl || globalThis.fetch?.bind(globalThis);
+    // An offline build has no service to call: every request path below
+    // already handles a missing fetch by failing fast.
+    this.offline = options.offline ?? serviceOffline();
+    this.fetch = this.offline ? null : (options.fetchImpl || globalThis.fetch?.bind(globalThis));
     this.storage = browserStorage(options.storage);
     this.now = options.now || (() => Date.now());
     this._startedAt = this.now();
@@ -91,7 +96,7 @@ export class LeaderboardClient {
     this._reconcileTimer = null;
     this._bindEvents();
     this._bindLifecycle();
-    if (options.autoSession !== false) this.ensureSession({ refresh: true }).catch(() => {});
+    if (options.autoSession !== false && !this.offline) this.ensureSession({ refresh: true }).catch(() => {});
   }
 
   getProgression() {
@@ -373,6 +378,7 @@ export class LeaderboardClient {
   }
 
   _bindLifecycle() {
+    if (this.offline) return;
     const schedule = () => {
       if (globalThis.document?.visibilityState === 'hidden') return;
       if (this._reconcileTimer) clearTimeout(this._reconcileTimer);
@@ -392,7 +398,7 @@ export class LeaderboardClient {
     this._submitted = false;
     this._killStreak = 0;
     this._provisionalRecords.clear();
-    this.flushPending().catch(() => {});
+    if (!this.offline) this.flushPending().catch(() => {});
   }
 
   _isLocalName(value) {
@@ -439,6 +445,11 @@ export class LeaderboardClient {
   async _onGameEnd(result) {
     if (this._submitted) return;
     this._submitted = true;
+    if (this.offline) {
+      // Rank XP still lands on this device; the end screen shows it.
+      this.game?.events?.emit('leaderboard:unranked', { matchId: null, reason: 'offline' });
+      return;
+    }
     if (this.game?.multiplayer?.active) {
       const ranked = typeof this.game.multiplayer.isRankedParticipant === 'function'
         ? this.game.multiplayer.isRankedParticipant()
