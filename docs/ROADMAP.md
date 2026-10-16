@@ -125,8 +125,8 @@ Frags stay rare: a bot only throws at a target hidden 5-13 m away (the throw
 reaches about 11 m plus the roll), and almost every target that ducks out of
 sight is farther than that.
 
-Open: bot-match leaderboard points do not depend on the tier yet, so a
-Recruit match counts the same as a Veteran one.
+Bot-match leaderboard points scale with the tier (Recruit 0.6x, Regular 1x,
+Veteran 1.4x), before the daily taper and cap.
 
 ## Architecture moves that unlock everything
 
