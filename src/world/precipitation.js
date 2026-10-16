@@ -129,13 +129,14 @@ export class Precipitation {
   /**
    * @param {object} opts { theme key, colliders, rect {x0,x1,z0,z1}, quality }
    */
-  constructor({ themeKey, colliders, rect, quality = 'high', windAngle = 0.7 }) {
+  constructor({ themeKey, colliders, rect, quality = 'high', density = null, windAngle = 0.7 }) {
     const cfg = PRECIPITATION[themeKey];
     this.cfg = cfg || null;
     this.object = null;
     if (!cfg) return;
 
-    const count = Math.round(cfg.count * (quality === 'low' ? 0.5 : 1));
+    const scale = Number.isFinite(density) ? density : quality === 'low' ? 0.5 : 1;
+    const count = Math.round(cfg.count * scale);
     const rain = cfg.kind === 'rain';
     const verts = rain ? count * 2 : count;
     const seeds = new Float32Array(verts * 4);

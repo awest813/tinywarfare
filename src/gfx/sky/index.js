@@ -660,7 +660,7 @@ export class SkySystem {
     // rather than a square: 2.7-4.5 cm across the beam and 4.4-5.5 cm along it,
     // against the 7.6 / 18.7 cm of the ±78 m square box this was ported with.
     this._shadowMapSize = Math.min(
-      this.quality === 'low' ? 2048 : 3072,
+      opts.shadowMapSize || (this.quality === 'low' ? 2048 : 3072),
       this.renderer.capabilities.maxTextureSize
     );
     /**
@@ -707,14 +707,14 @@ export class SkySystem {
      * lands on ~1.4 texels per degree and the cloud edges stair-step visibly.
      * The 1.4-degree skyline skGround draws needs that resolution too.
      */
-    const envW = this.quality === 'low' ? 512 : 2048;
+    const envW = opts.skyEquirect || (this.quality === 'low' ? 512 : 2048);
     this.envEquirect = hdrTarget(envW, envW / 2, { name: 'sky-equirect' });
     this.envEquirect.texture.mapping = THREE.EquirectangularReflectionMapping;
     this.envEquirect.texture.minFilter = THREE.LinearFilter;
     this.envEquirect.texture.generateMipmaps = false;
     this.dome.uniforms.uSkyTex.value = this.envEquirect.texture;
     /** Seconds between visible-sky re-blits; the cloud deck drifts at ~4 m/s. */
-    this._skyTexInterval = this.quality === 'low' ? 0.8 : 0.4;
+    this._skyTexInterval = opts.skyRefresh || (this.quality === 'low' ? 0.8 : 0.4);
     this._skyTexAge = 1e9;
     this.pmrem = new THREE.PMREMGenerator(this.renderer);
     this.pmrem.compileEquirectangularShader();

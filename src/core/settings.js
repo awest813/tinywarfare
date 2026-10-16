@@ -2,6 +2,13 @@
 // player profile: aim feel, display brightness and physical keyboard layout
 // belong to this browser, not to a ranked identity shared between devices.
 
+import {
+  GRAPHICS_PRESETS,
+  autoGraphicsPreset,
+  graphicsProfile,
+  lighterPreset,
+} from '../gfx/profiles.js';
+
 export const SETTINGS_STORAGE_KEY = 'tiny-strike-settings-v1';
 
 export const SETTINGS_LIMITS = Object.freeze({
@@ -11,9 +18,9 @@ export const SETTINGS_LIMITS = Object.freeze({
   fov: Object.freeze({ min: 65, max: 100, step: 1, default: 74 }),
 });
 
-// Graphics tier: 'auto' picks High on desktops (and steps down in a match
-// that runs slowly), Low on phones and tablets; High and Low pin it.
-export const GRAPHICS_OPTIONS = Object.freeze(['auto', 'high', 'low']);
+// Graphics preset (src/gfx/profiles.js): 'auto' picks by device (and steps
+// down when a match runs slowly); the others pin it.
+export const GRAPHICS_OPTIONS = Object.freeze(['auto', ...GRAPHICS_PRESETS]);
 
 // v2 moved Crouch off Ctrl: holding Ctrl while pressing W closes the browser
 // tab. Layouts still on the v1 defaults are migrated once.
@@ -167,7 +174,7 @@ export default class GameSettings {
     this.announcer = true;
     this.graphics = 'auto';
     // Set when Auto found High too slow on this device: start on Low.
-    this.graphicsAutoLow = false;
+    this.graphicsAutoFloor = '';
     this.bindings = defaultBindings();
     this._physicalToCanonical = new Map();
     this._load();
@@ -230,30 +237,51 @@ export default class GameSettings {
     return next;
   }
 
-  /** 'auto' | 'high' | 'low' (applies on the next load). */
+  /** 'auto' | 'high' | 'low' | 'chromebook' (applies on the next load). */
   setGraphics(value) {
     const next = GRAPHICS_OPTIONS.includes(value) ? value : 'auto';
     if (next === this.graphics) return next;
     this.graphics = next;
     // A deliberate pick also clears Auto's memory of a slow device.
-    this.graphicsAutoLow = false;
+    this.graphicsAutoFloor = '';
     this._commit('graphics');
     return next;
   }
 
-  /** Auto's verdict on this device: High was too slow. */
+  /**
+   * Auto's verdict on this device: the lightest preset it had to step down
+   * to. Later visits on Auto never start above it.
+   */
+  setGraphicsAutoFloor(preset) {
+    const next = GRAPHICS_PRESETS.includes(preset) && preset !== 'high' ? preset : '';
+    if (next === this.graphicsAutoFloor) return next;
+    this.graphicsAutoFloor = next;
+    this._commit('graphics');
+    return next;
+  }
+
+  /** Older name: High was too slow, so start on Low. */
   setGraphicsAutoLow(on) {
-    const next = !!on;
-    if (next === this.graphicsAutoLow) return next;
-    this.graphicsAutoLow = next;
-    this._commit('graphics');
-    return next;
+    return this.setGraphicsAutoFloor(on ? lighterPreset('low', this.graphicsAutoFloor || 'high') : '');
   }
 
-  /** The tier to start with: 'high' or 'low'. */
-  graphicsQuality(touchDevice = false) {
-    if (this.graphics === 'high' || this.graphics === 'low') return this.graphics;
-    return touchDevice || this.graphicsAutoLow ? 'low' : 'high';
+  get graphicsAutoLow() {
+    return this.graphicsAutoFloor !== '';
+  }
+
+  /**
+   * The preset to start with. `device` is { touch, chromeOS, gpu }; a bare
+   * boolean is the older touch-only form.
+   */
+  graphicsPreset(device = {}) {
+    if (this.graphics !== 'auto') return this.graphics;
+    const env = typeof device === 'boolean' ? { touch: device } : device;
+    return lighterPreset(autoGraphicsPreset(env), this.graphicsAutoFloor || 'high');
+  }
+
+  /** The tier the older modules branch on: 'high' or 'low'. */
+  graphicsQuality(device = {}) {
+    return graphicsProfile(this.graphicsPreset(device)).tier;
   }
 
   rebind(actionId, physicalKey) {
@@ -306,7 +334,7 @@ export default class GameSettings {
     this.fov = SETTINGS_LIMITS.fov.default;
     this.announcer = true;
     this.graphics = 'auto';
-    this.graphicsAutoLow = false;
+    this.graphicsAutoFloor = '';
     this.bindings = defaultBindings();
     this._rebuildLookup();
     this._commit('reset');
@@ -340,7 +368,9 @@ export default class GameSettings {
       this.fov = clampStep(parsed.fov ?? SETTINGS_LIMITS.fov.default, SETTINGS_LIMITS.fov);
       this.announcer = parsed.announcer !== false;
       this.graphics = GRAPHICS_OPTIONS.includes(parsed.graphics) ? parsed.graphics : 'auto';
-      this.graphicsAutoLow = parsed.graphicsAutoLow === true;
+      this.graphicsAutoFloor = ['low', 'chromebook'].includes(parsed.graphicsAutoFloor)
+        ? parsed.graphicsAutoFloor
+        : parsed.graphicsAutoLow === true ? 'low' : '';
       const stored = parsed.bindings && typeof parsed.bindings === 'object' ? { ...parsed.bindings } : parsed.bindings;
       if (stored && !(parsed.bindingsVersion >= BINDINGS_VERSION) &&
         normalizePhysicalKey(stored.crouch) === 'control') {
@@ -374,7 +404,7 @@ export default class GameSettings {
           fov: this.fov,
           announcer: this.announcer,
           graphics: this.graphics,
-          graphicsAutoLow: this.graphicsAutoLow,
+          graphicsAutoFloor: this.graphicsAutoFloor,
           bindingsVersion: BINDINGS_VERSION,
           bindings: this.bindings,
         }));

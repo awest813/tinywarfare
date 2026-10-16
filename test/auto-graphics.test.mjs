@@ -3,15 +3,15 @@ import test from 'node:test';
 
 import { AUTO_GRAPHICS_SLOW_SECONDS, createAutoGraphics } from '../src/gfx/auto-graphics.js';
 
-function rig({ graphics = 'auto', hasSsao = true } = {}) {
+function rig({ graphics = 'auto', hasSsao = true, preset = 'high', pixelsLeft = true } = {}) {
   const calls = [];
-  const game = { gfxQuality: 'high', fps: 60, state: { phase: 'live' } };
+  const game = { gfxPreset: preset, fps: 60, state: { phase: 'live' } };
   const settings = { graphics };
   let ssao = hasSsao;
   const auto = createAutoGraphics(game, settings, {
     disableSsao: () => { calls.push('ssao'); const had = ssao; ssao = false; return had; },
-    capPixelRatio: () => calls.push('pixels'),
-    rememberLow: () => calls.push('low'),
+    capPixelRatio: () => { calls.push('pixels'); return pixelsLeft; },
+    rememberFloor: (floor) => calls.push(floor),
     notify: (text) => calls.push('notice:' + text),
   });
   // One reading per second (each a fresh value, as a real reading is).
@@ -57,4 +57,14 @@ test('without ambient occlusion to drop, the first step lowers the resolution', 
   const { calls, seconds } = rig({ hasSsao: false });
   seconds(25, AUTO_GRAPHICS_SLOW_SECONDS);
   assert.deepEqual(calls.filter((c) => !c.startsWith('notice')), ['ssao', 'pixels']);
+});
+
+test('a slow device on Low is remembered for the Chromebook preset; Chromebook is the floor', () => {
+  const low = rig({ preset: 'low', hasSsao: false, pixelsLeft: false });
+  low.seconds(25, AUTO_GRAPHICS_SLOW_SECONDS);
+  assert.deepEqual(low.calls.filter((c) => !c.startsWith('notice')), ['ssao', 'pixels', 'chromebook']);
+  assert.ok(low.calls.includes('notice:NEXT TIME THE GAME STARTS ON CHROMEBOOK / LOW-POWER GRAPHICS'));
+  const bottom = rig({ preset: 'chromebook' });
+  bottom.seconds(10, 60);
+  assert.deepEqual(bottom.calls, []);
 });

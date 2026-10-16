@@ -160,6 +160,12 @@ export default class World {
     // and both are done by now, so hiding the sources cannot starve them.
     this._batchEnvironment();
     this._buildPrecipitation();
+    // Chromebook preset: the map's practical lamps go dark (their fixtures
+    // still glow). Every visible point light is a loop in every lit pixel,
+    // and hiding them up front, never mid-match, keeps the shaders stable.
+    if (this.game.gfx?.mapLights === false) {
+      this.environment.traverse((o) => { if (o.isPointLight) o.visible = false; });
+    }
 
     this.game.scene.add(this.environment);
     this.game.scene.add(this.solids);
@@ -268,6 +274,9 @@ export default class World {
         camera: this.game.camera,
         events: this.game.events,
         quality: this.game.gfxQuality || 'high',
+        shadowMapSize: this.game.gfx?.shadowMapSize,
+        skyEquirect: this.game.gfx?.skyEquirect,
+        skyRefresh: this.game.gfx?.skyRefresh,
         exposure: this.game.renderer.toneMappingExposure,
         getBrightnessEv: () => this.game.settings?.brightnessEv ?? 0,
         debug: this.game.debug,
@@ -609,6 +618,7 @@ export default class World {
       colliders: this.colliders,
       rect: { x0: b.x0 - 4, x1: b.x1 + 4, z0: b.z0 - 4, z1: b.z1 + 4 },
       quality: this.game.gfxQuality || 'high',
+      density: this.game.gfx?.precipitation,
       windAngle: this.sky?.weather?.windAngle ?? 0.7,
     });
     if (!precip.object) return;

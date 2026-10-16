@@ -312,7 +312,7 @@ test('graphics: auto picks by device, remembers a slow one, and a pick overrides
   const store = new Map();
   const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
   const settings = new GameSettings(null, storage);
-  assert.deepEqual(GRAPHICS_OPTIONS, ['auto', 'high', 'low']);
+  assert.deepEqual(GRAPHICS_OPTIONS, ['auto', 'high', 'low', 'chromebook']);
   assert.equal(settings.graphics, 'auto');
   assert.equal(settings.graphicsQuality(false), 'high', 'a desktop starts on High');
   assert.equal(settings.graphicsQuality(true), 'low', 'a phone starts on Low');
@@ -326,6 +326,44 @@ test('graphics: auto picks by device, remembers a slow one, and a pick overrides
   settings.setGraphics('low');
   settings.reset();
   assert.equal(settings.graphics, 'auto');
+});
+
+test('graphics: Chromebook preset, device detection, and the remembered floor', async () => {
+  const { default: GameSettings } = await import('../src/core/settings.js');
+  const store = new Map();
+  const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+  const settings = new GameSettings(null, storage);
+  const mali = { chromeOS: true, gpu: 'ANGLE (ARM, Mali-G52 MC2, OpenGL ES 3.2)' };
+  const n100 = { chromeOS: true, gpu: 'ANGLE (Intel, Mesa Intel(R) Graphics (ADL-N), OpenGL ES 3.2)' };
+  const irisCrOS = { chromeOS: true, gpu: 'ANGLE (Intel, Mesa Intel(R) Iris(R) Xe Graphics (TGL GT2), OpenGL ES 3.2)' };
+  const uhdWin = { gpu: 'ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11)' };
+  const rtx = { gpu: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)' };
+  assert.equal(settings.graphicsPreset(mali), 'chromebook');
+  assert.equal(settings.graphicsPreset(n100), 'chromebook');
+  assert.equal(settings.graphicsPreset(irisCrOS), 'high', 'a Chromebook Plus starts on High and steps down if it must');
+  assert.equal(settings.graphicsPreset(uhdWin), 'low');
+  assert.equal(settings.graphicsPreset(rtx), 'high');
+  assert.equal(settings.graphicsPreset({ gpu: 'Google SwiftShader' }), 'chromebook', 'software rendering');
+  assert.equal(settings.graphicsPreset({ touch: true }), 'low');
+  assert.equal(settings.graphicsQuality(mali), 'low', 'Chromebook runs the Low tier underneath');
+
+  settings.setGraphicsAutoFloor('chromebook');
+  const later = new GameSettings(null, storage);
+  assert.equal(later.graphicsPreset(rtx), 'chromebook', 'Auto never starts above the remembered floor');
+  assert.equal(later.graphicsAutoLow, true);
+  later.setGraphics('chromebook');
+  assert.equal(later.graphicsPreset(rtx), 'chromebook');
+  assert.equal(later.graphicsAutoFloor, '', 'a deliberate pick clears the floor');
+
+  store.set('tiny-strike-settings-v1', JSON.stringify({ graphics: 'auto', graphicsAutoLow: true }));
+  assert.equal(new GameSettings(null, storage).graphicsPreset(rtx), 'low', 'the older saved flag still means Low');
+});
+
+test('graphics: ChromeOS detection reads client hints, then the user agent', async () => {
+  const { isChromeOS } = await import('../src/gfx/profiles.js');
+  assert.equal(isChromeOS({ userAgentData: { platform: 'Chrome OS' }, userAgent: '' }), true);
+  assert.equal(isChromeOS({ userAgent: 'Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36' }), true);
+  assert.equal(isChromeOS({ userAgentData: { platform: 'Windows' }, userAgent: 'Mozilla/5.0 (Windows NT 10.0)' }), false);
 });
 
 test('movement keys work by position on any keyboard layout, labelled in that layout', async (t) => {

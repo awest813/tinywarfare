@@ -19,6 +19,7 @@ import { ATTACHMENT_LEVEL } from '../game/progression.js';
 import { hostile, hostileTeams, isFfa } from '../game/hostility.js';
 import { resolveHumanPlayerName } from '../player/profile.js';
 import { serviceOffline } from '../network/endpoints.js';
+import { GRAPHICS_LABELS } from '../gfx/profiles.js';
 import {
   KEY_BINDING_DEFINITIONS,
   SETTINGS_LIMITS,
@@ -463,6 +464,7 @@ export default class HUD {
       announcerOutput: $('hud-announcer-output'),
       graphics: $('hud-graphics'),
       graphicsNote: $('hud-graphics-note'),
+      graphicsReload: $('hud-graphics-reload'),
       brightnessOutput: $('hud-brightness-output'),
       settingsReset: $('hud-settings-reset'),
       settingsStatus: $('hud-settings-status'),
@@ -839,6 +841,7 @@ export default class HUD {
       this._graphicsChanged = true;
       this._syncSettingsUi();
     });
+    this._el.graphicsReload?.addEventListener('click', () => globalThis.location?.reload?.());
     this._el.settingsReset?.addEventListener('click', () => {
       // Two steps, like QUIT: one stray click must not wipe every binding.
       const btn = this._el.settingsReset;
@@ -952,12 +955,21 @@ export default class HUD {
     if (this._el.announcerOutput) this._el.announcerOutput.textContent = settings.announcer !== false ? 'ON' : 'OFF';
     if (this._el.graphics) this._el.graphics.value = settings.graphics || 'auto';
     if (this._el.graphicsNote) {
-      // The tier is chosen at load: say so once it no longer matches.
-      const wanted = typeof settings.graphicsQuality === 'function'
-        ? settings.graphicsQuality(!!this.game?.touchControls?.enabled) : null;
-      this._el.graphicsNote.textContent = this._graphicsChanged && wanted && wanted !== this.game?.gfxQuality
+      // The preset is chosen at load: say so once it no longer matches, and
+      // say what Auto picked for this device.
+      const current = this.game?.gfxPreset;
+      const wanted = typeof settings.graphicsPreset === 'function'
+        ? settings.graphicsPreset(this.game?.gfxDevice || {}) : current;
+      const pending = !!(this._graphicsChanged && current && wanted !== current);
+      this._el.graphicsNote.textContent = pending
         ? 'APPLIES AFTER RELOAD'
-        : settings.graphics === 'auto' ? 'AUTO ADJUSTS TO YOUR DEVICE' : 'FIXED · ' + settings.graphics.toUpperCase();
+        : settings.graphics === 'auto' && current
+          ? 'AUTO · USING ' + (GRAPHICS_LABELS[current] || current.toUpperCase())
+          : 'IN USE';
+      // Reloading mid-match would end it: only offered from the main menu.
+      if (this._el.graphicsReload) {
+        this._el.graphicsReload.hidden = !pending || this.game?.state?.phase !== 'menu';
+      }
     }
     if (this._el.volume) this._el.volume.value = String(settings.volume);
     if (this._el.volumeOutput) {
@@ -4498,9 +4510,10 @@ export default class HUD {
       '<label class="mn-setting mn-setting-toggle" for="hud-graphics"><span><strong>GRAPHICS</strong>' +
       '<output id="hud-graphics-note">AUTO ADJUSTS TO YOUR DEVICE</output></span>' +
       '<select id="hud-graphics">' +
-      [['auto', 'AUTO'], ['high', 'HIGH'], ['low', 'LOW']].map(([id, label]) =>
+      Object.entries(GRAPHICS_LABELS).map(([id, label]) =>
         '<option value="' + id + '"' + ((settings?.graphics || 'auto') === id ? ' selected' : '') + '>' + label + '</option>').join('') +
-      '</select></label>' +
+      '</select>' +
+      '<button id="hud-graphics-reload" class="mn-graphics-reload" type="button" hidden>RELOAD NOW</button></label>' +
       '<label class="mn-setting mn-setting-toggle" for="hud-announcer"><span><strong>ANNOUNCER VOICE</strong>' +
       '<output id="hud-announcer-output" for="hud-announcer">' + (settings?.announcer === false ? 'OFF' : 'ON') + '</output></span>' +
       '<small class="mn-setting-note">SPOKEN MATCH CALLOUTS</small>' +
@@ -6073,6 +6086,12 @@ html.touch-device .mn-id { min-height:52px; }
 #hud input[type="checkbox"]:focus-visible {
   outline: 2px solid var(--olive-bright) !important; outline-offset: -4px !important;
 }
+
+.mn-graphics-reload {
+  justify-self: start; padding: 5px 10px; cursor: pointer; font: inherit; font-size: 10px; font-weight: 900;
+  letter-spacing: .14em; color: #0a0e08; background: var(--olive-bright); border: 0;
+}
+.mn-graphics-reload[hidden] { display: none; }
 
 /* Solo-only build: nothing that needs the game service. */
 #hud.svc-offline #hud-online-open, #hud.svc-offline #hud-leaderboard-open,

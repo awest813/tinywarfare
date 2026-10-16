@@ -607,10 +607,15 @@ export default class Effects {
       this.lights.push({ light, t: 1, life: 1, peak: 0, expo: 1 });
     }
     this._exploLightFlip = 0;
+    // Chromebook preset: flashes stay as sprites, without lighting the scene.
+    // Hidden for the whole session, so no shader ever changes light count.
+    const fxLights = game.gfx?.fxLights !== false;
+    if (!fxLights) for (const l of this.lights) l.light.visible = false;
 
     // --- bomb light + glow sprite ----------------------------------------
     this.bombLight = new THREE.PointLight(0xff2a1a, 0, 11, 2);
     this.bombLight.castShadow = false;
+    this.bombLight.visible = fxLights;
     this.root.add(this.bombLight);
     this._bombBeat = 0;
     {

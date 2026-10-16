@@ -8,6 +8,7 @@ import World from './world/map.js';
 import { MaterialSystem } from './gfx/materials/index.js';
 import { PostChain } from './gfx/post/index.js';
 import { createAutoGraphics } from './gfx/auto-graphics.js';
+import { graphicsProfile, isChromeOS, probeGpuName } from './gfx/profiles.js';
 import Player from './player/player.js';
 import PlayerProfile from './player/profile.js';
 import Weapons from './weapons/weapons.js';
@@ -49,9 +50,17 @@ const EARLY_SEARCH = new URLSearchParams(location.search);
 // Device preferences are read before the renderer exists: the graphics tier
 // decides its antialiasing. Trailer capture ignores this browser's settings.
 const settings = new GameSettings(null, TRAILER ? null : undefined);
-const GFX_QUALITY = settings.graphicsQuality(TOUCH_DEVICE);
-const WANT_POST = EARLY_SEARCH.get('post') !== 'off' && GFX_QUALITY !== 'low';
-const renderer = new THREE.WebGLRenderer({ antialias: !WANT_POST, powerPreference: 'high-performance' });
+// The preset (src/gfx/profiles.js). Auto needs to know the device: a
+// Chromebook or a low-power GPU starts on the Chromebook preset.
+const GFX_DEVICE = Object.freeze({ touch: TOUCH_DEVICE, chromeOS: isChromeOS(), gpu: probeGpuName() });
+const GFX_PRESET = settings.graphicsPreset(GFX_DEVICE);
+const GFX = graphicsProfile(GFX_PRESET);
+const GFX_QUALITY = GFX.tier;
+const WANT_POST = EARLY_SEARCH.get('post') !== 'off' && GFX.post;
+const renderer = new THREE.WebGLRenderer({
+  antialias: !WANT_POST && GFX.msaa,
+  powerPreference: 'high-performance',
+});
 
 function layoutViewportSize() {
   const root = document.documentElement;
@@ -95,12 +104,13 @@ function targetPixelRatio(width, height) {
 function deviceTargetPixelRatio(width, height) {
   const device = Math.max(1, Number(window.devicePixelRatio) || 1);
   // Desktop: 1.5 keeps Retina sharp while shading ~44% fewer pixels than 2x
-  // (the frame was fill-bound at 2x on high-DPI laptops).
-  if (!TOUCH_DEVICE) return Math.min(device, 1.5);
-  // Keep high-density phone output crisp without asking large tablets to
-  // shade several million pixels every frame.
-  const cap = width * height > 1_000_000 ? 1.25 : 1.5;
-  return Math.min(device, cap);
+  // (the frame was fill-bound at 2x on high-DPI laptops). Keep high-density
+  // phone output crisp without asking large tablets to shade several million
+  // pixels every frame. The preset can cap it lower and render below native
+  // resolution (Chromebook: 0.8, upscaled by the browser; the HUD is HTML
+  // and stays sharp).
+  const deviceCap = !TOUCH_DEVICE ? 1.5 : width * height > 1_000_000 ? 1.25 : 1.5;
+  return Math.min(device, deviceCap, GFX.maxPixelRatio) * GFX.renderScale;
 }
 
 const initialViewport = layoutViewportSize();
@@ -108,10 +118,15 @@ syncViewportCss(initialViewport);
 renderer.setPixelRatio(targetPixelRatio(initialViewport.width, initialViewport.height));
 renderer.setSize(initialViewport.width, initialViewport.height);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = TOUCH_DEVICE ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
-// Phones: the arena's shadow map is re-rasterized every other frame, not
-// every frame (the world is static; moving shadows lag by one frame).
-if (TOUCH_DEVICE) renderer.shadowMap.autoUpdate = false;
+// Chromebook: one unfiltered tap per pixel instead of a 16-17 tap PCF kernel.
+renderer.shadowMap.type = GFX.shadowFilter === 'hard'
+  ? THREE.BasicShadowMap
+  : TOUCH_DEVICE ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+// Phones and the Chromebook preset re-rasterize the arena's shadow map every
+// other frame, not every frame (the world is static; moving shadows lag by
+// one frame).
+const SHADOW_INTERVAL = Math.max(TOUCH_DEVICE ? 2 : 1, GFX.shadowInterval);
+if (SHADOW_INTERVAL > 1) renderer.shadowMap.autoUpdate = false;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
@@ -157,10 +172,14 @@ const game = {
 // One graphics tier for the whole session: texture budget, IBL resolution, the
 // baked-sky refresh rate and how much set dressing a map gets all read it.
 game.gfxQuality = GFX_QUALITY;
+game.gfxPreset = GFX_PRESET;
+game.gfx = GFX;
+game.gfxDevice = GFX_DEVICE;
 game.materials = new MaterialSystem({
   renderer,
   quality: game.gfxQuality,
-  anisotropy: Math.min(8, renderer.capabilities.getMaxAnisotropy()),
+  lite: GFX.liteShading,
+  anisotropy: Math.min(GFX.liteShading ? 4 : 8, renderer.capabilities.getMaxAnisotropy()),
 });
 
 // HDR post chain (src/gfx/post): render to a half-float target so emissives,
@@ -269,8 +288,13 @@ window.addEventListener('resize', resizeRenderer, { passive: true });
 // Auto graphics (src/gfx/auto-graphics.js): step down on a slow device.
 const autoGraphics = createAutoGraphics(game, settings, {
   disableSsao: () => !!game.post?.disableSsao?.(),
-  capPixelRatio: () => { pixelRatioCap = 1; resizeRenderer(); },
-  rememberLow: () => settings.setGraphicsAutoLow(true),
+  capPixelRatio: () => {
+    if (renderer.getPixelRatio() <= 1) return false;
+    pixelRatioCap = 1;
+    resizeRenderer();
+    return true;
+  },
+  rememberFloor: (preset) => settings.setGraphicsAutoFloor(preset),
   notify: (text) => game.events.emit('hud:notice', { text }),
 });
 window.visualViewport?.addEventListener?.('resize', resizeRenderer, { passive: true });
@@ -294,6 +318,12 @@ const PAUSED_SYSTEMS = new Set(['world', 'touchControls', 'multiplayer', 'hud', 
 
 const clock = new THREE.Clock();
 let shadowFrame = 0;
+// The menu and end screens cover the scene, so it is drawn a few times a
+// second there instead of every frame: the systems still update, the GPU
+// (and a laptop's battery) gets a rest.
+const COVERED_PHASES = new Set(['menu', 'gameEnd']);
+const COVERED_FRAME_SECONDS = 0.25;
+let coveredAge = Infinity;
 let frames = 0;
 let fpsTime = 0;
 game.fps = 60;
@@ -344,14 +374,19 @@ renderer.setAnimationLoop(() => {
     }
   } while (remaining > 1e-6);
 
-  if (TOUCH_DEVICE) {
-    shadowFrame = (shadowFrame + 1) % 2;
+  if (SHADOW_INTERVAL > 1) {
+    shadowFrame = (shadowFrame + 1) % SHADOW_INTERVAL;
     if (shadowFrame === 0) renderer.shadowMap.needsUpdate = true;
   }
-  try {
-    game.renderFrame();
-  } catch (error) {
-    reportFailure('render', error);
+  const covered = !game.debug && COVERED_PHASES.has(game.state?.phase);
+  coveredAge = covered ? coveredAge + rawDt : Infinity;
+  if (!covered || coveredAge >= COVERED_FRAME_SECONDS) {
+    if (covered) coveredAge = 0;
+    try {
+      game.renderFrame();
+    } catch (error) {
+      reportFailure('render', error);
+    }
   }
   autoGraphics.update();
 });

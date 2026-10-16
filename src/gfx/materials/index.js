@@ -50,6 +50,13 @@ export class MaterialSystem {
     this._warned = false;
     /** Texture budget scales with the quality preset; 1K is the reference. */
     this._quality = opts.quality === 'low' ? 0.5 : opts.quality === 'medium' ? 0.75 : 1;
+    /**
+     * Lite shading (the Chromebook preset): the same textures and colours,
+     * without the layers that cost the most per pixel: parallax occlusion
+     * (up to 22 height steps), de-tiling, macro relief, and the physical
+     * material's sheen and anisotropic lobes.
+     */
+    this._lite = !!opts.lite;
     this._anisotropy = opts.anisotropy ?? 8;
     /** seconds since the last bake, for the scratch-target release below */
     this._idle = 0;
@@ -187,6 +194,12 @@ export class MaterialSystem {
     p.groundY = opts.groundY ?? this._groundY;
 
     const threeProps = { ...(def.three ?? {}), ...(opts.three ?? {}) };
+    if (this._lite) {
+      p.parallax = 0;
+      p.detile = 0;
+      p.macroRelief = 0;
+      for (const k of LITE_DROPPED_PROPS) delete threeProps[k];
+    }
     const usePhysical = threeProps.physical === true;
     delete threeProps.physical;
 
@@ -302,6 +315,12 @@ export class MaterialSystem {
  * Color object and produces NaN uniforms (a black material), so colour-valued
  * properties have to go through .set().
  */
+// Physical-material lobes the lite path leaves out (each adds a BRDF term).
+const LITE_DROPPED_PROPS = [
+  'sheen', 'sheenRoughness', 'sheenColor', 'anisotropy', 'anisotropyRotation',
+  'clearcoat', 'clearcoatRoughness', 'iridescence', 'transmission',
+];
+
 function applyProps(mat, props) {
   for (const k in props) {
     const cur = mat[k];
