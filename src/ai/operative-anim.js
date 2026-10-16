@@ -187,6 +187,7 @@ export class OperativeAnimator {
     this.lastX = NaN;
     this.lastZ = NaN;
     this.airTime = 0;
+    this.sprintBlend = 0;
     this.reloading = false;
     this.ikWeight = 1;
     this._play('lower', 'Idle', 0);
@@ -215,8 +216,11 @@ export class OperativeAnimator {
     action.reset().setEffectiveWeight(1).play();
   }
 
-  /** Start a death; returns the clip name played. */
-  die(seed = Math.random()) {
+  /**
+   * Start a death; returns the clip name played. A longer `fade` keeps a
+   * crouched soldier from popping upright before the fall.
+   */
+  die(seed = Math.random(), fade = 0.08) {
     const names = Object.keys(this.set.death);
     if (!names.length) return null;
     this._restoreClipPose();
@@ -229,7 +233,7 @@ export class OperativeAnimator {
     for (const action of Object.values(this.hitActions)) action.stop();
     const death = this.actions[name];
     death.enabled = true;
-    death.reset().fadeIn(0.08).play();
+    death.reset().fadeIn(fade).play();
     this.deathAction = death;
     return name;
   }
@@ -307,7 +311,9 @@ export class OperativeAnimator {
     const legs = this._play('lower', lower, lower === 'JumpLoop' ? 0.12 : 0.2);
     if (legs) {
       const natural = this.set.speeds[lower];
-      let scale = natural ? THREE.MathUtils.clamp(speed / natural, 0.6, 1.9) : 1;
+      // A wide range keeps the feet planted: a jog clip driven at 7 m/s
+      // needs ~2x, and anything clamped below the real speed skates.
+      let scale = natural ? THREE.MathUtils.clamp(speed / natural, 0.5, 2.6) : 1;
       if (this.backpedal) scale = -scale;
       legs.setEffectiveTimeScale(scale);
     }
@@ -329,11 +335,16 @@ export class OperativeAnimator {
     else if (sprinting && !firing) upper = family === 'Rifle' ? 'Rifle_Sprint' : 'Pistol_Ready';
     else if (firing || (actor.aimBlend ?? 1) > 0.3 || (actor.crouching && !moving)) upper = `${family}_Aim`;
     else upper = `${family}_Ready`;
+    const wasUpper = this.upperName;
     const torso = this._play('upper', upper, this.reloading ? 0.12 : 0.16);
     if (torso && this.reloading) {
-      if (restart) torso.reset().play();
+      // _play already restarted a newly chosen reload (with its crossfade);
+      // only a back-to-back reload of the same clip needs rewinding here.
+      if (restart && wasUpper === upper) torso.reset().play();
       torso.setEffectiveTimeScale(torso.getClip().duration / this.reloadDuration);
     }
+    // Eased so the torso does not snap between sprint and aim posture.
+    this.sprintBlend += ((sprinting ? 1 : 0) - this.sprintBlend) * (1 - Math.exp(-10 * step));
     const ikTarget = this.reloading ? 0 : 1;
     this.ikWeight += (ikTarget - this.ikWeight) * Math.min(1, step * 14);
 
@@ -355,7 +366,7 @@ export class OperativeAnimator {
     const hm = _qc.copy(_qT).multiply(hc); // twisted pelvis (model)
 
     // Torso correction: cancel most of the clip's pelvis motion and all of the twist.
-    const cancel = sprinting ? 0.35 : 0.85;
+    const cancel = 0.85 - 0.5 * this.sprintBlend;
     const delta = _qd.copy(this.hipRestModel).multiply(_qa.copy(hc).invert());
     const corr = _qe.copy(_qId).slerp(delta, cancel).multiply(_qT.invert());
     const third = _qd.copy(_qId).slerp(corr, 1 / 3);
@@ -368,7 +379,7 @@ export class OperativeAnimator {
     rotateInModel(s3, model, third);
 
     // Aim pitch and recoil: about the model's lateral axis, half at each joint.
-    const pitch = THREE.MathUtils.clamp(Number(actor.aimPitch) || 0, -1.2, 1.2) * (sprinting ? 0.3 : 1);
+    const pitch = THREE.MathUtils.clamp(Number(actor.aimPitch) || 0, -1.2, 1.2) * (1 - 0.7 * this.sprintBlend);
     const kick = (actor.fireAnim || 0) * RECOIL_PITCH[family];
     rotateInModel(s2, s2Parent, _qHalf.setFromAxisAngle(_X, -pitch * 0.5));
     s2Parent.multiply(s2.quaternion);

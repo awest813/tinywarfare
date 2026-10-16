@@ -851,6 +851,24 @@ export default class Player {
     this.velocity.set(0, 0, 0);
     this._deathBlend = 0;
     this._deathEyeStart = this.eyeHeight;
+    // Whatever bob, dip, lean and recoil the live camera carried this frame
+    // fades out over the fall instead of vanishing on the death frame.
+    const cam = this.game.camera;
+    const from = this._deathCamFrom || (this._deathCamFrom = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 });
+    from.x = from.y = from.z = from.rx = from.ry = from.rz = 0;
+    if (cam) {
+      const off = [
+        cam.position.x - this.position.x,
+        cam.position.y - (this.position.y + this.eyeHeight),
+        cam.position.z - this.position.z,
+        cam.rotation.x - this.pitch - this._punchPitch,
+        cam.rotation.y - this.yaw - this._punchYaw,
+        cam.rotation.z,
+      ];
+      if (off.every((v) => Number.isFinite(v) && Math.abs(v) < 0.6)) {
+        [from.x, from.y, from.z, from.rx, from.ry, from.rz] = off;
+      }
+    }
     this._deathStartedAt = monotonicSeconds();
     this.deathElapsed = 0;
     this.spectatorReady = false;
@@ -886,9 +904,15 @@ export default class Player {
     }
 
     const eyeY = this._deathEyeStart + (DEATH_EYE - this._deathEyeStart) * b;
-    cam.position.set(this.position.x, this.position.y + eyeY + shY, this.position.z);
-    cam.rotation.y = this.yaw + this._punchYaw;
-    cam.rotation.x = this.pitch * (1 - b) + DEATH_TILT * b + this._punchPitch + shPitch;
-    cam.rotation.z = DEATH_ROLL * b + shRoll;
+    const f = this._deathCamFrom;
+    const k = f ? 1 - b : 0;
+    cam.position.set(
+      this.position.x + (k && f.x * k),
+      this.position.y + eyeY + shY + (k && f.y * k),
+      this.position.z + (k && f.z * k)
+    );
+    cam.rotation.y = this.yaw + this._punchYaw + (k && f.ry * k);
+    cam.rotation.x = this.pitch * (1 - b) + DEATH_TILT * b + this._punchPitch + shPitch + (k && f.rx * k);
+    cam.rotation.z = DEATH_ROLL * b + shRoll + (k && f.rz * k);
   }
 }

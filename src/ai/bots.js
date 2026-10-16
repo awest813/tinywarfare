@@ -4002,7 +4002,7 @@ export default class Bots {
       m.rotation.set(0, bot.yaw, 0);
       if (!bot.deathPlayed) {
         bot.deathPlayed = true;
-        bot.animator.die();
+        bot.animator.die(Math.random(), bot.crouching ? 0.22 : 0.08);
       }
       if (!bot.corpseSettled) {
         bot.mixer.update(dt);

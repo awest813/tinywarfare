@@ -20,6 +20,17 @@ const DEFAULT_OUTPUT = path.join(PROJECT_ROOT, 'dist', 'tinystrike');
 const BUILD_MANIFEST = 'build-manifest.json';
 const GENERATOR = 'tools/build-pages.mjs';
 
+// Build-time sources the game never loads: the Marine and clip library that
+// tools/build-operatives.mjs bakes into operative_*.glb, and the retired Toon
+// soldiers. Leaving them out keeps the download lean and keeps the original
+// Marine model in the repository rather than on a public site.
+const PAGES_EXCLUDED_ASSETS = ['models/source/', 'models/soldier_ct.glb', 'models/soldier_t.glb'];
+
+export function pagesExcludesAsset(relative) {
+  const posix = toPosix(relative);
+  return PAGES_EXCLUDED_ASSETS.some((rule) => (rule.endsWith('/') ? posix.startsWith(rule) : posix === rule));
+}
+
 const THREE_FILES = [
   ['build/three.module.min.js', 'vendor/three/three.module.min.js'],
   ['examples/jsm/loaders/GLTFLoader.js', 'vendor/three/addons/loaders/GLTFLoader.js'],
@@ -55,15 +66,17 @@ async function copyFileWithParents(source, destination) {
   await copyFile(source, destination);
 }
 
-async function copyTree(source, destination) {
+async function copyTree(source, destination, skip = () => false, root = source) {
   const entries = await readdir(source, { withFileTypes: true });
   entries.sort((a, b) => a.name.localeCompare(b.name));
   for (const entry of entries) {
     const sourcePath = path.join(source, entry.name);
     const destinationPath = path.join(destination, entry.name);
+    const relative = path.relative(root, sourcePath) + (entry.isDirectory() ? '/' : '');
+    if (skip(relative)) continue;
     if (entry.isDirectory()) {
       await mkdir(destinationPath, { recursive: true });
-      await copyTree(sourcePath, destinationPath);
+      await copyTree(sourcePath, destinationPath, skip, root);
     } else if (entry.isFile()) {
       await copyFileWithParents(sourcePath, destinationPath);
     } else {
@@ -327,7 +340,13 @@ export async function verifyPagesBuild(outputDir) {
     }
   }
 
-  const sourceAssets = await walkFiles(path.join(PROJECT_ROOT, 'assets'));
+  const allAssets = await walkFiles(path.join(PROJECT_ROOT, 'assets'));
+  const sourceAssets = allAssets.filter((asset) => !pagesExcludesAsset(asset));
+  for (const asset of allAssets) {
+    if (pagesExcludesAsset(asset) && (await exists(path.join(outputDir, 'assets', asset)))) {
+      throw new Error(`Build ships a build-time source asset ${asset}`);
+    }
+  }
   for (const asset of sourceAssets) {
     const builtAsset = path.join(outputDir, 'assets', asset);
     if (!(await exists(builtAsset))) throw new Error(`Build is missing asset ${asset}`);
@@ -353,7 +372,7 @@ export async function buildPages(options = {}) {
   await writeFile(path.join(outputDir, 'runtime-config.js'), runtimeConfigSource(config));
   await writeFile(path.join(outputDir, '.nojekyll'), '');
   const browserModules = await copyBrowserModuleGraph(outputDir);
-  await copyTree(path.join(PROJECT_ROOT, 'assets'), path.join(outputDir, 'assets'));
+  await copyTree(path.join(PROJECT_ROOT, 'assets'), path.join(outputDir, 'assets'), pagesExcludesAsset);
 
   const threeRoot = path.join(PROJECT_ROOT, 'node_modules', 'three');
   for (const [source, destination] of THREE_FILES) {

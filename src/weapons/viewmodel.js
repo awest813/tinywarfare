@@ -80,7 +80,7 @@ const BOB_AMP_Y = 0.010;
 const BOB_AMP_ROLL = 0.022;
 const EQUIP_DUR_DEFAULT = 0.28; // visual raise time (event fires at raise start)
 const SLASH_DUR = 0.26;
-const THROW_DUR = 0.4;          // visual throw follow-through
+const THROW_DUR = 0.5;          // throw follow-through (matches weapons.js)
 const THROW_HIDE_AT = 0.11;     // grenade leaves the hand (matches weapons.js)
 const BOLT_DUR = 0.85;          // AWP bolt-work choreography
 const LAND_RECOVER = 6.5;       // 1/s land-dip recovery
@@ -695,6 +695,7 @@ export default class ViewModel {
     // grenade wind-up + throw
     this._wind = 0;
     this._throw = { active: false, t: 0 };
+    this._hand = null;
     this._payloadHidden = false;
 
     // AWP bolt cycle
@@ -713,6 +714,13 @@ export default class ViewModel {
       ev.on('weapon:reload:end', () => this._onReloadEnd());
       ev.on('grenade:throw', () => this._onThrow());
       ev.on('player:land', (p) => this._onLand(p));
+      // A respawn teleports the view: without this the yaw jump reads as a
+      // violent look-sway on the first frame alive.
+      ev.on('player:respawn', () => {
+        this._haveLook = false;
+        this._yawVel = 0;
+        this._pitchVel = 0;
+      });
       ev.on('profile:changed', (p) => this.applyProfileAppearance(p?.characterId));
     }
   }
@@ -840,10 +848,16 @@ export default class ViewModel {
       if (bo.t >= BOLT_DUR) bo.active = false;
     }
 
-    // Grenade wind-up: pin pulled while LMB is held on an equipped grenade.
+    // Grenade wind-up and throw follow the weapon's own state, so a click
+    // that the weapon refuses (sprint-out, raise) does not cock the arm.
     const curDef = WEAPONS[this._currentId];
+    const hand = weapons && typeof weapons.grenadeHand === 'function' ? weapons.grenadeHand() : undefined;
+    if (hand === 'throwing' && this._hand !== 'throwing' && !th.active) this._onThrow();
+    this._hand = hand;
     let windTarget = 0;
-    if (
+    if (hand !== undefined) {
+      windTarget = hand === 'winding' && !th.active ? 1 : 0;
+    } else if (
       curDef &&
       curDef.grenade &&
       !th.active &&
@@ -959,11 +973,14 @@ export default class ViewModel {
     // fire kick — translate back toward the camera, muzzle rises
     const kick = this._kick;
     if (kick > 0) {
+      // Down the sights the gun mostly pushes back: a full muzzle flip would
+      // throw the sight picture off the dot the shot actually goes to.
+      const flip = 1 - 0.6 * ads;
       pz += 0.05 * kick;
-      py += 0.007 * kick;
-      rx += 0.13 * kick;
-      ry += this._kickYawV;
-      rz += this._kickRollV;
+      py += 0.007 * kick * flip;
+      rx += 0.13 * kick * flip;
+      ry += this._kickYawV * flip;
+      rz += this._kickRollV * flip;
     }
 
     // equip raise — from below, tilted down, over the raise window
@@ -1178,6 +1195,9 @@ export default class ViewModel {
   }
 
   _onThrow() {
+    // The weapon's state change already started this throw; the release
+    // event that follows it must not rewind the swing.
+    if (this._throw.active && this._throw.t < THROW_DUR * 0.5) return;
     this._throw.active = true;
     this._throw.t = 0;
     this._wind = Math.max(this._wind, 0.6); // release from a cocked pose

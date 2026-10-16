@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { buildPages, verifyPagesBuild } from '../tools/build-pages.mjs';
+import { existsSync } from 'node:fs';
+import { buildPages, pagesExcludesAsset, verifyPagesBuild } from '../tools/build-pages.mjs';
 
 test('Pages build is self-contained, configured, and deterministic', async (t) => {
   const temporary = await mkdtemp(path.join(tmpdir(), 'tiny-strike-pages-'));
@@ -45,6 +46,12 @@ test('Pages build is self-contained, configured, and deterministic', async (t) =
   assert.match(runtimeConfig, /wss:\/\/play-api\.example\.test\/ws/);
   assert.ok(first.verification.files > 20);
   assert.ok(first.verification.assets > 5);
+  // The game's own soldiers ship; the build-time model sources do not.
+  assert.ok(existsSync(path.join(firstOutput, 'assets', 'models', 'operative_us.glb')));
+  assert.ok(!existsSync(path.join(firstOutput, 'assets', 'models', 'source')));
+  assert.ok(!existsSync(path.join(firstOutput, 'assets', 'models', 'soldier_ct.glb')));
+  assert.equal(pagesExcludesAsset('models/source/marine.glb'), true);
+  assert.equal(pagesExcludesAsset('models/viewmodels/npc-arms-ct.glb'), false);
 });
 
 test('Pages verifier reports a missing browser dependency', async (t) => {

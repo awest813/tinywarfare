@@ -231,6 +231,11 @@ export default class Weapons {
     return clamp(half(this._fovCurrent) / half(this._baseFov()), 0.5, 1);
   }
 
+  /** Grenade hand for the viewmodel: 'winding', 'throwing' or null. */
+  grenadeHand() {
+    return this._state === 'winding' || this._state === 'throwing' ? this._state : null;
+  }
+
   /** True when the trigger, aim, or a throw should stop the player sprinting. */
   blocksSprint() {
     const input = this.game.input;

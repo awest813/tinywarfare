@@ -14,6 +14,9 @@ Their animation comes from the two Quaternius packs below, retargeted onto
 the Marine's rig, plus weapon holds (aim, low ready, sprint carry, reload)
 authored in the same tool by inverse kinematics. Check the Marine's original
 licence terms before redistributing the source model outside this project.
+The GitHub Pages build (`tools/build-pages.mjs`) leaves `assets/models/source/`
+and the retired `soldier_*.glb` out: the game loads only the derived
+operatives.
 
 ## Quaternius Universal Animation Library (Standard)
 
