@@ -305,7 +305,9 @@ export default class TeamDeathmatch {
     // or a damage message racing a restart) left the player dead for the
     // rest of the match. Schedule the respawn it missed.
     this._catchUpPlayerRespawn();
-    if (this._playerRespawnAt !== null && this._time >= this._playerRespawnAt) {
+    // Solo: the respawn waits for the killcam unless the player skips it.
+    if (this._playerRespawnAt !== null && this._time >= this._playerRespawnAt &&
+        !this.game.killcam?.holdsRespawn?.()) {
       this._respawnPlayer();
     }
     const bots = this.game.bots && Array.isArray(this.game.bots.all) ? this.game.bots.all : [];

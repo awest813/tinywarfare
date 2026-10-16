@@ -434,6 +434,11 @@ export default class HUD {
       defuseNote: $('hud-defuse-note'),
       useHint: $('hud-usehint'),
       death: $('hud-death'),
+      killcam: $('hud-killcam'),
+      killcamKiller: $('hud-killcam-killer'),
+      killcamDetail: $('hud-killcam-detail'),
+      killcamSkip: $('hud-killcam-skip'),
+      killcamFill: $('hud-killcam-fill'),
       deathMain: $('hud-death-main'),
       deathKiller: $('hud-death-killer'),
       deathClass: $('hud-death-class'),
@@ -463,6 +468,8 @@ export default class HUD {
       announcer: $('hud-announcer'),
       announcerOutput: $('hud-announcer-output'),
       showFps: $('hud-show-fps'),
+      killcamSetting: $('hud-killcam-setting'),
+      killcamSettingOutput: $('hud-killcam-setting-output'),
       showFpsOutput: $('hud-show-fps-output'),
       graphics: $('hud-graphics'),
       graphicsNote: $('hud-graphics-note'),
@@ -844,6 +851,10 @@ export default class HUD {
       this._syncSettingsUi();
     });
     this._el.graphicsReload?.addEventListener('click', () => globalThis.location?.reload?.());
+    this._el.killcamSetting?.addEventListener('change', (event) => {
+      settings.setKillcam(event.currentTarget.checked);
+      this._syncSettingsUi();
+    });
     this._el.showFps?.addEventListener('change', (event) => {
       settings.setShowFps(event.currentTarget.checked);
       this._syncSettingsUi();
@@ -960,6 +971,8 @@ export default class HUD {
     if (this._el.announcer) this._el.announcer.checked = settings.announcer !== false;
     if (this._el.announcerOutput) this._el.announcerOutput.textContent = settings.announcer !== false ? 'ON' : 'OFF';
     if (this._el.showFps) this._el.showFps.checked = !!settings.showFps;
+    if (this._el.killcamSetting) this._el.killcamSetting.checked = settings.killcam !== false;
+    if (this._el.killcamSettingOutput) this._el.killcamSettingOutput.textContent = settings.killcam !== false ? 'ON' : 'OFF';
     if (this._el.showFpsOutput) this._el.showFpsOutput.textContent = settings.showFps ? 'ON' : 'OFF';
     if (this._el.graphics) this._el.graphics.value = settings.graphics || 'auto';
     if (this._el.graphicsNote) {
@@ -2110,6 +2123,7 @@ export default class HUD {
       this._updateDefuse(st, phase);
       this._updateScope();
       this._updateDeath(phase);
+      this._updateKillcam();
       this._updateScoreboard(phase);
       this._updateBuy(st);
 
@@ -3369,6 +3383,51 @@ export default class HUD {
   }
 
   // --------------------------------------------------------------------------
+  // Killcam
+  // --------------------------------------------------------------------------
+
+  /** The replay's letterbox and strip; the rest of the HUD steps aside. */
+  _updateKillcam() {
+    const kc = this.game.killcam;
+    const active = !!(kc && kc.active);
+    if (active !== !!this._killcamShown) {
+      this._killcamShown = active;
+      this._root?.classList.toggle('killcam-on', active);
+      this._killcamKey = '';
+    }
+    if (!active) return;
+    const info = kc.info();
+    const killer = info && info.killer;
+    const key = killer ? String(killer.name || '') + ':' + info.weaponId + ':' + info.distance : '';
+    if (key !== this._killcamKey) {
+      this._killcamKey = key;
+      const name = killer
+        ? (killer.isRemotePlayer ? humanCallsign(this.game, killer.name, killer.networkId) : String(killer.name || 'ENEMY'))
+        : 'ENEMY';
+      if (this._el.killcamKiller) {
+        this._el.killcamKiller.textContent = name.toUpperCase();
+        this._el.killcamKiller.className = 'kc-killer ' + (killer && killer.team === 'ct' ? 'ct' : 't');
+      }
+      const bits = [];
+      if (info.weaponId) bits.push(String(this._names[info.weaponId] || info.weaponId).toUpperCase());
+      if (Number.isFinite(info.distance)) bits.push(info.distance + ' M');
+      if (info.headshot) bits.push('HEADSHOT');
+      if (this._el.killcamDetail) this._el.killcamDetail.textContent = bits.join(' · ');
+      if (this._el.killcamSkip) {
+        this._el.killcamSkip.textContent = this.game.input?.touchMode
+          ? 'TAP JUMP TO SKIP'
+          : this._bindingLabel('jump') + ' OR CLICK TO SKIP';
+      }
+    }
+    // Progress in whole percent, so the style is written ~100 times a replay.
+    const pct = Math.round(kc.progress() * 100);
+    if (pct !== this._killcamPct && this._el.killcamFill) {
+      this._killcamPct = pct;
+      this._el.killcamFill.style.width = pct + '%';
+    }
+  }
+
+  // --------------------------------------------------------------------------
   // Death overlay
   // --------------------------------------------------------------------------
 
@@ -4321,6 +4380,14 @@ export default class HUD {
       // full-screen feedback
       '<div id="hud-vignette"></div>' +
       '<div id="hud-deathfx"></div>' +
+      // killcam replay: letterbox and a strip naming who got you
+      '<div id="hud-killcam" aria-live="polite">' +
+      '<div class="kc-bar kc-top"></div>' +
+      '<div class="kc-bar kc-bottom"><div class="kc-progress"><span id="hud-killcam-fill"></span></div>' +
+      '<div class="kc-row"><span class="kc-label">KILLCAM</span>' +
+      '<span class="kc-killer" id="hud-killcam-killer"></span>' +
+      '<span class="kc-detail" id="hud-killcam-detail"></span>' +
+      '<span class="kc-skip" id="hud-killcam-skip"></span></div></div></div>' +
       '<div id="hud-wedges"></div>' +
       '<div id="hud-death"><div class="death-inner"><div class="death-main" id="hud-death-main">YOU ARE DEAD</div>' +
       '<div class="death-sub" id="hud-death-killer">SPECTATING</div>' +
@@ -4561,6 +4628,10 @@ export default class HUD {
       '<output id="hud-announcer-output" for="hud-announcer">' + (settings?.announcer === false ? 'OFF' : 'ON') + '</output></span>' +
       '<small class="mn-setting-note">SPOKEN MATCH CALLOUTS</small>' +
       '<input id="hud-announcer" type="checkbox"' + (settings?.announcer === false ? '' : ' checked') + '></label>' +
+      '<label class="mn-setting mn-setting-toggle" for="hud-killcam-setting"><span><strong>KILLCAM</strong>' +
+      '<output id="hud-killcam-setting-output" for="hud-killcam-setting">' + (settings?.killcam === false ? 'OFF' : 'ON') + '</output></span>' +
+      '<small class="mn-setting-note">REPLAY HOW YOU DIED · JUMP OR CLICK SKIPS</small>' +
+      '<input id="hud-killcam-setting" type="checkbox"' + (settings?.killcam === false ? '' : ' checked') + '></label>' +
       '<label class="mn-setting mn-setting-toggle" for="hud-show-fps"><span><strong>SHOW FPS</strong>' +
       '<output id="hud-show-fps-output" for="hud-show-fps">' + (settings?.showFps ? 'ON' : 'OFF') + '</output></span>' +
       '<small class="mn-setting-note">FRAME RATE IN THE CORNER</small>' +
@@ -5101,6 +5172,36 @@ export default class HUD {
   display: none; font-size: 13px; font-weight: 700; letter-spacing: .22em; color: var(--olive-bright);
   text-shadow: 0 1px 3px #000; z-index: 6;
 }
+
+/* ---------- killcam ---------- */
+#hud-killcam { position: absolute; inset: 0; display: none; z-index: 8; pointer-events: none; }
+#hud.killcam-on #hud-killcam { display: block; }
+.kc-bar { position: absolute; left: 0; right: 0; height: 9vh; background: #000; }
+.kc-top { top: 0; animation: kc-in-top .35s cubic-bezier(.2,.75,.25,1) both; }
+.kc-bottom { bottom: 0; animation: kc-in-bottom .35s cubic-bezier(.2,.75,.25,1) both; }
+@keyframes kc-in-top { from { transform: translateY(-100%); } to { transform: none; } }
+@keyframes kc-in-bottom { from { transform: translateY(100%); } to { transform: none; } }
+.kc-progress { position: absolute; left: 0; right: 0; top: 0; height: 3px; background: rgba(255,255,255,.1); }
+.kc-progress span { display: block; height: 100%; width: 0; background: #d4562c; }
+.kc-row {
+  display: flex; align-items: center; gap: 14px; height: 100%; padding: 0 max(18px, 3vw);
+  font-weight: 800; letter-spacing: .16em; white-space: nowrap; overflow: hidden;
+}
+.kc-label { font-size: 12px; color: #0a0806; background: #d4562c; padding: 4px 9px; letter-spacing: .22em; }
+.kc-killer { font-size: 18px; font-weight: 900; letter-spacing: .12em; }
+.kc-killer.ct { color: var(--ct); }
+.kc-killer.t { color: var(--t); }
+.kc-detail { font-size: 12px; color: #c7cfbb; overflow: hidden; text-overflow: ellipsis; }
+.kc-skip { margin-left: auto; font-size: 11px; color: rgba(214,229,184,.75); }
+/* The replay is the whole screen: the live HUD steps aside. */
+#hud.killcam-on #hud-radar, #hud.killcam-on #hud-top, #hud.killcam-on #hud-killfeed,
+#hud.killcam-on #hud-health, #hud.killcam-on #hud-armor, #hud.killcam-on #hud-ammo,
+#hud.killcam-on #hud-money, #hud.killcam-on #hud-streaks, #hud.killcam-on #hud-crosshair,
+#hud.killcam-on #hud-tags, #hud.killcam-on #hud-usehint, #hud.killcam-on #hud-death,
+#hud.killcam-on #hud-deathfx, #hud.killcam-on #hud-vignette, #hud.killcam-on #hud-wedges,
+#hud.killcam-on #hud-hitmarker, #hud.killcam-on #hud-weapon-name, #hud.killcam-on #hud-objective,
+#hud.killcam-on #hud-scope { display: none !important; }
+@media (prefers-reduced-motion: reduce) { .kc-top, .kc-bottom { animation: none; } }
 
 /* ---------- death ---------- */
 #hud-death {

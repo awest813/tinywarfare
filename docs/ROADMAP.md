@@ -499,15 +499,24 @@ Shipped:
   - It speaks one line at a time with a minimum gap between lines.
   - A Settings toggle (ANNOUNCER VOICE) controls it, saved with the settings.
   - It is silent where the browser has no speech synthesis.
-- **Killcam** (respawn modes): after the death collapse, the camera rides
-  your killer's live view until you respawn, labelled "KILLCAM ·
-  RESPAWNING IN N". A real replay would need a pose ring buffer for every
-  actor, and is still to do.
+- **Killcam** (every mode, `src/player/killcam.js`): after the death
+  collapse, a replay of the last 1.7 s before the kill over the killer's
+  shoulder, with the shots' tracers and sound, the kill and your fall in half
+  speed, and a letterboxed strip naming the killer, weapon, distance and
+  headshot.
+  - A ring buffer records every actor's pose 30 times a second; the killer
+    and you are replayed by two stand-in soldiers. The rest of the world is
+    live.
+  - In a solo respawn mode the respawn waits for it (about 2.5 s) unless you
+    skip it with Jump, a click or a tap; skipped, you respawn at the usual
+    time. Online the room decides when you respawn.
+  - A KILLCAM setting turns it off.
 - **End-screen podium**: the top three by kills with K/D, coloured by side.
 - **Death recap**: the killer's weapon, distance, headshot, and remaining HP.
 
 Still to do:
-- Killcam replay (pose ring buffer).
+- Killcam: replay every actor, not just the killer and you; replay their
+  animation state rather than inferring it from speed.
 - Map authoring pass: landmarks, hero props, asymmetry, the upstream
   backdrop and stain defects, and three-lane TDM variants.
 

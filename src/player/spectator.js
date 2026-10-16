@@ -4,7 +4,6 @@
 // be covered without constructing Three.js cameras or browser input objects.
 
 import { resolveHumanPlayerName } from './profile.js';
-import { isRespawnMode } from '../game/tdm.js';
 
 const MATCH_PHASES = new Set(['freeze', 'live', 'planted', 'roundEnd']);
 const CAMERA_FORWARD_OFFSET = 0.07;
@@ -147,20 +146,11 @@ export class SpectatorCamera {
     }
 
     const input = this.game.input;
-    // Player owns the camera long enough for its first-person collapse to be
-    // visible. Without this gate, this system runs later in the frame and
-    // immediately overwrites the death camera with a teammate view.
-    if (this.localPlayer.spectatorReady === false) {
-      this.reset();
-      if (input && typeof input.consumeLook === 'function') input.consumeLook();
-      return false;
-    }
-
-    // Respawn modes: a killcam on whoever got you, live, until you respawn.
-    const killer = this.localPlayer.lastKiller;
-    const mode = this.game.state && this.game.state.mode;
-    if (isRespawnMode(mode) && killer && typeof killer === 'object' && killer !== this.localPlayer &&
-        killer.alive !== false && finitePosition(killer)) {
+    // The killcam replay (src/player/killcam.js) owns the camera while it
+    // plays; it starts once the death collapse has landed.
+    const killcam = this.game.killcam;
+    if (killcam && killcam.active && killcam.clip) {
+      const killer = killcam.clip.killer;
       this._setTarget({
         id: 'killcam',
         name: killer.isRemotePlayer
@@ -171,7 +161,16 @@ export class SpectatorCamera {
         actor: killer,
       });
       if (input && typeof input.consumeLook === 'function') input.consumeLook();
-      return this._applyCamera(killer);
+      if (killcam.applyCamera(this.game.camera)) return true;
+    }
+
+    // Player owns the camera long enough for its first-person collapse to be
+    // visible. Without this gate, this system runs later in the frame and
+    // immediately overwrites the death camera with a teammate view.
+    if (this.localPlayer.spectatorReady === false) {
+      this.reset();
+      if (input && typeof input.consumeLook === 'function') input.consumeLook();
+      return false;
     }
 
     const cyclePressed = !!(input && typeof input.wasPressed === 'function' && input.wasPressed(' '));

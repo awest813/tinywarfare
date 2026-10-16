@@ -11,6 +11,7 @@ import { createAutoGraphics } from './gfx/auto-graphics.js';
 import { graphicsProfile, isChromeOS, probeGpuName } from './gfx/profiles.js';
 import { installBilinearShadows } from './gfx/shadow-bilinear.js';
 import Player from './player/player.js';
+import Killcam from './player/killcam.js';
 import PlayerProfile from './player/profile.js';
 import Weapons from './weapons/weapons.js';
 import ViewModel from './weapons/viewmodel.js';
@@ -260,6 +261,7 @@ game.leaderboard = new LeaderboardClient(game);
 game.hud = new HUD(game);
 game.touchControls = new TouchControls(game);
 game.multiplayer = new Multiplayer(game);
+game.killcam = new Killcam(game);
 loadingScreen?.setStage?.('Calibrating combat systems', 92);
 
 /**
@@ -315,7 +317,9 @@ const UPDATE_ORDER = [
   'world', 'rounds', 'score', 'streaks', 'touchControls', 'player', 'weapons', 'viewmodel', 'bots',
   // Spectator runs after replicated/AI actors so deaths, disconnects, and
   // poses affect the observer camera in the same rendered frame.
-  'combat', 'multiplayer', 'spectator', 'effects', 'hud', 'audio', 'input',
+  // The killcam records poses after everything has moved and drives its
+  // replay before the spectator, which hands it the camera.
+  'combat', 'multiplayer', 'killcam', 'spectator', 'effects', 'hud', 'audio', 'input',
   // Not gameplay: releases the texture forge's scratch targets once the bake
   // burst after a map load has clearly finished.
   'materials',

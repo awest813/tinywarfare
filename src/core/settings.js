@@ -173,6 +173,7 @@ export default class GameSettings {
     this.fov = SETTINGS_LIMITS.fov.default;
     this.announcer = true;
     this.showFps = false;
+    this.killcam = true;
     this.graphics = 'auto';
     // Set when Auto found High too slow on this device: start on Low.
     this.graphicsAutoFloor = '';
@@ -226,6 +227,15 @@ export default class GameSettings {
     if (next === this.fov) return next;
     this.fov = next;
     this._commit('fov');
+    return next;
+  }
+
+  /** Replay of how you died, after each death. */
+  setKillcam(on) {
+    const next = !!on;
+    if (next === this.killcam) return next;
+    this.killcam = next;
+    this._commit('killcam');
     return next;
   }
 
@@ -335,6 +345,7 @@ export default class GameSettings {
     this.fov = SETTINGS_LIMITS.fov.default;
     this.announcer = true;
     this.showFps = false;
+    this.killcam = true;
     this.graphics = 'auto';
     this.graphicsAutoFloor = '';
     this.bindings = defaultBindings();
@@ -350,6 +361,7 @@ export default class GameSettings {
       fov: this.fov,
       announcer: this.announcer,
       showFps: this.showFps,
+      killcam: this.killcam,
       graphics: this.graphics,
       bindings: Object.freeze({ ...this.bindings }),
     });
@@ -371,6 +383,7 @@ export default class GameSettings {
       this.fov = clampStep(parsed.fov ?? SETTINGS_LIMITS.fov.default, SETTINGS_LIMITS.fov);
       this.announcer = parsed.announcer !== false;
       this.showFps = parsed.showFps === true;
+      this.killcam = parsed.killcam !== false;
       this.graphics = GRAPHICS_OPTIONS.includes(parsed.graphics) ? parsed.graphics : 'auto';
       this.graphicsAutoFloor = ['low', 'chromebook'].includes(parsed.graphicsAutoFloor)
         ? parsed.graphicsAutoFloor
@@ -408,6 +421,7 @@ export default class GameSettings {
           fov: this.fov,
           announcer: this.announcer,
           showFps: this.showFps,
+          killcam: this.killcam,
           graphics: this.graphics,
           graphicsAutoFloor: this.graphicsAutoFloor,
           bindingsVersion: BINDINGS_VERSION,
