@@ -128,6 +128,47 @@ sight is farther than that.
 Bot-match leaderboard points scale with the tier (Recruit 0.6x, Regular 1x,
 Veteran 1.4x), before the daily taper and cap.
 
+### Bot commander, cover and radio (2026-10-16)
+
+Follow-up after looking at how shipped shooters build bots (Valve's
+Counter-Strike bot, Killzone 2/3's layered multiplayer bots, F.E.A.R.,
+Game AI Pro):
+
+- **Team commander** (`src/ai/commander.js`): per side, objective jobs with
+  weights and slots handed to the best free bot, replacing per-bot dice
+  rolls. Kill Confirmed: one bot per enemy tag within 40 m; a bot detours
+  for its own side's tag only when an enemy is within 15 m of it.
+  Domination: two per flag the side lacks, one defender per held flag, two
+  while it is being taken (an urgent job may pull a bot off a lesser one,
+  after 10 s on its job). Hardpoint: all but one bot hold the zone.
+- **Sightlines and cover** (`src/ai/sightlines.js`): how far each waypoint
+  sees in 8 directions (holding bots watch long lanes), and cover: a
+  nearby waypoint out of the enemy's sight that Regular and Veteran bots
+  run to when reloading or under 45 hp.
+- **Fairness against humans**: accuracy tokens (Recruit 1, Regular 3,
+  Veteran unlimited bots landing hits on one human at once; the rest
+  near-miss) and a missable first shot.
+- **Grudges** (45 s) and **radio callouts** for the player's side.
+- **Collision**: a capsule found inside a box was thrown to the box's far
+  face (Dustyard bots ended up outside the east wall) or lifted onto its
+  top; it now leaves by the short way. Paths start and end at the nearest
+  waypoint in a clear line.
+
+Soak, Regular, 10 matches per mode, before the commander / now:
+
+| Mode | Before | Now |
+|---|---|---|
+| Kill Confirmed | 1 of 5 reached 30; 37 confirms, 56 denies a match | 4 of 10 reached 30; 36-39 confirms, 50-58 denies (deliberate denies 16 to 1; the rest are walk-overs) |
+| Domination | 0 stuck | 0 stuck (9 mid-way, from job thrashing and the collision bug) |
+| Hardpoint | 20% empty | 20% empty, 0 stuck |
+
+Tier check after all of it (4 TDM matches each, scripted player K/D):
+Recruit 7.8, Regular 3.6, Veteran 0.94.
+
+Open: Kill Confirmed still reaches 30 less often than before the bot
+overhaul (12 of 20); most denies are bots walking over their own side's
+tags, which is the pickup rule.
+
 ## Architecture moves that unlock everything
 
 Three couplings block every MW-style feature. Do these first:
