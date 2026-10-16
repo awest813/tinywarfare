@@ -423,3 +423,24 @@ test('against a human, only the token holders hit; the rest and a first shot nea
   assert.equal(vet._meansToMiss(first, vet._skill()), false);
   assert.equal(vet._meansToMiss(second, vet._skill()), false);
 });
+
+test('a bot holds a grudge against its killer', () => {
+  const { brain } = makeBrain('regular');
+  const killer = makeBot({ team: 't', pos: new THREE.Vector3(0, 0, -14) });
+  const nearer = makeBot({ team: 't', pos: new THREE.Vector3(1, 0, -11) });
+  const bot = makeBot({ health: 10 });
+  brain.all = [bot, killer, nearer];
+  brain._damageBot(bot, 50, { from: killer });
+  assert.equal(bot.alive, false);
+  assert.equal(bot.grudge, killer);
+  // Back in the fight: the killer, a little farther off, is the target.
+  bot.alive = true;
+  brain.time += 5;
+  brain._perceive(bot);
+  assert.equal(bot.target, killer);
+  // The grudge fades.
+  bot.target = null;
+  brain.time += 60;
+  brain._perceive(bot);
+  assert.equal(bot.target, nearer);
+});

@@ -217,6 +217,8 @@ const GHOST_FOOTSTEP_RANGE = 0.45; // Ghost perk: bots hear the player's steps a
 const SUPPRESSED_HEARING = 0.35;
 const STUN_SPEED_SCALE = 0.4;      // stunned bots crawl and track slowly
 const BOT_EXPLOSIVES = new Set(['hegrenade', 'semtex', 'airstrike', 'c4']);  // suppressor: bots hear the player's primary at this fraction
+const GRUDGE_TIME = 45;         // s a bot remembers who killed it
+const GRUDGE_HUNT = 0.5;        // chance a free hunt goes after its killer instead of the nearest enemy
 const NEAR_MISS_OFFSET = 0.7;   // m: a deliberate miss passes at least this far from the body
 const COVER_HEALTH = 45;        // hp below which a bot breaks off to cover
 const COVER_RANGE = 10;         // m it will run for cover
@@ -1979,6 +1981,12 @@ export default class Bots {
     if (bot.health <= 0) {
       bot.health = 0;
       bot.alive = false;
+      // A grudge: it goes after whoever killed it for a while (the
+      // human-like trait the BotPrize-winning UT^2 bot modelled).
+      if (bot.attacker) {
+        bot.grudge = bot.attacker;
+        bot.grudgeUntil = this.time + GRUDGE_TIME;
+      }
       bot.deathTime = this.time;
       bot.fallAxis = Math.random() < 0.5 ? 'x' : 'z';
       bot.fallSign = Math.random() < 0.5 ? -1 : 1;
@@ -3168,6 +3176,13 @@ export default class Bots {
     // The player's Counter-UAV scatters the enemy side's hunt.
     const jammed = !!(streaks && typeof streaks.counterUavActive === 'function' && streaks.counterUavActive()) &&
       againstPlayer;
+    // Payback: a bot holding a grudge heads for its killer some of the time.
+    const grudge = bot.grudge && this.time < (bot.grudgeUntil || 0) && bot.grudge.alive !== false
+      ? (bot.grudge.pos || bot.grudge.position) : null;
+    if (grudge && Math.random() < GRUDGE_HUNT) {
+      nearest = grudge;
+      best = 0;
+    }
     let goal = null;
     if (nearest && Math.random() < (uavUp ? 0.95 : jammed ? 0.35 : this._skill().huntSense)) {
       goal = this._diverseNear(bot, nearest, 12);
@@ -3492,6 +3507,7 @@ export default class Bots {
       } else if (attackerFresh && actor === bot.attacker && sk.switching !== 'none') {
         score *= 0.4;
       }
+      if (actor === bot.grudge && this.time < (bot.grudgeUntil || 0)) score *= 0.7;
       if (sk.switching === 'threat' && Number.isFinite(actor.yaw)) {
         // Someone looking straight at this bot is the bigger danger.
         const toMe = yawFromDir(bot.pos.x - pos.x, bot.pos.z - pos.z);
