@@ -316,3 +316,18 @@ test('bot-match points scale with the bot tier, and an unknown tier counts as Re
   assert.equal(points.undefined, points.regular);
   assert.deepEqual(store.rules().botSkillMultipliers, { recruit: 0.6, regular: 1, veteran: 1.4 });
 });
+
+test('old match records are pruned so the store does not grow forever', (t) => {
+  let clock = NOW;
+  const { store } = fixture(t, { now: () => clock });
+  const session = store.createSession({ playerName: 'Veteran' });
+  store.submitMatch(session.token, result({ matchId: 'old_match_01', mode: 'bots' }));
+  assert.ok(store.data.matches[Object.keys(store.data.matches)[0]]);
+  clock += 9 * 24 * 60 * 60 * 1000;           // nine days later
+  store.submitMatch(session.token, result({ matchId: 'new_match_01', mode: 'bots', completedAt: new Date(clock).toISOString() }));
+  const keys = Object.keys(store.data.matches);
+  assert.equal(keys.length, 1, 'only the recent record is kept');
+  assert.match(keys[0], /new_match_01/);
+  // The player's standing keeps both matches' points.
+  assert.ok(store.leaderboard('bots').entries[0].score > 0);
+});

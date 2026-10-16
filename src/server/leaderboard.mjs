@@ -43,6 +43,11 @@ function tokenHash(token) {
  * Production uses the SQLite Durable Object, while both stores share every
  * scoring and progression mutation through leaderboard-core.mjs.
  */
+
+// One day longer than the seven-day window in which a result is accepted.
+const MATCH_RECORD_TTL_MS = 8 * 24 * 60 * 60 * 1000;
+const MATCH_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
+
 export class LeaderboardStore {
   constructor({
     filePath,
@@ -158,9 +163,30 @@ export class LeaderboardStore {
 
   /** Used by the WebSocket room after associating a ranked identity. */
   submitMatchForPlayer(playerId, payload) {
-    const result = submitMatchToData(this.data, playerId, payload, this.now());
-    if (!result.duplicate) this._save();
+    const now = this.now();
+    const result = submitMatchToData(this.data, playerId, payload, now);
+    if (!result.duplicate) {
+      this._pruneMatches(now);
+      this._save();
+    }
     return result;
+  }
+
+  /**
+   * Accepted results are kept only to recognise a retry of the same match,
+   * and results older than seven days are refused anyway, so records past
+   * MATCH_RECORD_TTL_MS go. Without this the file (read whole at boot,
+   * rewritten on every result) grew with every match ever played.
+   */
+  _pruneMatches(now) {
+    if (now - (this._prunedAt || 0) < MATCH_PRUNE_INTERVAL_MS) return;
+    this._prunedAt = now;
+    const matches = this.data.matches;
+    if (!matches) return;
+    for (const [key, record] of Object.entries(matches)) {
+      const at = Date.parse(record && record.acceptedAt);
+      if (Number.isFinite(at) && now - at > MATCH_RECORD_TTL_MS) delete matches[key];
+    }
   }
 
   playerStanding(playerId) {
