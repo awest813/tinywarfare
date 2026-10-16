@@ -59,10 +59,10 @@ passing), and boots cleanly in a headless browser with no console errors.
 | Keyboard still drives gameplay after Esc releases the pointer | `src/core/input.js:483` | Touch play uses a virtual lock, and the buy menu runs unlocked; needs care |
 | Shots follow the camera, so view punch and shake move bullets | `src/weapons/weapons.js:635` | Deliberate CS-style aim punch; revisit when ADS lands |
 | Wall penetration can skip a player standing between two thin walls | `src/combat/combat.js:474` | Rare |
-| No per-message rate limit on the Node server's sockets | `server.mjs` | Payloads are capped at 64 KB; low impact |
+| ~~No per-message rate limit on the Node server's sockets~~ | `server.mjs` | Fixed in the release pass: a per-connection message budget, depth limit and guarded dispatch on both servers |
 | About 325 MB of trailer MP4s in git history | repo root | Needs `git filter-repo` and a force push; owner's call |
-| Deploy config still points at the upstream author's domain and Worker | `wrangler.jsonc`, `worker/index.mjs:30`, `server.mjs` origins | Pick a host first |
-| Upstream's open visual defects: grey backdrop boxes, tiling concrete stains, low-quality dressing LOD | see `HANDOFF.md` | Content pass |
+| ~~Deploy config still points at the upstream author's domain and Worker~~ | `wrangler.jsonc`, `server.mjs` origins | Fixed: both allow `awest813.github.io` |
+| Upstream's open visual defects: grey backdrop boxes, tiling concrete stains, low-quality dressing LOD | see `docs/archive/HANDOFF-tiny-strike-2026-07.md` | Content pass |
 
 Headshots: the head sphere now sits a quarter-radius below the top of the
 capsule (centre ~1.69 m, the operative's helmet), and a ray scores a headshot
