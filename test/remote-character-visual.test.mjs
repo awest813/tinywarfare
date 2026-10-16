@@ -268,3 +268,19 @@ test('multiplayer keeps remotes hidden until a pose arrives, updates through the
   assert.equal(multiplayer._remoteById.has(remote.networkId), false);
   assert.equal(multiplayer.remotePlayers.length, 0);
 });
+
+test('if both soldier models fail to load, a remote falls back to the block body instead of staying invisible', () => {
+  const visuals = makeVisuals();
+  const actor = makeActor();
+  visuals.createOperativeVisual(actor, null);
+  assert.equal(actor.mesh.children.length, 0, 'still loading: nothing yet');
+
+  visuals._charFailed = { ct: true };
+  visuals._refreshCharacterVisuals();
+  assert.equal(actor.mesh.children.length, 0, 'one side failed: the other may still arrive');
+
+  visuals._charFailed.t = true;
+  visuals._refreshCharacterVisuals();
+  assert.ok(actor.mesh.getObjectByProperty('isMesh', true), 'both failed: a visible body');
+  assert.ok(actor.parts, 'animated through the primitive-body path');
+});

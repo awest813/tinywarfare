@@ -125,7 +125,7 @@ export function thirdPersonTemplate(id, materialLibrary) {
  *
  * @param {string} id
  * @param {object} materialLibrary  game.materials
- * @param {object} opts  { viewmodel } — a viewmodel copy never casts shadows
+ * @param {object} opts  { viewmodel, castShadow } — a viewmodel copy never casts shadows
  *                       and is never frustum culled (it lives at the camera)
  * @returns {THREE.Group | null}  with `userData.parts` resolved on the clone
  */
@@ -137,7 +137,7 @@ export function weaponInstance(id, materialLibrary, opts = {}) {
   const copy = source.clone(true);
   copy.traverse((o) => {
     if (!o.isMesh) return;
-    o.castShadow = !viewmodel;
+    o.castShadow = !viewmodel && opts.castShadow !== false;
     o.receiveShadow = true;
     o.frustumCulled = !viewmodel;
   });

@@ -41,6 +41,7 @@ export const GRAPHICS_PROFILES = Object.freeze({
     mapLights: true,
     precipitation: 1,
     radarInterval: 0.05,
+    weaponShadows: true,
   }),
   low: Object.freeze({
     id: 'low',
@@ -59,6 +60,7 @@ export const GRAPHICS_PROFILES = Object.freeze({
     mapLights: true,
     precipitation: 0.5,
     radarInterval: 0.05,
+    weaponShadows: true,
   }),
   chromebook: Object.freeze({
     id: 'chromebook',
@@ -78,6 +80,9 @@ export const GRAPHICS_PROFILES = Object.freeze({
     precipitation: 0.3,
     // the radar's canvas redraw is a measurable share of a slow CPU's frame
     radarInterval: 0.1,
+    // A held gun's shadow is a few texels in a 1024 map, but ~25k triangles
+    // per soldier through the shadow pass a second time.
+    weaponShadows: false,
   }),
 });
 

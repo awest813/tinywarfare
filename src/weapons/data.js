@@ -129,7 +129,7 @@ export const WEAPONS = {
     damage: 26,
     headshotMult: 2.5,
     armorPen: 0.47,          // share of a body hit that gets through armor
-    rpm: 400,
+    rpm: 500,                // fast and light: 4 body shots in 360 ms against the USP-S's 3 in 341
     magSize: 20,
     reserve: 120,
     reloadTime: 2.2,

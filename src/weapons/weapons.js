@@ -711,7 +711,11 @@ export default class Weapons {
     }
     // A click that only lost to the sprint-out fires as soon as it ends; any
     // other click waits INPUT_BUFFER for a cooldown or raise to finish.
-    const buffered = this._semiQueued && !isGrenade && this._now - this._semiQueuedAt <= INPUT_BUFFER;
+    // A grenade click is kept for the whole raise after a throw (0.35 s), so
+    // throwing a second one does not need a click timed to the frame it ends.
+    const buffered = this._semiQueued && (isGrenade
+      ? this._state === 'equipping'
+      : this._now - this._semiQueuedAt <= INPUT_BUFFER);
     if (!(sprintLocked && !sprinting && this._semiQueued) && !buffered) this._semiQueued = false;
     this._releaseQueued = false;
 
@@ -840,6 +844,18 @@ export default class Weapons {
       this.game.events.emit('weapon:dryfire', { id: def.id });
     }
     if (ammo && ammo.reserve > 0) this._startReload();
+    else if (ammo && ammo.mag <= 0) this._switchFromEmpty(def);
+  }
+
+  /**
+   * Bone dry (no mag, no reserve): a trigger pull after the click goes to the
+   * other gun if it has rounds, else the knife, instead of clicking forever.
+   */
+  _switchFromEmpty(def) {
+    const other = def.slot === 1 ? this.slots[2] : def.slot === 2 ? this.slots[1] : null;
+    const left = other && this.ammo[other];
+    const next = left && (left.mag > 0 || left.reserve > 0) ? other : 'knife';
+    if (next !== def.id && this.owns(next)) this.equip(next);
   }
 
   _fireShot(def, player, melee) {

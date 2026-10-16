@@ -2721,6 +2721,9 @@ export default class HUD {
     this._tagV = this._tagV || new THREE.Vector3();
     const w = window.innerWidth;
     const h = window.innerHeight;
+    // Pass 1: project every tag and note its distance.
+    const order = this._tagOrder || (this._tagOrder = []);
+    order.length = 0;
     for (let i = 0; i < root.children.length; i++) {
       const tag = root.children[i];
       const a = mates[i];
@@ -2733,9 +2736,31 @@ export default class HUD {
       const name = a.isRemotePlayer ? humanCallsign(g, a.name, a.networkId) : String(a.name || '');
       if (tag.textContent !== name) tag.textContent = name;
       if (tag._shown !== true) { tag._shown = true; tag.style.display = 'block'; }
+      tag._px = Math.round((this._tagV.x + 1) * 0.5 * w);
+      tag._py = Math.round((1 - this._tagV.y) * 0.5 * h);
+      tag._d = pos.distanceToSquared(p.position);
+      tag._w = name.length * 7.5 + 12; // ~10px heavy caps with tracking
+      order.push(tag);
+    }
+    // Pass 2: nearest first keeps its spot; a farther tag that would sit on
+    // top of one already placed steps up a row (tags stacked into one
+    // unreadable smear when teammates bunched up in a doorway).
+    order.sort((m, n) => m._d - n._d);
+    const ROW = 17;
+    for (let i = 0; i < order.length; i++) {
+      const tag = order[i];
+      const x = tag._px;
+      let y = tag._py;
+      for (let pass = 0; pass < 4; pass++) {
+        let hit = false;
+        for (let j = 0; j < i; j++) {
+          const o = order[j];
+          if (Math.abs(o._x - x) < (o._w + tag._w) / 2 && Math.abs(o._y - y) < ROW) { hit = true; break; }
+        }
+        if (!hit) break;
+        y -= ROW;
+      }
       // Style writes only when the tag actually moved a pixel.
-      const x = Math.round((this._tagV.x + 1) * 0.5 * w);
-      const y = Math.round((1 - this._tagV.y) * 0.5 * h);
       if (tag._x !== x || tag._y !== y) {
         tag._x = x;
         tag._y = y;

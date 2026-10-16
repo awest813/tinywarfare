@@ -1088,6 +1088,8 @@ export default class Bots {
         undefined,
         (err) => {
           console.warn(`[bots] ${team} soldier model failed; using the other operative when available`, err);
+          if (!this._charFailed) this._charFailed = {};
+          this._charFailed[team] = true;
           this._refreshCharacterVisuals();
         }
       );
@@ -1409,9 +1411,18 @@ export default class Bots {
 
   _refreshCharacterVisuals() {
     const actors = [...(this.all || []), ...(this._externalActors || [])];
+    // Both soldier models failed for good (offline, blocked host): a remote
+    // player's root would stay empty, invisible but still shootable. Give it
+    // the block body the bots already fall back to.
+    const noModels = !!(this._charFailed && this._charFailed.ct && this._charFailed.t);
     for (const actor of actors) {
       const source = this._characterAssetFor(actor.team);
-      if (!source) continue;
+      if (!source) {
+        if (noModels && actor.mesh && !actor.rig && !actor.parts && actor.mesh.children.length === 0) {
+          actor.mesh.add(this._buildBotMesh(actor.team, actor));
+        }
+        continue;
+      }
       if (actor.rig && actor.visualAssetTeam !== source.team) this._disposeOperativeRig(actor);
       this._attachGLB(actor);
     }
@@ -1839,7 +1850,10 @@ export default class Bots {
       bot.heldWeaponId = null;
     }
 
-    const weapon = weaponInstance(bot.weaponId, library, { viewmodel: false });
+    const weapon = weaponInstance(bot.weaponId, library, {
+      viewmodel: false,
+      castShadow: this.game.gfx?.weaponShadows !== false,
+    });
     if (!weapon) return false;
 
     anchor.parent.updateMatrixWorld(true);

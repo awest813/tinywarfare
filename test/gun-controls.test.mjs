@@ -201,3 +201,25 @@ test('each gun keeps its own cooldown: a pistol drawn after an AWP shot fires, t
   w._onMouseUp({ button: 0 });
   assert.deepEqual(shots, ['awp', 'usp'], 'a quick switch does not skip the bolt');
 });
+
+test('a bone-dry gun clicks once, then goes to the other gun (or the knife)', () => {
+  const game = makeGame();
+  const w = game.weapons;
+  w.give('m4a1');
+  w.give('usp');
+  w.equip('m4a1');
+  run(game, 1);
+  w.ammo.m4a1.mag = 0;
+  w.ammo.m4a1.reserve = 0;
+  w._onMouseDown({ button: 0 });
+  run(game, 1 / 60);
+  w._onMouseUp({ button: 0 });
+  assert.equal(w.currentId, 'usp');
+
+  run(game, 1);
+  w.ammo.usp.mag = 0;
+  w.ammo.usp.reserve = 0;
+  w._onMouseDown({ button: 0 });
+  run(game, 1 / 60);
+  assert.equal(w.currentId, 'knife', 'both guns dry: the knife');
+});
