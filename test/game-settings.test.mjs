@@ -327,3 +327,28 @@ test('graphics: auto picks by device, remembers a slow one, and a pick overrides
   settings.reset();
   assert.equal(settings.graphics, 'auto');
 });
+
+test('movement keys work by position on any keyboard layout, labelled in that layout', async (t) => {
+  installInputGlobals(t);
+  const events = eventBus();
+  const game = { debug: false, canvas: {}, events };
+  game.settings = new GameSettings(game, null);
+  const input = new Input(game);
+  game.input = input;
+  // Russian layout: the W key types 'ц'.
+  input._onKeyDown({ key: 'ц', code: 'KeyW', repeat: false });
+  assert.equal(input.isDown('w'), true, 'W moves on a Russian keyboard');
+  input._onKeyUp({ key: 'ц', code: 'KeyW' });
+  assert.equal(input.isDown('w'), false);
+  // AZERTY: the key in W's place types 'z' and still moves forward.
+  input._onKeyDown({ key: 'z', code: 'KeyW', repeat: false });
+  assert.equal(input.isDown('w'), true);
+  input._onKeyUp({ key: 'z', code: 'KeyW' });
+  // Labels follow the player's layout when the browser provides it.
+  const { setKeyboardLayoutMap, formatKeyLabel } = await import('../src/core/settings.js');
+  setKeyboardLayoutMap(new Map([['KeyW', 'z'], ['KeyA', 'q']]));
+  t.after(() => setKeyboardLayoutMap(null));
+  assert.equal(formatKeyLabel('w'), 'Z');
+  assert.equal(formatKeyLabel('a'), 'Q');
+  assert.equal(formatKeyLabel('shift'), 'SHIFT');
+});

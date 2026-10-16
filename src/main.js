@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { EventBus } from './shared/events.js';
 import { CONFIG } from './shared/config.js';
 import Input from './core/input.js';
-import GameSettings from './core/settings.js';
+import GameSettings, { setKeyboardLayoutMap } from './core/settings.js';
 import TouchControls, { shouldEnableTouchControls } from './core/touch-controls.js';
 import World from './world/map.js';
 import { MaterialSystem } from './gfx/materials/index.js';
@@ -194,6 +194,13 @@ game.post =
 // brightness, sensitivity or keyboard layout.
 settings.game = game;
 game.settings = settings;
+// Show key labels in the player's own keyboard layout where the browser can say.
+navigator.keyboard?.getLayoutMap?.()
+  .then((map) => {
+    setKeyboardLayoutMap(map);
+    game.events.emit('settings:changed', { kind: 'layout', settings: settings.snapshot() });
+  })
+  .catch(() => {});
 // Field of view is a device preference; every FOV reader uses CONFIG.
 const applyFov = () => {
   CONFIG.PLAYER.FOV = game.settings.fov;

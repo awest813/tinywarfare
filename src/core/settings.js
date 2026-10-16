@@ -80,9 +80,22 @@ export function canBindPhysicalKey(value) {
   return !!key && key.length <= 24 && !FORBIDDEN_BINDINGS.has(key);
 }
 
+// The browser's keyboard layout map (navigator.keyboard.getLayoutMap()), when
+// available: letter keys are bound by position, so a label shows what the
+// player's own layout prints there (Z on AZERTY's W key, Ц on Russian).
+let keyboardLayout = null;
+
+export function setKeyboardLayoutMap(map) {
+  keyboardLayout = map && typeof map.get === 'function' ? map : null;
+}
+
 export function formatKeyLabel(value) {
   const key = normalizePhysicalKey(value);
   if (!key) return 'UNBOUND';
+  if (keyboardLayout && /^[a-z]$/.test(key)) {
+    const printed = keyboardLayout.get('Key' + key.toUpperCase());
+    if (typeof printed === 'string' && printed.trim()) return printed.toUpperCase();
+  }
   const labels = {
     ' ': 'SPACE',
     control: 'CTRL',

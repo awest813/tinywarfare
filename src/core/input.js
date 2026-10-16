@@ -522,6 +522,13 @@ export default class Input {
     // leave a key pressed before Shift stuck when its keyup arrives as '!'.
     const digit = /^Digit([0-9])$/.exec(e?.code || '');
     if (digit) return digit[1];
+    // Letters are matched by position too: on a Russian (or Greek, Hebrew,
+    // Arabic) layout W types 'ц', so WASD did nothing, and on AZERTY the
+    // movement keys landed all over the board. Labels show the player's own
+    // characters (formatKeyLabel with the browser's layout map).
+    const letter = /^Key([A-Z])$/.exec(e?.code || '');
+    if (letter) return letter[1].toLowerCase();
+    if (e?.code === 'Space') return ' ';
     return normalizePhysicalKey(e?.key);
   }
 
