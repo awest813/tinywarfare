@@ -5200,7 +5200,7 @@ export default class HUD {
 #hud.killcam-on #hud-tags, #hud.killcam-on #hud-usehint, #hud.killcam-on #hud-death,
 #hud.killcam-on #hud-deathfx, #hud.killcam-on #hud-vignette, #hud.killcam-on #hud-wedges,
 #hud.killcam-on #hud-hitmarker, #hud.killcam-on #hud-weapon-name, #hud.killcam-on #hud-objective,
-#hud.killcam-on #hud-scope { display: none !important; }
+#hud.killcam-on #hud-scope, #hud.killcam-on #hud-radio { display: none !important; }
 @media (prefers-reduced-motion: reduce) { .kc-top, .kc-bottom { animation: none; } }
 
 /* ---------- death ---------- */

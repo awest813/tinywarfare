@@ -314,12 +314,15 @@ window.visualViewport?.addEventListener?.('resize', resizeRenderer, { passive: t
 const UPDATE_ORDER = [
   // The world drives the sky: its LUT/IBL bakes must land before anything is
   // drawn with them.
-  'world', 'rounds', 'score', 'streaks', 'touchControls', 'player', 'weapons', 'viewmodel', 'bots',
+  // The killcam runs before the rounds: a solo respawn that was waiting for
+  // its replay then lands in the same frame the replay ends, instead of the
+  // spectator showing a teammate for one frame in between. (It records the
+  // poses the previous frame left, one frame behind, which is invisible.)
+  'world', 'killcam', 'rounds', 'score', 'streaks', 'touchControls', 'player', 'weapons', 'viewmodel', 'bots',
   // Spectator runs after replicated/AI actors so deaths, disconnects, and
-  // poses affect the observer camera in the same rendered frame.
-  // The killcam records poses after everything has moved and drives its
-  // replay before the spectator, which hands it the camera.
-  'combat', 'multiplayer', 'killcam', 'spectator', 'effects', 'hud', 'audio', 'input',
+  // poses affect the observer camera in the same rendered frame. It hands the
+  // camera to the killcam while a replay plays.
+  'combat', 'multiplayer', 'spectator', 'effects', 'hud', 'audio', 'input',
   // Not gameplay: releases the texture forge's scratch targets once the bake
   // burst after a map load has clearly finished.
   'materials',
