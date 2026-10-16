@@ -76,7 +76,12 @@ test('touch controls are limited to touch-capable devices unless explicitly forc
   assert.equal(shouldEnableTouchControls({ search: '?touch=1', maxTouchPoints: 0, coarse: false, noHover: false }), true);
   assert.equal(shouldEnableTouchControls({ search: '?touch=0', maxTouchPoints: 5, coarse: true, noHover: true }), false);
   assert.equal(shouldEnableTouchControls({ search: '', maxTouchPoints: 5, coarse: true, noHover: false }), true);
-  assert.equal(shouldEnableTouchControls({ search: '', maxTouchPoints: 5, coarse: false, anyCoarse: true, noHover: false }), true);
+  assert.equal(shouldEnableTouchControls({ search: '', maxTouchPoints: 5, coarse: false, anyCoarse: true, noHover: false, appleTablet: true }), true);
+  assert.equal(
+    shouldEnableTouchControls({ search: '', maxTouchPoints: 10, coarse: false, anyCoarse: true, noHover: false, appleTablet: false }),
+    false,
+    'a touchscreen laptop with a mouse or trackpad plays like a desktop'
+  );
   assert.equal(shouldEnableTouchControls({ search: '', maxTouchPoints: 5, coarse: false, noHover: false }), false);
   assert.equal(shouldEnableTouchControls({ search: '', maxTouchPoints: 0, coarse: true, noHover: true }), false);
 });

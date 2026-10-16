@@ -594,6 +594,9 @@ export default class Input {
 
   _onMouseUp(e) {
     const button = e.button | 0;
+    // A gaming mouse's side buttons are Back/Forward: mid-match they would
+    // navigate away from the game.
+    if (this.locked && (button === 3 || button === 4)) e.preventDefault?.();
     const wasDown = this._buttonsDown.delete(button);
     this._syncButtonFlags();
     // The event itself only exists inside the lock (spec), and only for
@@ -704,6 +707,9 @@ export default class Input {
   }
 
   _onPointerLockError() {
+    // Chrome refuses a new lock for about a second after Esc; the pause
+    // overlay tells the player to click again.
+    this.game.events.emit('input:lock-error');
     if (!this._warnedLockError) {
       this._warnedLockError = true;
       console.warn('[input] pointer lock request was rejected by the browser');

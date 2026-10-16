@@ -2637,7 +2637,7 @@ export default class Multiplayer {
         <div class="mp-title">ROOM <span id="mp-code"></span></div>
         <div id="mp-roster"></div>
         <div class="mp-row"><select id="mp-lobby-mode" aria-label="Room fill"><option value="mixed">HUMANS + BOTS</option><option value="humans">HUMANS ONLY</option></select></div>
-        <div class="mp-actions"><button id="mp-ct">JOIN ${FACTIONS.ct.short}</button><button id="mp-t">JOIN ${FACTIONS.t.short}</button><button id="mp-start">START MATCH</button><button id="mp-leave">LEAVE</button></div>
+        <div class="mp-actions"><button id="mp-ct">JOIN ${FACTIONS.ct.name}</button><button id="mp-t">JOIN ${FACTIONS.t.name}</button><button id="mp-start">START MATCH</button><button id="mp-leave">LEAVE</button></div>
         <div id="mp-lobby-status"></div>
       </div>`;
     const syncOverlay = document.createElement('div');

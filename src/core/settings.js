@@ -29,7 +29,7 @@ export const KEY_BINDING_DEFINITIONS = Object.freeze([
   Object.freeze({ id: 'sprint', label: 'Sprint', canonicalKey: 'shift', defaultKey: 'shift' }),
   Object.freeze({ id: 'walk', label: 'Walk', canonicalKey: 'c', defaultKey: 'x' }),
   Object.freeze({ id: 'crouch', label: 'Crouch / Slide', canonicalKey: 'control', defaultKey: 'c' }),
-  Object.freeze({ id: 'jump', label: 'Jump / Next View', canonicalKey: ' ', defaultKey: ' ' }),
+  Object.freeze({ id: 'jump', label: 'Jump / Next Spectator', canonicalKey: ' ', defaultKey: ' ' }),
   Object.freeze({ id: 'use', label: 'Use / Objective', canonicalKey: 'e', defaultKey: 'e' }),
   Object.freeze({ id: 'reload', label: 'Reload', canonicalKey: 'r', defaultKey: 'r' }),
   Object.freeze({ id: 'buy', label: 'Buy Menu', canonicalKey: 'b', defaultKey: 'b' }),
@@ -41,7 +41,7 @@ export const KEY_BINDING_DEFINITIONS = Object.freeze([
   Object.freeze({ id: 'weapon4', label: 'Grenade', canonicalKey: '4', defaultKey: '4' }),
   Object.freeze({ id: 'streak1', label: 'Scorestreak 1', canonicalKey: '5', defaultKey: '5' }),
   Object.freeze({ id: 'streak2', label: 'Scorestreak 2', canonicalKey: '6', defaultKey: '6' }),
-  Object.freeze({ id: 'streak3', label: 'Bonus Streak', canonicalKey: '7', defaultKey: '7' }),
+  Object.freeze({ id: 'streak3', label: 'Care Package Bonus', canonicalKey: '7', defaultKey: '7' }),
 ]);
 
 const DEFINITION_BY_ID = new Map(KEY_BINDING_DEFINITIONS.map((entry) => [entry.id, entry]));

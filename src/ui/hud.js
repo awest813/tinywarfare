@@ -455,6 +455,7 @@ export default class HUD {
       lookSensitivityOutput: $('hud-look-sensitivity-output'),
       brightness: $('hud-brightness'),
       announcer: $('hud-announcer'),
+      announcerOutput: $('hud-announcer-output'),
       graphics: $('hud-graphics'),
       graphicsNote: $('hud-graphics-note'),
       brightnessOutput: $('hud-brightness-output'),
@@ -834,6 +835,20 @@ export default class HUD {
       this._syncSettingsUi();
     });
     this._el.settingsReset?.addEventListener('click', () => {
+      // Two steps, like QUIT: one stray click must not wipe every binding.
+      const btn = this._el.settingsReset;
+      clearTimeout(this._settingsResetTimer);
+      if (btn.dataset.armed !== '1') {
+        btn.dataset.armed = '1';
+        btn.textContent = 'CLICK AGAIN TO RESET';
+        this._settingsResetTimer = setTimeout(() => {
+          btn.dataset.armed = '';
+          btn.textContent = 'RESET DEFAULTS';
+        }, 3000);
+        return;
+      }
+      btn.dataset.armed = '';
+      btn.textContent = 'RESET DEFAULTS';
       this._cancelBindingCapture('reset');
       settings.reset();
       this._setSettingsStatus('DEFAULT SETTINGS RESTORED');
@@ -929,6 +944,7 @@ export default class HUD {
     }
     if (this._el.brightness) this._el.brightness.value = String(settings.brightnessEv);
     if (this._el.announcer) this._el.announcer.checked = settings.announcer !== false;
+    if (this._el.announcerOutput) this._el.announcerOutput.textContent = settings.announcer !== false ? 'ON' : 'OFF';
     if (this._el.graphics) this._el.graphics.value = settings.graphics || 'auto';
     if (this._el.graphicsNote) {
       // The tier is chosen at load: say so once it no longer matches.
@@ -1491,8 +1507,14 @@ export default class HUD {
       const ok = mapSupportsMode(button.dataset.mapId, mode);
       button.disabled = !ok;
       button.classList.toggle('unavailable', !ok);
-      if (ok) button.removeAttribute('title');
-      else button.setAttribute('title', 'Not in the ' + label + ' rotation');
+      if (ok) {
+        button.removeAttribute('title');
+        delete button.dataset.unavailable;
+      } else {
+        button.setAttribute('title', 'Not in the ' + label + ' rotation');
+        // Disabled buttons rarely show a tooltip: say why on the card.
+        button.dataset.unavailable = 'NOT IN ' + (GAME_MODES[normalizeModeId(mode)]?.short || label);
+      }
     }
   }
 
@@ -1592,6 +1614,17 @@ export default class HUD {
     if (!loadouts || !el.classRow) return;
     const weaponName = (id) => String(this._names[id] || id).toUpperCase();
     const progressionForCards = this.game?.progression;
+    // A locked primary is the pick that matters: name it, its rank, and what
+    // is used meanwhile. Other locked picks are counted.
+    const lockNote = (c, shown, pending) => {
+      if (shown.primary !== c.primary) {
+        const rank = progressionForCards?.unlockRank?.(c.primary);
+        const others = pending - 1;
+        return '🔒 ' + weaponName(c.primary) + (rank ? ' AT RANK ' + rank : '') +
+          ' — ' + weaponName(shown.primary) + ' FOR NOW' + (others > 0 ? ' · +' + others + ' LOCKED' : '');
+      }
+      return '🔒 ' + pending + (pending === 1 ? ' PICK UNLOCKS' : ' PICKS UNLOCK') + ' WITH RANK';
+    };
     el.classRow.innerHTML = loadouts.classes.map((c, i) => {
       // Cards show what you actually deploy with at your rank; picks that
       // are still locked are counted, not shouted.
@@ -1606,7 +1639,7 @@ export default class HUD {
         '<span>' + esc(weaponName(shown.primary)) + (shown.attachment && shown.attachment !== 'none' ? ' + ' + esc(ATTACHMENTS[shown.attachment].short) : '') +
         ' · ' + esc(weaponName(shown.secondary)) + '</span>' +
         '<em>' + esc([PERKS[shown.perk]?.label, PERKS[shown.perk2]?.label].filter(Boolean).join(' + ')) + '</em>' +
-        (pending ? '<small class="mn-class-lock">' + pending + (pending === 1 ? ' PICK UNLOCKS' : ' PICKS UNLOCK') + ' LATER</small>' : '') +
+        (pending ? '<small class="mn-class-lock">' + esc(lockNote(c, shown, pending)) + '</small>' : '') +
         '</button>';
     }).join('');
     const active = loadouts.active();
@@ -1634,7 +1667,7 @@ export default class HUD {
     const chip = document.getElementById('hud-rank-chip');
     if (chip && progression) {
       const r = progression.summary();
-      chip.textContent = 'UNLOCK RANK ' + r.rank + ' · ' + r.title + ' · ' + r.xp.toLocaleString('en-US') +
+      chip.textContent = 'WEAPON RANK ' + r.rank + ' · ' + r.title + ' · ' + r.xp.toLocaleString('en-US') +
         (r.next > r.floor ? ' / ' + r.next.toLocaleString('en-US') + ' XP' : ' XP');
     }
     if (el.classPerkDetail) {
@@ -1723,8 +1756,8 @@ export default class HUD {
       this._setLeaderboardStatus('TOP 50 OPERATIVES' + suffix);
     } catch (error) {
       if (request !== this._leaderboardRequest) return;
-      const message = error instanceof Error ? error.message : String(error || 'Unknown error');
-      this._setLeaderboardState('error', message.toUpperCase());
+      console.warn('[leaderboard] load failed:', error);
+      this._setLeaderboardState('error', 'LEADERBOARD UNAVAILABLE — TRY AGAIN SOON');
     }
   }
 
@@ -1782,7 +1815,7 @@ export default class HUD {
       rows += '<div class="lb-row rank-' + entry.rank + (isSelf ? ' self' : '') + (entry.pinnedSelf ? ' pinned-self' : '') + '">' +
         '<span class="lb-rank">' + (medal ? '<b>' + medal + '</b>' : '') + '#' + entry.rank + '</span>' +
         '<span class="lb-player">' + esc(entry.playerName) + (isSelf ? '<b class="lb-you">YOU</b>' : '') +
-        (entry.level ? '<small class="lb-career">LVL ' + Math.max(1, Number(entry.level) || 1) + ' · ' + esc(entry.tier?.name || 'RECRUIT') + '</small>' : '') + '</span>' +
+        (entry.level ? '<small class="lb-career">LVL ' + Math.max(1, Number(entry.level) || 1) + ' · ' + esc(entry.tier?.name || 'ROOKIE') + '</small>' : '') + '</span>' +
         '<span class="lb-score">' + Number(entry.score).toLocaleString() + '</span>' +
         '<span>' + entry.wins + '</span><span>' + winRate + '%</span><span>' + kd + '</span>' +
         '</div>';
@@ -1866,7 +1899,7 @@ export default class HUD {
       d?.jammed ? 'COUNTER-UAV HOLDING' : 'KEEP MOVING', 2.2));
     ev.on('streak:package-landed', () => this._showMsg('', 'CARE PACKAGE ON THE GROUND', 1.4));
     ev.on('streak:package', (d) => this._showMsg(String(d?.label || 'SUPPLIES'),
-      d?.reward === 'resupply' ? 'AMMO AND GRENADES REFILLED' : 'BONUS STREAK · PRESS ' + this._bindingLabel('streak3'), 2));
+      d?.reward === 'resupply' ? 'AMMO AND GRENADES REFILLED' : 'CARE PACKAGE BONUS · PRESS ' + this._bindingLabel('streak3'), 2));
     ev.on('objective:hardpoint', () => this._showMsg('HARDPOINT MOVED', 'NEW ZONE ON THE RADAR', 1.6));
     ev.on('objective:flag', (d) => {
       const mine = (this.game.player && this.game.player.team) || 'ct';
@@ -1921,6 +1954,11 @@ export default class HUD {
         this._endUnranked = true;
         this._unrankedReason = 'rejected';
         this._renderUnrankedEndState({ reason: 'rejected' });
+      } else {
+        // Offline: the result is queued, so say so rather than spin.
+        this._el.endRewards?.classList.remove('pending');
+        if (this._el.endRewardPoints) this._el.endRewardPoints.textContent = 'QUEUED';
+        if (this._el.endXpLabel) this._el.endXpLabel.textContent = 'REWARDS WILL SYNC LATER';
       }
     });
     ev.on('leaderboard:identity-lost', () => {
@@ -1947,6 +1985,10 @@ export default class HUD {
       if (this._buyOpen) this._setBuyOpen(false, false); // clicked back into the game
     });
     ev.on('input:unlock', () => { this._locked = false; });
+    ev.on('input:lock-error', () => {
+      const sub = this._pauseShown && this._el.pause?.querySelector('.pause-sub');
+      if (sub) sub.textContent = 'CLICK AGAIN TO RESUME';
+    });
     ev.on('bot:fire', (d) => this._onBotFire(d || {}));
     ev.on('bot:death', () => { this._sbDirty = true; });
     ev.on('ui:map-select', () => { this._rb = null; });
@@ -2079,6 +2121,15 @@ export default class HUD {
       }
       this._fillEndScreen();
       if (el.end) el.end.style.display = 'flex';
+      // Keyboard players land on PLAY AGAIN, after a beat so a Space still
+      // held from the last fight does not press it.
+      clearTimeout(this._endFocusTimer);
+      this._endFocusTimer = setTimeout(() => {
+        const active = globalThis.document?.activeElement;
+        if (this.game.state?.phase === 'gameEnd' && (!active || active === globalThis.document.body)) {
+          el.restart?.focus?.({ preventScroll: true });
+        }
+      }, 1500);
     } else if (el.end) {
       el.end.style.display = 'none';
     }
@@ -2128,7 +2179,14 @@ export default class HUD {
           this._showMsg(GAME_MODES.sd.label, brief, briefDur);
           clearTimeout(this._buyPromptTimer);
           this._buyPromptTimer = setTimeout(() => {
-            if (this.game.state?.phase === 'freeze') this._showMsg('BUY PHASE', buyPrompt, dur - briefDur);
+            if (this.game.state?.phase !== 'freeze') return;
+            this._showMsg('BUY PHASE', buyPrompt, dur - briefDur);
+            // A first-timer who misses the prompt fights rifles with the
+            // starting pistol, so the first match of a visit opens the menu.
+            if (!this._buyAutoOpened && !this.game.debug && this._canOpenBuy()) {
+              this._buyAutoOpened = true;
+              this._setBuyOpen(true);
+            }
           }, briefDur * 1000);
           break;
         }
@@ -3613,7 +3671,10 @@ export default class HUD {
   _updateBuy(st) {
     if (!this._buyOpen) return;
     if (!st.canBuy || (this.game.player && this.game.player.alive === false)) {
-      this._setBuyOpen(false);
+      // Not a click or key press, so the browser refuses a real pointer lock
+      // here; the pause overlay asks for the click instead. Touch play's
+      // lock is virtual and can be taken back directly.
+      this._setBuyOpen(false, !!this.game.input?.touchMode);
       return;
     }
     const money = Math.round(Number.isFinite(st.money) ? st.money : 0);
@@ -3944,7 +4005,7 @@ export default class HUD {
       return;
     }
     if (this._el.endRewardPoints) this._el.endRewardPoints.textContent = 'NO CREDIT';
-    if (this._el.endRewardRank) this._el.endRewardRank.textContent = modeOnly ? 'TDM' : rejected ? 'UNRANKED' : 'GUEST';
+    if (this._el.endRewardRank) this._el.endRewardRank.textContent = modeOnly ? 'LOCAL' : rejected ? 'UNRANKED' : 'GUEST';
     if (this._el.endRewardLevel) this._el.endRewardLevel.textContent = 'CAREER UNCHANGED';
     if (this._el.endXpFill) this._el.endXpFill.style.width = '0%';
     if (this._el.endXpLabel) this._el.endXpLabel.textContent = 'THIS MATCH DOES NOT CHANGE YOUR SAVED CAREER';
@@ -4325,7 +4386,7 @@ export default class HUD {
       '<section class="mn-career" id="hud-career" aria-label="Your career progress">' +
       '<button class="mn-id" id="hud-career-toggle" type="button" aria-expanded="false" aria-controls="hud-career-body">' +
       '<span class="mn-id-name"><strong id="hud-career-name">OPERATIVE</strong>' +
-      '<span id="hud-career-tier">RECRUIT · CAREER LEVEL 1</span></span>' +
+      '<span id="hud-career-tier">ROOKIE · CAREER LEVEL 1</span></span>' +
       '<span class="mn-xp"><span class="mn-xp-track"><span id="hud-career-xp-fill"></span></span>' +
       '<small id="hud-career-xp-label">0 / 500 XP TO LEVEL 2</small></span>' +
       '<span class="mn-id-stats"><span><small>OVERALL</small><b id="hud-career-overall">UNRANKED</b></span>' +
@@ -4420,7 +4481,8 @@ export default class HUD {
         '<option value="' + id + '"' + ((settings?.graphics || 'auto') === id ? ' selected' : '') + '>' + label + '</option>').join('') +
       '</select></label>' +
       '<label class="mn-setting mn-setting-toggle" for="hud-announcer"><span><strong>ANNOUNCER VOICE</strong>' +
-      '<output>RADIO CALLOUTS</output></span>' +
+      '<output id="hud-announcer-output" for="hud-announcer">' + (settings?.announcer === false ? 'OFF' : 'ON') + '</output></span>' +
+      '<small class="mn-setting-note">SPOKEN MATCH CALLOUTS</small>' +
       '<input id="hud-announcer" type="checkbox"' + (settings?.announcer === false ? '' : ' checked') + '></label>' +
       '</div>' +
       '<section class="mn-bindings-section" aria-labelledby="hud-bindings-title">' +
@@ -4450,7 +4512,7 @@ export default class HUD {
       '<button type="button" data-leaderboard-category="overall" class="active" role="tab" aria-selected="true">OVERALL</button>' +
       '</div><button id="hud-leaderboard-refresh" type="button">↻ REFRESH</button></div>' +
       '<div class="lb-self-card" id="hud-leaderboard-self"><span><small>YOUR OVERALL RANK</small><strong>UNRANKED</strong></span>' +
-      '<span><small>SEASON SCORE</small><strong>0</strong></span><span><small>CAREER LEVEL</small><strong>1 · RECRUIT</strong></span>' +
+      '<span><small>SEASON SCORE</small><strong>0</strong></span><span><small>CAREER LEVEL</small><strong>1 · ROOKIE</strong></span>' +
       '<span><small>ACHIEVEMENTS</small><strong>0/12</strong></span></div>' +
       '<div class="lb-meta"><span id="hud-leaderboard-status">TOP 50 OPERATIVES</span></div>' +
       '<div id="hud-leaderboard-body"><div class="lb-state loading"><span class="lb-state-mark"></span>' +
@@ -4475,7 +4537,7 @@ export default class HUD {
       '<input id="hud-profile-name" maxlength="20" autocomplete="nickname" spellcheck="false" value="Operative" ' +
       'aria-describedby="hud-profile-name-help"><small id="hud-profile-name-help">Shown in matches and global rankings</small></label>' +
       '<fieldset><legend>CHOOSE YOUR OPERATIVE</legend><div id="hud-profile-characters" class="profile-characters"></div></fieldset>' +
-      '<div class="profile-note"><strong>LOADOUT READY</strong><span>Your appearance is applied to your arms and player model.</span></div>' +
+      '<div class="profile-note"><strong>APPEARANCE</strong><span>Your appearance is applied to your arms and player model.</span></div>' +
       '<details class="profile-progress" id="hud-progress-details"><summary><strong>CAREER RECOVERY &amp; BACKUP</strong><span>BACK UP, RESTORE, OR DELIBERATELY START OVER</span><b>+</b></summary>' +
       '<div class="profile-progress-body"><p>Your private progress key reconnects this callsign, XP, records, achievements, and ranks. Keep it secret.</p>' +
       '<div class="profile-progress-actions"><button id="hud-progress-copy" type="button">COPY PRIVATE PROGRESS KEY</button>' +
@@ -4505,7 +4567,7 @@ export default class HUD {
       '<section id="hud-end-rewards" class="end-rewards pending"><div class="end-reward-grid">' +
       '<span><small>MATCH POINTS</small><strong id="hud-end-reward-points">SYNCING</strong></span>' +
       '<span><small>OVERALL RANK</small><strong id="hud-end-reward-rank">—</strong></span>' +
-      '<span><small>CAREER</small><strong id="hud-end-reward-level">LEVEL 1 · RECRUIT</strong></span></div>' +
+      '<span><small>CAREER</small><strong id="hud-end-reward-level">LEVEL 1 · ROOKIE</strong></span></div>' +
       '<div class="end-xp"><div><span id="hud-end-xp-fill"></span></div><small id="hud-end-xp-label">VERIFYING MATCH REWARDS…</small></div>' +
       '<div id="hud-end-unlocks" class="end-unlocks"><span class="steady">REWARDS WILL APPEAR HERE</span></div></section>' +
       '<div class="end-actions"><button id="hud-restart"><span class="btn-main" id="hud-restart-main">PLAY AGAIN</span>' +
@@ -5178,7 +5240,7 @@ export default class HUD {
 .bi-bars { margin-top: 7px; display: grid; gap: 4px; }
 .bi-bar { display: flex; align-items: center; gap: 6px; }
 .bi-bar em {
-  font-style: normal; font-size: 8px; font-weight: 800; letter-spacing: .16em;
+  font-style: normal; font-size: 10px; font-weight: 800; letter-spacing: .16em;
   color: var(--olive-dim); width: 26px;
 }
 .bi-track { flex: 1; height: 3px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
@@ -5188,7 +5250,7 @@ export default class HUD {
   font-size: 11px; font-weight: 700; letter-spacing: .2em; color: var(--olive-dim); text-align: center;
   transition: color .12s, background .12s, border-color .12s, box-shadow .12s;
 }
-.buy-foot kbd { font-size: 9.5px; min-width: 20px; padding: 1px 5px; }
+.buy-foot kbd { font-size: 10px; min-width: 20px; padding: 1px 5px; }
 .buy-foot.feedback-success {
   color: #e5f7bf; background: rgba(111,145,58,.2); border-color: rgba(190,224,128,.68);
   box-shadow: inset 0 0 14px rgba(165,211,94,.12); text-shadow: 0 1px 2px #000;
@@ -5214,9 +5276,9 @@ export default class HUD {
   .buy-head { padding: 13px 18px 12px; margin-bottom: 12px; }
   .buy-head-l { display: block; }
   .buy-title { font-size: 16px; }
-  .buy-hint { margin-top: 3px; font-size: 9.5px; }
+  .buy-hint { margin-top: 3px; font-size: 10px; }
   .buy-funds { font-size: 22px; }
-  .buy-foot { margin-inline: 14px; font-size: 9px; letter-spacing: .14em; }
+  .buy-foot { margin-inline: 14px; font-size: 10px; letter-spacing: .14em; }
 }
 @media (max-width: 480px) {
   #hud-buy-cats { grid-template-columns: 1fr; }
@@ -5224,7 +5286,7 @@ export default class HUD {
   .buy-hint { display: none; }
   .sb-title { letter-spacing: .15em; }
   .sb-team td { font-size: 14px; padding-inline: 6px; }
-  .sb-team td.sb-s { font-size: 9px; letter-spacing: .08em; }
+  .sb-team td.sb-s { font-size: 10px; letter-spacing: .08em; }
 }
 
 /* ---------- pause ---------- */
@@ -5343,14 +5405,14 @@ export default class HUD {
 .mn-id:hover { border-color:rgba(177,205,124,.5); background:rgba(15,21,10,.6); }
 .mn-id-name { min-width:0; flex:0 0 auto; display:flex; flex-direction:column; gap:2px; }
 .mn-id-name strong { max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:15px; line-height:1; letter-spacing:.07em; color:#eff4e6; }
-.mn-id-name span { font-size:9px; font-weight:900; letter-spacing:.14em; color:#d7b86b; white-space:nowrap; }
+.mn-id-name span { font-size:10px; font-weight:900; letter-spacing:.14em; color:#d7b86b; white-space:nowrap; }
 .mn-xp { flex:1 1 auto; min-width:90px; }
 .mn-xp-track,.mn-daily-track,.end-xp > div { display:block; height:5px; overflow:hidden; background:rgba(0,0,0,.45); border:1px solid rgba(154,178,107,.2); }
 .mn-xp-track span,.mn-daily-track span,.end-xp > div span { display:block; width:0; height:100%; background:linear-gradient(90deg,#6b9144,#b7d77e); box-shadow:0 0 12px rgba(173,216,105,.42); transition:width .45s ease; }
-.mn-xp small { display:block; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:8.5px; font-weight:800; letter-spacing:.08em; color:#83965f; }
+.mn-xp small { display:block; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:10px; font-weight:800; letter-spacing:.08em; color:#83965f; }
 .mn-id-stats { flex:0 0 auto; display:flex; gap:16px; }
 .mn-id-stats > span { min-width:0; }
-.mn-id-stats small,.lb-self-card small,.end-reward-grid small { display:block; font-size:8.5px; font-weight:900; letter-spacing:.13em; color:var(--olive-dim); }
+.mn-id-stats small,.lb-self-card small,.end-reward-grid small { display:block; font-size:10px; font-weight:900; letter-spacing:.13em; color:var(--olive-dim); }
 .mn-id-stats b { display:block; margin-top:2px; font-size:13px; letter-spacing:.05em; color:var(--olive-bright); white-space:nowrap; }
 .mn-chev { flex:0 0 auto; display:inline-grid; place-items:center; width:18px; height:18px; font-size:15px; font-weight:400; line-height:1; color:var(--olive); transition:transform .15s; }
 [aria-expanded="true"] > .mn-chev { transform:rotate(45deg); }
@@ -5363,17 +5425,17 @@ export default class HUD {
 .mn-career-board,.mn-daily { min-width:0; }
 .mn-career-board header,.mn-daily header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
 .mn-career-board header > span,.mn-daily header > span { font-size:10.5px; font-weight:900; letter-spacing:.2em; color:#e5ecd9; }
-.mn-career-board header small { max-width:70%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:9px; font-weight:900; letter-spacing:.06em; color:#9ab26b; }
+.mn-career-board header small { max-width:70%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:10px; font-weight:900; letter-spacing:.06em; color:#9ab26b; }
 .mn-podium { min-height:52px; margin:6px 0 2px; display:flex; flex-direction:column; justify-content:center; gap:2px; }
 .mn-podium > span { min-width:0; display:grid; grid-template-columns:29px minmax(0,1fr) auto; align-items:center; gap:6px; padding:3px 6px; font-size:11px; font-weight:800; color:#cbd7ba; background:rgba(255,255,255,.025); }
 .mn-podium > span > b { color:#d7b86b; }
 .mn-podium > span > em { font-style:normal; font-variant-numeric:tabular-nums; color:#91a875; }
-.mn-daily header b { flex:0 0 auto; font-size:9px; letter-spacing:.1em; color:#d7b86b; }
+.mn-daily header b { flex:0 0 auto; font-size:10px; letter-spacing:.1em; color:#d7b86b; }
 .mn-daily p { margin-top:6px; font-size:11px; line-height:1.35; color:#aebd9b; }
-.mn-daily > strong { display:block; margin-top:5px; font-size:9px; letter-spacing:.07em; color:#e1e9d5; }
+.mn-daily > strong { display:block; margin-top:5px; font-size:10px; letter-spacing:.07em; color:#e1e9d5; }
 .mn-daily-track { margin:6px 0 2px; }
 .mn-daily-track span { background:linear-gradient(90deg,#b37638,#e2bd66); }
-.mn-career-sync { grid-column:1 / -1; margin-top:4px; font-size:9px; font-weight:800; letter-spacing:.08em; color:#6f8155; }
+.mn-career-sync { grid-column:1 / -1; margin-top:4px; font-size:10px; font-weight:800; letter-spacing:.08em; color:#6f8155; }
 /* ---------- map picker ---------- */
 .mn-map-picker { position:relative; flex:0 0 auto; width:min(880px,94vw); }
 .mn-section-head { padding:0 2px 6px; font-size:10px; font-weight:900; letter-spacing:.32em; color:var(--olive-dim); }
@@ -5387,7 +5449,11 @@ export default class HUD {
 }
 .mn-map:hover { transform: translateY(-2px); border-color: var(--map-a); filter: none; box-shadow: 0 8px 20px rgba(0,0,0,.38); }
 .mn-map:focus-visible { outline: 2px solid var(--olive-bright); outline-offset: 2px; }
-.mn-map.unavailable, .mn-map.unavailable:hover { opacity:.32; filter:grayscale(1); transform:none; box-shadow:none; cursor:not-allowed; }
+.mn-map.unavailable, .mn-map.unavailable:hover { opacity:.5; filter:grayscale(1); transform:none; box-shadow:none; cursor:not-allowed; }
+.mn-map.unavailable[data-unavailable]::after {
+  content:attr(data-unavailable); position:absolute; z-index:3; left:0; right:0; top:38%; transform:translateY(-50%);
+  padding:4px; font-size:11px; font-weight:900; letter-spacing:.16em; text-align:center; color:#fff; background:rgba(0,0,0,.72);
+}
 .mn-map.selected { border-color: var(--map-a); filter: none; box-shadow: inset 0 0 0 1px var(--map-a),0 0 20px color-mix(in srgb,var(--map-a) 25%,transparent); }
 .mn-map-art {
   display: block; height: 46px; position: relative; overflow: hidden;
@@ -5400,39 +5466,39 @@ export default class HUD {
 .mn-map-art i:nth-child(3) { right:-8%; height:46%; }
 .mn-map-copy { display:flex; min-width:0; align-items:baseline; justify-content:space-between; gap:6px; padding:6px 8px 7px; }
 .mn-map-copy strong { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12.5px; font-weight:900; letter-spacing:.06em; color:#f0f4e9; }
-.mn-map-copy span { flex:0 0 auto; font-size:8.5px; font-weight:900; letter-spacing:.1em; text-transform:uppercase; color:var(--map-a); }
+.mn-map-copy span { flex:0 0 auto; font-size:10px; font-weight:900; letter-spacing:.1em; text-transform:uppercase; color:var(--map-a); }
 .mn-map > b { display:none; position:absolute; right:4px; top:4px; width:15px; height:15px; text-align:center; line-height:15px; background:var(--map-a); color:#101510; font-size:10px; }
 .mn-map.selected > b { display:block; }
 .mn-mode-picker { position:relative; flex:0 0 auto; width:min(880px,94vw); }
 .mn-class-picker { position:relative; flex:0 0 auto; width:min(880px,94vw); }
 .mn-class-picker[hidden], .mn-class-editor[hidden] { display:none; }
-.mn-rank { flex:1; text-align:center; font-size:9px; letter-spacing:.18em; color:#f7d27a; }
+.mn-rank { flex:1; text-align:center; font-size:10px; letter-spacing:.18em; color:#f7d27a; }
 .mn-streak-row { display:flex; align-items:center; gap:8px; margin-top:8px; flex-wrap:wrap; }
-.mn-streak-row span { font-size:9px; font-weight:900; letter-spacing:.22em; color:var(--olive-dim); }
+.mn-streak-row span { font-size:10px; font-weight:900; letter-spacing:.22em; color:var(--olive-dim); }
 .mn-streak-row select { height:28px; padding:0 6px; font:inherit; font-size:11px; font-weight:900; letter-spacing:.06em;
   color:#eef5e5; background:#080d08; border:1px solid rgba(154,178,107,.38); }
 .mn-streak-row select:focus-visible { outline:2px solid var(--olive-bright); outline-offset:1px; }
-.mn-streak-row small { flex:1 1 200px; font-size:9.5px; letter-spacing:.06em; color:var(--olive); }
+.mn-streak-row small { flex:1 1 200px; font-size:10px; letter-spacing:.06em; color:var(--olive); }
 .sk-row.bonus { border-style:dashed; }
 .mn-class-picker .mn-section-head { display:flex; align-items:center; justify-content:space-between; }
-#hud-class-edit, #hud-class-reset { appearance:none; font:inherit; font-size:9px; font-weight:900; letter-spacing:.2em; padding:3px 9px;
+#hud-class-edit, #hud-class-reset { appearance:none; font:inherit; font-size:10px; font-weight:900; letter-spacing:.2em; padding:3px 9px;
   color:var(--olive-bright); background:transparent; border:1px solid rgba(154,178,107,.35); cursor:pointer; }
 #hud-class-edit:focus-visible, #hud-class-reset:focus-visible { outline:2px solid var(--olive-bright); outline-offset:2px; }
 .mn-class-row { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; }
 .mn-class { appearance:none; position:relative; display:flex; flex-direction:column; gap:2px; min-width:0; padding:7px 9px 8px;
   font-family:inherit; text-align:left; cursor:pointer; color:#dfe8d2; background:rgba(8,13,8,.72);
   border:1px solid rgba(154,178,107,.22); clip-path:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px); }
-.mn-class small { position:absolute; right:7px; top:5px; font-size:9px; font-weight:900; color:var(--olive-dim); }
+.mn-class small { position:absolute; right:7px; top:5px; font-size:10px; font-weight:900; color:var(--olive-dim); }
 .mn-class strong { font-size:11.5px; font-weight:900; letter-spacing:.08em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-right:12px; }
-.mn-class span, .mn-class em { font-size:8.5px; font-weight:900; letter-spacing:.08em; font-style:normal; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--olive-dim); }
+.mn-class span, .mn-class em { font-size:10px; font-weight:900; letter-spacing:.08em; font-style:normal; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--olive-dim); }
 .mn-class em { color:var(--olive); }
-.mn-class .mn-class-lock { position:static; font-size:7.5px; letter-spacing:.1em; color:var(--olive-dim); }
+.mn-class .mn-class-lock { position:static; font-size:10px; letter-spacing:.08em; line-height:1.3; white-space:normal; color:var(--olive-dim); }
 .mn-class:hover { border-color:var(--olive); }
 .mn-class:focus-visible { outline:2px solid var(--olive-bright); outline-offset:2px; }
 .mn-class.selected { border-color:var(--olive-bright); background:rgba(154,178,107,.16); box-shadow:inset 0 0 0 1px var(--olive); }
 .mn-class-editor { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; align-items:end; margin-top:8px; padding:9px;
   background:rgba(8,13,8,.72); border:1px solid rgba(154,178,107,.22); }
-.mn-class-editor label { display:flex; flex-direction:column; gap:4px; font-size:9px; font-weight:900; letter-spacing:.18em; color:var(--olive-dim); }
+.mn-class-editor label { display:flex; flex-direction:column; gap:4px; font-size:10px; font-weight:900; letter-spacing:.18em; color:var(--olive-dim); }
 .mn-class-editor input, .mn-class-editor select { min-width:0; height:30px; padding:0 6px; font:inherit; font-size:12px; font-weight:900;
   letter-spacing:.06em; color:#eef5e5; background:#080d08; border:1px solid rgba(154,178,107,.38); }
 .mn-class-editor input:focus-visible, .mn-class-editor select:focus-visible { outline:2px solid var(--olive-bright); outline-offset:1px; }
@@ -5446,7 +5512,7 @@ export default class HUD {
   transition:border-color .12s,background .12s;
 }
 .mn-mode strong { font-size:12.5px; font-weight:900; letter-spacing:.12em; white-space:nowrap; }
-.mn-mode span { font-size:9px; font-weight:900; letter-spacing:.12em; color:var(--olive-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.mn-mode span { font-size:10px; font-weight:900; letter-spacing:.12em; color:var(--olive-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .mn-mode:hover { border-color:var(--olive); }
 .mn-mode:focus-visible { outline:2px solid var(--olive-bright); outline-offset:2px; }
 .mn-mode.selected { border-color:var(--olive-bright); background:rgba(154,178,107,.16); box-shadow:inset 0 0 0 1px var(--olive); }
@@ -5490,8 +5556,8 @@ export default class HUD {
    picker rows scroll underneath it. */
 @media (max-height: 560px) {
   #hud-menu .mn-actions {
-    position:sticky; bottom:0; z-index:4; padding:8px 0 4px;
-    background:linear-gradient(180deg, rgba(5,8,4,0), rgba(5,8,4,.92) 45%);
+    position:sticky; bottom:0; z-index:4; padding:8px 0 4px; width:100%;
+    background:#060904; box-shadow:0 -10px 14px rgba(5,8,4,.85);
   }
   #hud-menu #hud-start { padding:7px 28px 6px; }
   #hud-menu #hud-start .btn-main { font-size:15px; }
@@ -5527,15 +5593,16 @@ export default class HUD {
   font-size:11px; font-weight:900; letter-spacing:.2em; color:#e3edd2;
 }
 .mn-settings-title span,.mn-bindings-head span {
-  font-size:8.5px; font-weight:800; letter-spacing:.14em; color:var(--olive-dim);
+  font-size:10px; font-weight:800; letter-spacing:.14em; color:var(--olive-dim);
 }
 .mn-settings-tuning { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
 .mn-setting {
   min-width:0; display:grid; gap:8px; padding:10px 12px;
   background:rgba(0,0,0,.22); border:1px solid rgba(154,178,107,.16);
 }
-.mn-setting strong { font-size:9.5px; letter-spacing:.14em; color:var(--olive); }
+.mn-setting strong { font-size:10px; letter-spacing:.14em; color:var(--olive); }
 .mn-setting output { font-size:10px; font-weight:900; letter-spacing:.08em; color:var(--olive-bright); }
+.mn-setting-note { font-size:10px; font-weight:800; letter-spacing:.12em; color:var(--olive-dim); }
 .mn-setting input[type="range"] {
   width:100%; height:20px; cursor:pointer; accent-color:#a9c87b; background:transparent;
 }
@@ -5547,7 +5614,7 @@ export default class HUD {
 .mn-setting select:focus-visible { outline:2px solid var(--olive-bright); outline-offset:2px; }
 .mn-setting input[type="checkbox"] { width:18px; height:18px; cursor:pointer; accent-color:#a9c87b; }
 .mn-bindings-section { display:grid; gap:7px; }
-.mn-bindings { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
+.mn-bindings { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; }
 .mn-binding {
   pointer-events:auto; min-width:0; min-height:38px; display:flex; align-items:center; justify-content:space-between; gap:7px;
   padding:5px 6px 5px 9px; cursor:pointer; font-family:inherit; color:var(--olive);
@@ -5557,22 +5624,23 @@ export default class HUD {
 .mn-binding:focus-visible,#hud-settings-reset:focus-visible { outline:2px solid var(--olive-bright); outline-offset:2px; }
 .mn-binding span {
   min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-  font-size:8.5px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; text-align:left;
+  font-size:10px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; text-align:left;
 }
-.mn-binding kbd { flex:0 0 auto; min-width:43px; padding:2px 5px!important; font-size:8.5px!important; }
+.mn-binding kbd { flex:0 0 auto; min-width:43px; padding:2px 5px!important; font-size:10px!important; }
 .mn-binding.capturing kbd { min-width:70px; color:#fff; }
 .mn-settings-foot { flex-wrap:wrap; min-height:30px; padding-top:2px; }
 .mn-settings-mouse {
-  flex:1 1 330px; font-size:8.5px; font-weight:800; letter-spacing:.1em; color:var(--olive-dim);
+  flex:1 1 330px; font-size:10px; font-weight:800; letter-spacing:.1em; color:var(--olive-dim);
 }
+#hud-settings-reset[data-armed="1"] { color:#f0a070!important; border-color:#f0a070!important; }
 #hud-settings-reset {
   pointer-events:auto; min-height:30px; padding:5px 10px; cursor:pointer; font-family:inherit;
-  font-size:8.5px; font-weight:900; letter-spacing:.12em; color:var(--olive);
+  font-size:10px; font-weight:900; letter-spacing:.12em; color:var(--olive);
   border:1px solid rgba(154,178,107,.25); background:rgba(0,0,0,.25);
 }
 #hud-settings-reset:hover { color:var(--olive-bright); border-color:rgba(190,222,134,.55); }
 #hud-settings-status {
-  flex:1 0 100%; min-height:11px; font-size:8.5px; font-weight:900; letter-spacing:.1em; color:#c9dca8;
+  flex:1 0 100%; min-height:11px; font-size:10px; font-weight:900; letter-spacing:.1em; color:#c9dca8;
 }
 html.touch-device .mn-quick > button { min-height:48px; }
 html.touch-device .mn-id { min-height:52px; }
@@ -5603,7 +5671,7 @@ html.touch-device .mn-id { min-height:52px; }
 .lb-avatar::before { content:''; position:absolute; left:50%; top:8px; width:13px; height:13px; border-radius:50%; transform:translateX(-50%); background:#b9c7a2; }
 .lb-avatar i { position:absolute; left:9px; right:9px; bottom:-8px; height:27px; border-radius:15px 15px 0 0; background:var(--profile-swatch); box-shadow:inset 0 7px rgba(255,255,255,.08); }
 .lb-identity-copy { min-width:0; display:flex; flex-direction:column; line-height:1.05; }
-.lb-identity-copy small { margin-bottom:4px; font-size:9px; font-weight:900; letter-spacing:.25em; color:var(--olive-dim); }
+.lb-identity-copy small { margin-bottom:4px; font-size:10px; font-weight:900; letter-spacing:.25em; color:var(--olive-dim); }
 #hud-leaderboard-name { min-width:0; max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:20px; font-weight:900; letter-spacing:.08em; color:#f0f5e7; }
 #hud-leaderboard-character { margin-top:4px; font-size:10px; font-weight:900; letter-spacing:.2em; color:var(--olive); }
 .lb-profile-edit { flex:0 0 auto; margin-left:5px; height:38px; padding:0 13px; cursor:pointer; font-family:inherit; font-size:11px; font-weight:900; letter-spacing:.12em; color:var(--olive-bright); border:1px solid rgba(154,178,107,.35); background:rgba(154,178,107,.08); }
@@ -5627,8 +5695,8 @@ html.touch-device .mn-id { min-height:52px; }
 .lb-row:not(.lb-head):hover { background:rgba(154,178,107,.08); }
 .lb-row.self { position:relative; background:linear-gradient(90deg,rgba(130,173,76,.23),rgba(130,173,76,.07))!important; box-shadow:inset 4px 0 #b9df7c,inset 0 0 0 1px rgba(185,223,124,.25); color:#eef7df; }
 .lb-row.pinned-self { margin-top:8px; border-top:1px solid rgba(185,223,124,.45); }
-.lb-you { display:inline-block; margin-left:9px; padding:2px 5px; vertical-align:2px; font-size:9.5px; letter-spacing:.12em; color:#14200e; background:#b9df7c; }
-.lb-career { display:block; margin-top:2px; font-size:9.5px; letter-spacing:.1em; color:#819765; }
+.lb-you { display:inline-block; margin-left:9px; padding:2px 5px; vertical-align:2px; font-size:10px; letter-spacing:.12em; color:#14200e; background:#b9df7c; }
+.lb-career { display:block; margin-top:2px; font-size:10px; letter-spacing:.1em; color:#819765; }
 .lb-head { position:sticky; top:0; z-index:2; min-height:44px; background:#0b1009; color:var(--olive-dim); font-size:12px; letter-spacing:.16em; }
 .lb-player { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding-right:16px; color:#edf3e3; font-size:20px; letter-spacing:.04em; }
 .lb-score { color:var(--money); font-size:20px; }
@@ -5663,15 +5731,15 @@ html.touch-device .mn-id { min-height:52px; }
 .lb-record-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; }
 .lb-record-grid > span { min-width:0; padding:8px 9px; border:1px solid rgba(154,178,107,.16); background:rgba(0,0,0,.2); }
 .lb-record-grid small,.lb-record-grid strong,.lb-record-grid em { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.lb-record-grid small { font-size:9.5px; font-weight:900; letter-spacing:.08em; color:#879b69; }
+.lb-record-grid small { font-size:10px; font-weight:900; letter-spacing:.08em; color:#879b69; }
 .lb-record-grid strong { margin-top:3px; font-size:18px; letter-spacing:.04em; color:#edf4df; }
-.lb-record-grid em { margin-top:2px; font-size:9.5px; font-style:normal; letter-spacing:.07em; color:#73835f; }
+.lb-record-grid em { margin-top:2px; font-size:10px; font-style:normal; letter-spacing:.07em; color:#73835f; }
 .lb-badge-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
 .lb-badge-grid > span { min-width:0; display:grid; grid-template-columns:28px minmax(0,1fr); align-items:center; gap:8px; min-height:54px; padding:7px 9px; border:1px solid rgba(208,226,171,.19); background:rgba(107,139,64,.09); }
 .lb-badge-grid > span > b { display:grid; place-items:center; width:27px; height:27px; color:#e2c46e; border:1px solid rgba(226,196,110,.38); }
 .lb-badge-grid strong,.lb-badge-grid small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .lb-badge-grid strong { font-size:11px; letter-spacing:.08em; color:#e4ecd9; }
-.lb-badge-grid small { margin-top:3px; font-size:9.5px; color:#91a17e; }
+.lb-badge-grid small { margin-top:3px; font-size:10px; color:#91a17e; }
 .lb-badge-grid p { grid-column:1 / -1; margin:0; padding:17px; text-align:center; font-size:10px; font-weight:900; letter-spacing:.1em; color:#83966a; border:1px dashed rgba(154,178,107,.2); }
 .lb-scoring { flex:0 0 auto; border-top:1px solid rgba(154,178,107,.15); background:rgba(154,178,107,.045); }
 .lb-scoring summary { min-height:46px; display:flex; align-items:center; gap:14px; padding:0 30px; cursor:pointer; list-style:none; color:var(--olive); }
@@ -5724,7 +5792,7 @@ html.touch-device .mn-id { min-height:52px; }
 .profile-character-copy strong,.profile-character-copy small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .profile-character-copy strong { font-size:16px; font-weight:900; letter-spacing:.1em; color:#eef4e4; }
 .profile-character-copy small { margin-top:5px; font-size:11px; font-weight:650; letter-spacing:.035em; color:#9dab88; }
-.profile-character > b { display:none; position:absolute; right:8px; top:8px; padding:4px 6px; font-size:8px; letter-spacing:.14em; color:#0a0e08; background:var(--profile-swatch); }
+.profile-character > b { display:none; position:absolute; right:8px; top:8px; padding:4px 6px; font-size:10px; letter-spacing:.14em; color:#0a0e08; background:var(--profile-swatch); }
 .profile-character.selected > b { display:block; }
 .profile-note { display:flex; align-items:center; gap:14px; margin-top:22px; padding:13px 15px; background:rgba(154,178,107,.06); border-left:3px solid var(--olive); }
 .profile-note strong { flex:0 0 auto; font-size:11px; letter-spacing:.16em; color:var(--money); }
@@ -5733,14 +5801,14 @@ html.touch-device .mn-id { min-height:52px; }
 .profile-progress summary { min-height:48px; display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:12px; padding:10px 14px; cursor:pointer; list-style:none; }
 .profile-progress summary::-webkit-details-marker { display:none; }
 .profile-progress summary strong { font-size:11px; letter-spacing:.14em; color:#e8f0dc; }
-.profile-progress summary span { font-size:9px; letter-spacing:.08em; color:#879b69; }
+.profile-progress summary span { font-size:10px; letter-spacing:.08em; color:#879b69; }
 .profile-progress summary b { font-size:19px; color:var(--olive); transition:transform .15s; }
 .profile-progress[open] summary b { transform:rotate(45deg); }
 .profile-progress-body { padding:0 14px 13px; }
 .profile-progress-body p { font-size:11px; line-height:1.4; color:#aeba9d; }
 .profile-progress-actions { display:grid; grid-template-columns:auto minmax(180px,1fr) auto; gap:8px; margin-top:9px; }
 .profile-progress-actions button,.profile-progress-actions input { min-height:44px; font-family:inherit; border:1px solid rgba(154,178,107,.38); }
-.profile-progress-actions button { padding:0 13px; cursor:pointer; font-size:9.5px; font-weight:900; letter-spacing:.09em; color:#dce9c9; background:rgba(97,127,56,.27); }
+.profile-progress-actions button { padding:0 13px; cursor:pointer; font-size:10px; font-weight:900; letter-spacing:.09em; color:#dce9c9; background:rgba(97,127,56,.27); }
 .profile-progress-actions input { min-width:0; padding:0 12px; font-size:13px; color:#eef5e5; background:rgba(0,0,0,.34); outline:none; }
 .profile-progress-actions input:focus-visible { outline:2px solid var(--olive, #9ab26b); outline-offset:1px; }
 .profile-progress-actions input:focus { border-color:var(--olive-bright); }
@@ -5749,7 +5817,7 @@ html.touch-device .mn-id { min-height:52px; }
 .profile-new-career strong,.profile-new-career small { display:block; }
 .profile-new-career strong { font-size:10px; letter-spacing:.14em; color:#c4cfb4; }
 .profile-new-career small { margin-top:3px; font-size:10px; color:#829070; }
-.profile-new-career button { flex:0 0 auto; min-height:40px; padding:0 13px; cursor:pointer; font-family:inherit; font-size:9.5px; font-weight:900; letter-spacing:.09em; color:#d7a391; border:1px solid rgba(204,105,78,.42); background:rgba(109,39,28,.18); }
+.profile-new-career button { flex:0 0 auto; min-height:40px; padding:0 13px; cursor:pointer; font-family:inherit; font-size:10px; font-weight:900; letter-spacing:.09em; color:#d7a391; border:1px solid rgba(204,105,78,.42); background:rgba(109,39,28,.18); }
 .profile-new-career.recovery { margin-inline:-7px; padding:11px 7px 0; border-top-color:#d98a4a; background:linear-gradient(90deg,rgba(217,138,74,.1),transparent); }
 .profile-new-career.recovery strong,.profile-new-career.recovery button { color:#f0bb86; }
 .profile-new-confirm { display:none; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:8px; margin-top:9px; padding:10px; border:1px solid rgba(214,109,80,.48); background:rgba(65,19,13,.42); }
@@ -5758,10 +5826,10 @@ html.touch-device .mn-id { min-height:52px; }
 .profile-new-confirm strong,.profile-new-confirm small { display:block; }
 .profile-new-confirm strong { font-size:10px; letter-spacing:.08em; color:#f0b09d; }
 .profile-new-confirm small { margin-top:3px; font-size:10px; line-height:1.3; color:#b69a90; }
-.profile-new-confirm button { min-height:38px; padding:0 10px; cursor:pointer; font-family:inherit; font-size:9.5px; font-weight:900; letter-spacing:.06em; color:#d5dfc8; border:1px solid rgba(154,178,107,.3); background:rgba(0,0,0,.28); }
+.profile-new-confirm button { min-height:38px; padding:0 10px; cursor:pointer; font-family:inherit; font-size:10px; font-weight:900; letter-spacing:.06em; color:#d5dfc8; border:1px solid rgba(154,178,107,.3); background:rgba(0,0,0,.28); }
 #hud-progress-new-commit { color:#ffe4d8; border-color:#cc6c51; background:rgba(132,51,32,.52); }
 #hud-progress-new-commit:disabled { cursor:wait; opacity:.55; }
-#hud-progress-status { display:block; min-height:14px; margin-top:8px; font-size:9.5px; font-weight:900; letter-spacing:.09em; color:#8fa573; }
+#hud-progress-status { display:block; min-height:14px; margin-top:8px; font-size:10px; font-weight:900; letter-spacing:.09em; color:#8fa573; }
 .profile-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:22px; padding-top:20px; border-top:1px solid rgba(154,178,107,.16); }
 .profile-actions button { min-width:154px; height:46px; cursor:pointer; font-family:inherit; font-size:13px; font-weight:900; letter-spacing:.15em; color:var(--olive); border:1px solid rgba(154,178,107,.35); background:rgba(0,0,0,.22); }
 .profile-actions .profile-save { color:#eff5e4; border-color:var(--olive); background:linear-gradient(180deg,rgba(116,148,71,.7),rgba(59,79,36,.78)); }
@@ -5801,9 +5869,9 @@ html.touch-device .mn-id { min-height:52px; }
 .end-reward-grid strong { display:block; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:17px; letter-spacing:.05em; color:#eef5e2; }
 .end-xp { padding:7px 9px 0; }
 .end-xp > div { height:7px; }
-.end-xp small { display:block; margin-top:4px; font-size:9.5px; font-weight:900; letter-spacing:.09em; color:#9daf80; }
+.end-xp small { display:block; margin-top:4px; font-size:10px; font-weight:900; letter-spacing:.09em; color:#9daf80; }
 .end-unlocks { display:flex; flex-wrap:wrap; gap:5px; min-height:25px; padding:8px 9px 0; }
-.end-unlocks span { padding:4px 7px; font-size:9.5px; font-weight:900; letter-spacing:.08em; color:#dce9c9; border:1px solid rgba(154,178,107,.24); background:rgba(0,0,0,.2); }
+.end-unlocks span { padding:4px 7px; font-size:10px; font-weight:900; letter-spacing:.08em; color:#dce9c9; border:1px solid rgba(154,178,107,.24); background:rgba(0,0,0,.2); }
 .end-unlocks .achievement { color:#d9ebbb; border-color:rgba(174,214,105,.55); }
 .end-unlocks .record { color:#f0d17e; border-color:rgba(226,185,93,.55); }
 
@@ -5814,7 +5882,7 @@ html.touch-device .mn-id { min-height:52px; }
     scrollbar-width:thin; scrollbar-color:rgba(154,178,107,.35) transparent;
   }
   .mn-map { scroll-snap-align:start; }
-  .mn-bindings { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .mn-bindings { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .lb-toolbar { grid-template-columns:1fr auto; }
   .lb-identity { grid-column:1 / -1; }
   .lb-tabs { grid-row:2; grid-column:1; }
@@ -5884,7 +5952,7 @@ html.touch-device .mn-id { min-height:52px; }
   .mn-career-body { padding:9px 12px 8px; }
   .mn-career-sync,.mn-daily p { display:none; }
   .mn-podium { min-height:45px; margin:4px 0; }
-  .mn-podium > span { padding-block:1px; font-size:9px; }
+  .mn-podium > span { padding-block:1px; font-size:10px; }
   .mn-daily > strong { margin-top:7px; }
   .mn-map-art { height:38px; }
   .mn-map-copy { padding-block:5px; }
@@ -5931,7 +5999,7 @@ html.touch-device .mn-id { min-height:52px; }
   html.touch-device .kf-hs { font-size:10px!important; }
   html.touch-device .lb-dossier > summary { min-height:44px; padding:5px 12px; }
   html.touch-device .lb-dossier > summary strong { font-size:12px; }
-  html.touch-device .lb-dossier > summary small { font-size:9.5px; }
+  html.touch-device .lb-dossier > summary small { font-size:10px; }
   html.touch-device .lb-dossier[open] { max-height:48%; }
   html.touch-device .lb-dossier-body { grid-template-columns:1fr 1fr; gap:8px; padding:0 12px 10px; }
   html.touch-device .lb-record-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; }
@@ -5976,6 +6044,13 @@ html.touch-device .mn-id { min-height:52px; }
   .mn-title::after,.progress-toast,.progress-toast.leaving,#hud-end-rank.pending,
   .lb-state.loading .lb-state-mark { animation:none!important; }
   .mn-xp-track span,.mn-daily-track span,.end-xp > div span { transition:none!important; }
+}
+
+/* Focus rings sit inside the button: the cut-corner clip-paths on most of
+   the menu clip an outer outline away entirely. */
+#hud button:focus-visible, #hud select:focus-visible, #hud summary:focus-visible,
+#hud input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--olive-bright) !important; outline-offset: -4px !important;
 }
 
 /* ---------- debug fps ---------- */

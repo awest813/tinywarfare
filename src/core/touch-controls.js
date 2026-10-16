@@ -20,7 +20,12 @@ export function shouldEnableTouchControls(options = {}) {
   const coarse = options.coarse ?? safeMedia('(pointer: coarse)');
   const anyCoarse = options.anyCoarse ?? safeMedia('(any-pointer: coarse)');
   const noHover = options.noHover ?? safeMedia('(hover: none)');
-  return maxTouchPoints > 0 && (coarse || anyCoarse || noHover);
+  // A touchscreen laptop also matches any-pointer: coarse, but its main
+  // pointer is a mouse or trackpad and it should play like a desktop. Only an
+  // iPad (which reports itself as a Mac) gets touch from a secondary pointer.
+  const appleTablet = options.appleTablet ??
+    (/iPad|Macintosh/.test(String(globalThis.navigator?.userAgent || '')) && maxTouchPoints > 1);
+  return maxTouchPoints > 0 && (coarse || noHover || (anyCoarse && appleTablet));
 }
 
 export function isLandscapeViewport(view = globalThis) {

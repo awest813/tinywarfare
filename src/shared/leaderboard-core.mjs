@@ -48,7 +48,7 @@ export const BOT_DAILY_CONTRACT = Object.freeze({
 });
 
 export const PROGRESSION_TIERS = Object.freeze([
-  Object.freeze({ id: 'recruit', name: 'Recruit', minLevel: 1 }),
+  Object.freeze({ id: 'recruit', name: 'Rookie', minLevel: 1 }),
   Object.freeze({ id: 'bronze', name: 'Bronze', minLevel: 5 }),
   Object.freeze({ id: 'silver', name: 'Silver', minLevel: 10 }),
   Object.freeze({ id: 'gold', name: 'Gold', minLevel: 20 }),

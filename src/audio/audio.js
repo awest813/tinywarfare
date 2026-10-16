@@ -214,9 +214,15 @@ export default class AudioSys {
       if (!AC) return;
       this.ctx = new AC();
       this._buildGraph();
+      // Ambient wind and loops must not keep playing in a background tab.
+      document.addEventListener('visibilitychange', () => {
+        if (!this.ctx) return;
+        const p = document.hidden ? this.ctx.suspend() : this.ctx.resume();
+        if (p && p.catch) p.catch(() => {});
+      });
     }
     // Safari reports 'interrupted' after a call or Siri; resume that too.
-    if (this.ctx.state === 'suspended' || this.ctx.state === 'interrupted') {
+    if (!document.hidden && (this.ctx.state === 'suspended' || this.ctx.state === 'interrupted')) {
       const p = this.ctx.resume();
       if (p && p.catch) p.catch(() => {});
     }

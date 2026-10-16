@@ -356,6 +356,16 @@ renderer.setAnimationLoop(() => {
   autoGraphics.update();
 });
 
+// Closing or reloading the tab mid-match (a stray Ctrl+W, a mouse side
+// button) asks first.
+const MATCH_PHASES = new Set(['freeze', 'live', 'planted', 'roundEnd']);
+let reloadingForGraphics = false;
+window.addEventListener('beforeunload', (event) => {
+  if (reloadingForGraphics || game.debug || !MATCH_PHASES.has(game.state?.phase)) return;
+  event.preventDefault();
+  event.returnValue = '';
+});
+
 // A lost graphics context (GPU reset, driver update, a backgrounded mobile
 // tab) came back with GPU-baked textures, sky tables and lighting empty: a
 // black world until reload. Say so, and reload once the context returns.
@@ -364,5 +374,6 @@ renderer.domElement.addEventListener('webglcontextlost', (event) => {
   game.events.emit('hud:notice', { text: 'GRAPHICS RESET — RELOADING…' });
 }, false);
 renderer.domElement.addEventListener('webglcontextrestored', () => {
+  reloadingForGraphics = true;
   location.reload();
 }, false);
