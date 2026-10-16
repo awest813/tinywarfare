@@ -310,3 +310,20 @@ test('maps can sit out a mode: Frostline is not in the Search & Destroy rotation
   assert.equal(mapForMode('harbor', 'sd'), 'harbor');
   assert.equal(mapForMode('nowhere', 'sd'), DEFAULT_MAP_ID);
 });
+
+test('a capsule found inside a long wall is not thrown to the far end of it, or onto its top', () => {
+  const world = Object.create(World.prototype);
+  world.game = { config: { PLAYER: { STEP_HEIGHT: 0.62 } } };
+  world._moveResult = { pos: new THREE.Vector3(), onGround: false, hitCeiling: false };
+  // A perimeter wall 103 m long, 1.5 m thick, 9 m tall, like Dustyard's north wall.
+  world.colliders = [new THREE.Box3(new THREE.Vector3(-51.5, 0, -41.5), new THREE.Vector3(51.5, 9, -40))];
+  // Overlapping its inner face by a few centimetres and walking along it.
+  const pos = new THREE.Vector3(10, 0, -39.7);
+  const res = world.resolveMovement(pos, new THREE.Vector3(-0.15, -0.05, 0.15), 0.35, 1.83);
+  assert.ok(Math.abs(res.pos.x - 10) < 0.3, `stayed beside the wall (x ${res.pos.x})`);
+  assert.ok(res.pos.y < 0.1, `not lifted onto the 9 m top (y ${res.pos.y})`);
+  assert.ok(res.pos.z > -39.66, `pushed back out of it (z ${res.pos.z})`);
+  // A normal approach still stops at the face.
+  const outside = world.resolveMovement(new THREE.Vector3(10, 0, -38), new THREE.Vector3(0, -0.05, -2), 0.35, 1.83);
+  assert.ok(Math.abs(outside.pos.z - (-40 + 0.35)) < 0.01, `clamped at the face (z ${outside.pos.z})`);
+});

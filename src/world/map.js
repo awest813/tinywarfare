@@ -63,6 +63,12 @@ const _v2 = new THREE.Vector3();
 const _v3 = new THREE.Vector3();
 const _wrapTmp = new THREE.Vector3();
 
+const MAX_DEPENETRATION = 0.75; // m a capsule found inside a box may be pushed out per axis
+const KNEE_HEIGHT = 0.6;       // m: rays below this pass over steppable curbs
+const REACH_CANDIDATES = 6;    // nearest nodes tried for a walkable entry
+const _reachFrom = new THREE.Vector3();
+const _reachDir = new THREE.Vector3();
+
 export default class World {
   constructor(game) {
     this.game = game;
@@ -1785,9 +1791,11 @@ export default class World {
 
     // vertical
     if (delta.y !== 0) {
+      const feet = p.y;
       p.y += delta.y;
       const cols = this.colliders;
       const e = 0.001;
+      const step = this.game.config.PLAYER.STEP_HEIGHT;
       for (let i = 0; i < cols.length; i++) {
         const c = cols[i];
         if (
@@ -1795,6 +1803,10 @@ export default class World {
           c.min.z < p.z + radius - e && c.max.z > p.z - radius + e &&
           c.min.y < p.y + height - e && c.max.y > p.y + e
         ) {
+          // Land only on a top the feet came down onto (or a step's worth
+          // below them). A capsule already inside a tall box was lifted onto
+          // its top: onto a roof, or a perimeter wall and out of the map.
+          if (delta.y <= 0 && c.max.y > feet + step + e) continue;
           if (delta.y <= 0) {
             p.y = c.max.y;
             res.onGround = true;
@@ -1816,6 +1828,7 @@ export default class World {
   _moveAxis(p, amount, axis, radius, height, canStep) {
     const step = this.game.config.PLAYER.STEP_HEIGHT;
     const e = 0.001;
+    const before = axis === 0 ? p.x : p.z;
     if (axis === 0) p.x += amount; else p.z += amount;
     const cols = this.colliders;
     for (let i = 0; i < cols.length; i++) {
@@ -1833,11 +1846,30 @@ export default class World {
         continue;
       }
 
+      const lo = (axis === 0 ? c.min.x : c.min.z) - radius - e;
+      const hi = (axis === 0 ? c.max.x : c.max.z) + radius + e;
+      // Already inside this box before the move (pushed in by another
+      // clamp or a step): leave by the short way, if it is short, rather
+      // than jumping to the face on the far side. Snapping to the face
+      // threw a capsule that overlapped a perimeter wall's end to the far
+      // end of the wall, outside the map.
+      if (before > lo + e && before < hi - e) {
+        const out = before - lo < hi - before ? lo : hi;
+        if (Math.abs(out - before) <= MAX_DEPENETRATION) {
+          if (axis === 0) p.x = out; else p.z = out;
+        } else if (axis === 0) {
+          p.x = before;
+        } else {
+          p.z = before;
+        }
+        continue;
+      }
+
       // clamp against the blocking face
       if (axis === 0) {
-        p.x = amount > 0 ? c.min.x - radius - e : c.max.x + radius + e;
+        p.x = amount > 0 ? lo : hi;
       } else {
-        p.z = amount > 0 ? c.min.z - radius - e : c.max.z + radius + e;
+        p.z = amount > 0 ? lo : hi;
       }
     }
   }
@@ -1922,10 +1954,42 @@ export default class World {
     return best;
   }
 
+  /**
+   * The node to enter or leave the graph by from `pos`: the nearest of the
+   * few closest that it can walk straight to (a clear line at knee height),
+   * else simply the nearest. Bots pushed into a nook by a firefight were
+   * pathed via the nearest node behind a wall, walked into it, gave up, and
+   * stayed pinned there.
+   */
+  reachableWaypoint(pos) {
+    const nodes = this.waypoints.nodes;
+    if (!nodes.length || typeof this.raycast !== 'function') return this.nearestWaypoint(pos);
+    const near = [];
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i];
+      const dx = n.pos.x - pos.x;
+      const dy = (n.pos.y - pos.y) * 2;
+      const dz = n.pos.z - pos.z;
+      near.push([dx * dx + dy * dy + dz * dz, n]);
+    }
+    near.sort((x, y) => x[0] - y[0]);
+    const from = _reachFrom.set(pos.x, pos.y + KNEE_HEIGHT, pos.z);
+    for (let i = 0; i < Math.min(REACH_CANDIDATES, near.length); i++) {
+      const n = near[i][1];
+      _reachDir.set(n.pos.x - pos.x, n.pos.y - pos.y, n.pos.z - pos.z);
+      const dist = _reachDir.length();
+      if (dist < 0.3) return n;
+      _reachDir.multiplyScalar(1 / dist);
+      const hit = this.raycast(from, _reachDir, dist);
+      if (!hit || hit.distance >= dist - 0.2) return n;
+    }
+    return near[0][1];
+  }
+
   // A* over the waypoint graph. Returns node positions (clones) ending with `to`.
   findPath(from, to) {
-    const a = this.nearestWaypoint(from).id;
-    const b = this.nearestWaypoint(to).id;
+    const a = this.reachableWaypoint(from).id;
+    const b = this.reachableWaypoint(to).id;
     const nodes = this.waypoints.nodes;
     const key = a + ':' + b;
     let ids = this._pathCache.get(key);
