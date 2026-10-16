@@ -2907,7 +2907,7 @@ export default class Bots {
           bot.path = null;
         } else {
           bot.state = 'investigate';
-          this._setGoal(bot, bot.lastSeenPos);
+          this._setGoal(bot, this._investigateGoal(bot, bot.lastSeenPos));
         }
       }
       return;
@@ -2954,7 +2954,7 @@ export default class Bots {
       bot.deafUntil = this.time + 3;
       if (Math.random() < sk.investigate && !this._offLeash(bot, bot.heardPos)) {
         bot.state = 'investigate';
-        this._setGoal(bot, bot.heardPos);
+        this._setGoal(bot, this._investigateGoal(bot, bot.heardPos));
         return;
       }
     }
@@ -3077,6 +3077,14 @@ export default class Bots {
       if (nodes && nodes.length) goal = this._diverseNear(bot, nodes[randInt(0, nodes.length - 1)].pos, 8);
     }
     if (goal && this._setGoal(bot, goal)) bot.state = 'move';
+  }
+
+  /** Where to check out `pos`: the objective may know a better spot near it (Kill Confirmed's tags). */
+  _investigateGoal(bot, pos) {
+    const objective = isRespawnMode(this.game.state.mode) && this.game.rounds && this.game.rounds.tdm &&
+      this.game.rounds.tdm.objective;
+    if (!objective || typeof objective.investigateGoal !== 'function') return pos;
+    return objective.investigateGoal(bot, pos) || pos;
   }
 
   /**

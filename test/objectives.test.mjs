@@ -267,3 +267,15 @@ test('Kill Confirmed: a bot mid-firefight does not deny by accident, but confirm
   kc.update(0.1);
   assert.equal(game.state.scores.t, 1);
 });
+
+test('a Kill Confirmed bot checking out a fight goes to an enemy tag dropped there', () => {
+  const kc = new KillConfirmed({ scene: null, player: { team: 'ct' } });
+  kc.onDeath('t', new THREE.Vector3(10, 0, 0));   // enemy tag for a CT bot
+  kc.onDeath('ct', new THREE.Vector3(12, 0, 0));  // its own side's tag
+  const bot = { team: 'ct', pos: new THREE.Vector3() };
+  const noise = new THREE.Vector3(14, 0, 0);
+  assert.deepEqual(kc.investigateGoal(bot, noise).toArray(), [10, 0, 0], 'the enemy tag, not its own');
+  const far = new THREE.Vector3(40, 0, 0);
+  assert.equal(kc.investigateGoal(bot, far), far, 'no tag near the spot: the spot itself');
+  assert.equal(kc.goalWeight, 0.9);
+});

@@ -29,6 +29,7 @@ export const KC = Object.freeze({
   BOT_SEEK_RANGE: 45, // m: bots detour for enemy tags (confirms) this close
   BOT_DENY_RANGE: 20, // m: ...and for their own side's tags (denies) this close
   BOT_DENY_BIAS: 1.6, // a deny must be this much nearer than a confirm to win
+  INVESTIGATE_SNAP: 10, // m: a bot checking a spot goes to an enemy tag this close to it
   CONFIRM_POINTS: 100,
   DENY_POINTS: 50,
 });
@@ -128,6 +129,8 @@ export class KillConfirmed {
     this.game = game;
     // Bots path onto a tag itself: a nearby waypoint can sit outside PICKUP_RADIUS.
     this.goalSpread = 0;
+    // Most free orders go to a tag: tags were expiring uncollected.
+    this.goalWeight = 0.9;
     this.tags = [];
     this._time = 0;
     this._nextId = 0;
@@ -236,6 +239,23 @@ export class KillConfirmed {
       if (score < bestScore) { bestScore = score; best = tag.pos; }
     }
     return best;
+  }
+
+  /**
+   * Where a bot checking out a spot (a noise, a lost enemy) should go: an
+   * enemy tag within 10 m of it, since a fight there likely dropped one.
+   * Bots used to confirm by walking over tags on their way to gunfire; this
+   * makes it deliberate.
+   */
+  investigateGoal(bot, pos) {
+    let best = null;
+    let bestD = KC.INVESTIGATE_SNAP;
+    for (const tag of this.tags) {
+      if (bot.team && tag.team === bot.team) continue;
+      const d = horizontalDistance(tag.pos, pos);
+      if (d < bestD) { bestD = d; best = tag.pos; }
+    }
+    return best || pos;
   }
 
   /** A bot that scores a kill goes for the tag it just made. */
