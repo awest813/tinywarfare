@@ -316,10 +316,10 @@ test('graphics: auto picks by device, remembers a slow one, and a pick overrides
   assert.equal(settings.graphics, 'auto');
   assert.equal(settings.graphicsQuality(false), 'high', 'a desktop starts on High');
   assert.equal(settings.graphicsQuality(true), 'low', 'a phone starts on Low');
-  settings.setGraphicsAutoLow(true);
+  settings.setGraphicsAutoFloor('low');
   assert.equal(new GameSettings(null, storage).graphicsQuality(false), 'low', 'a slow desktop is remembered');
   settings.setGraphics('high');
-  assert.equal(settings.graphicsAutoLow, false, 'a deliberate pick clears it');
+  assert.equal(settings.graphicsAutoFloor, '', 'a deliberate pick clears it');
   assert.equal(new GameSettings(null, storage).graphicsQuality(true), 'high', 'and pins the tier');
   settings.setGraphics('nonsense');
   assert.equal(settings.graphics, 'auto');
@@ -350,13 +350,25 @@ test('graphics: Chromebook preset, device detection, and the remembered floor', 
   settings.setGraphicsAutoFloor('chromebook');
   const later = new GameSettings(null, storage);
   assert.equal(later.graphicsPreset(rtx), 'chromebook', 'Auto never starts above the remembered floor');
-  assert.equal(later.graphicsAutoLow, true);
+  assert.equal(later.graphicsAutoFloor, 'chromebook');
   later.setGraphics('chromebook');
   assert.equal(later.graphicsPreset(rtx), 'chromebook');
   assert.equal(later.graphicsAutoFloor, '', 'a deliberate pick clears the floor');
 
   store.set('tiny-strike-settings-v1', JSON.stringify({ graphics: 'auto', graphicsAutoLow: true }));
   assert.equal(new GameSettings(null, storage).graphicsPreset(rtx), 'low', 'the older saved flag still means Low');
+});
+
+test('graphics: Auto classifies weak Chromebooks, Chromebook tablets and phones', async () => {
+  const { autoGraphicsPreset } = await import('../src/gfx/profiles.js');
+  const cros = (gpu, touch = false) => autoGraphicsPreset({ chromeOS: true, touch, gpu });
+  assert.equal(cros('ANGLE (AMD, AMD Radeon R5 Graphics (STONEY), OpenGL ES 3.2)'), 'chromebook', 'Stoney Ridge');
+  assert.equal(cros('ANGLE (Qualcomm, Adreno (TM) 618, OpenGL ES 3.2)'), 'chromebook', 'Snapdragon 7c');
+  assert.equal(cros('ANGLE (AMD, AMD Radeon(TM) Graphics (renoir), OpenGL ES 3.2)'), 'high', 'Ryzen Vega');
+  assert.equal(cros('ANGLE (ARM, Mali-G52 MC2, OpenGL ES 3.2)', true), 'chromebook', 'a Chromebook tablet is a Chromebook first');
+  assert.equal(autoGraphicsPreset({ touch: true, gpu: 'ANGLE (ARM, Mali-G710, OpenGL ES 3.2)' }), 'low', 'a Mali flagship phone stays on Low');
+  assert.equal(autoGraphicsPreset({ gpu: 'ANGLE (Intel, Intel(R) Arc(TM) A770 Graphics Direct3D11)' }), 'high');
+  assert.equal(autoGraphicsPreset({ gpu: 'Research Graphics Adapter' }), 'high', 'no accidental "arc" match');
 });
 
 test('graphics: ChromeOS detection reads client hints, then the user agent', async () => {

@@ -200,7 +200,12 @@ export class MaterialSystem {
       p.macroRelief = 0;
       for (const k of LITE_DROPPED_PROPS) delete threeProps[k];
     }
-    const usePhysical = threeProps.physical === true;
+    // Lite shading keeps the physical model only where a specular term sets
+    // the look (the weapons' tuned specularIntensity); surfaces that were
+    // physical for sheen or anisotropy alone, both dropped below, go back to
+    // the cheaper standard model.
+    const usePhysical = threeProps.physical === true &&
+      (!this._lite || LITE_KEEPS_PHYSICAL.some((k) => k in threeProps));
     delete threeProps.physical;
 
     const Ctor = usePhysical ? THREE.MeshPhysicalMaterial : THREE.MeshStandardMaterial;
@@ -315,6 +320,9 @@ export class MaterialSystem {
  * Color object and produces NaN uniforms (a black material), so colour-valued
  * properties have to go through .set().
  */
+// Physical-only properties worth keeping the physical model for, on lite.
+const LITE_KEEPS_PHYSICAL = ['specularIntensity', 'specularColor', 'ior'];
+
 // Physical-material lobes the lite path leaves out (each adds a BRDF term).
 const LITE_DROPPED_PROPS = [
   'sheen', 'sheenRoughness', 'sheenColor', 'anisotropy', 'anisotropyRotation',

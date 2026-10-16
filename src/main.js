@@ -53,7 +53,14 @@ const EARLY_SEARCH = new URLSearchParams(location.search);
 const settings = new GameSettings(null, TRAILER ? null : undefined);
 // The preset (src/gfx/profiles.js). Auto needs to know the device: a
 // Chromebook or a low-power GPU starts on the Chromebook preset.
-const GFX_DEVICE = Object.freeze({ touch: TOUCH_DEVICE, chromeOS: isChromeOS(), gpu: probeGpuName() });
+// The GPU name needs a throwaway context, so it is only asked for when Auto
+// actually needs it (on load, or when the menu shows Auto's choice).
+let gpuName = null;
+const GFX_DEVICE = Object.freeze({
+  touch: TOUCH_DEVICE,
+  chromeOS: isChromeOS(),
+  get gpu() { return gpuName ?? (gpuName = probeGpuName()); },
+});
 const GFX_PRESET = settings.graphicsPreset(GFX_DEVICE);
 const GFX = graphicsProfile(GFX_PRESET);
 const GFX_QUALITY = GFX.tier;
@@ -329,7 +336,7 @@ const COVERED_FRAME_SECONDS = 0.25;
 let coveredAge = Infinity;
 // ?perf: the FPS readout adds the frame's draw calls, triangles and shader
 // programs (summed over every pass, so the counters reset per frame).
-game.perfOverlay = new URLSearchParams(location.search).has('perf');
+game.perfOverlay = EARLY_SEARCH.has('perf');
 if (game.perfOverlay) renderer.info.autoReset = false;
 let frames = 0;
 let fpsTime = 0;
@@ -354,11 +361,12 @@ function reportFailure(key, error) {
   console.error(`[${key}] update failed:`, error);
 }
 
-// Only gameplay is sub-stepped. The sky, effects, HUD, audio and material
-// housekeeping are presentation: they run once per frame with the frame's
-// whole time, so a slow frame does not pay for them two or three times over
-// (which is what deepens a slowdown on a weak machine).
-const FRAME_SYSTEMS = new Set(['world', 'effects', 'hud', 'audio', 'materials']);
+// The sky, HUD, audio and material housekeeping are presentation: they run
+// once per frame with the frame's whole time, so a slow frame does not pay
+// for them two or three times over (which is what deepens a slowdown on a
+// weak machine). Effects stay sub-stepped: their particles integrate drag and
+// gravity explicitly, which is not stable at a 0.15 s step.
+const FRAME_SYSTEMS = new Set(['world', 'hud', 'audio', 'materials']);
 
 function runSystem(key, dt) {
   const sys = game[key];

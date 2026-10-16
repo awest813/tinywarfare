@@ -1769,10 +1769,13 @@ export default class ViewModel {
       loader.load(
         GLB_PATH + file + '.glb',
         (gltf) => {
+          // Clone every extra copy BEFORE applying any: applying moves the
+          // scene into its wrapper and changes its state (hidden payload,
+          // scale), which a clone taken afterwards would inherit.
+          const copies = ids.map((id, i) => (i === 0 ? gltf : { ...gltf, scene: cloneSkeleton(gltf.scene), scenes: undefined }));
           ids.forEach((id, i) => {
             try {
-              const copy = i === 0 ? gltf : { ...gltf, scene: cloneSkeleton(gltf.scene), scenes: undefined };
-              this._applyGLB(id, copy);
+              this._applyGLB(id, copies[i]);
             } catch (e) {
               console.warn('[viewmodel] GLB swap failed for ' + id + ' — keeping procedural model', e);
             }

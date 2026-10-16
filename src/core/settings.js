@@ -270,15 +270,6 @@ export default class GameSettings {
     return next;
   }
 
-  /** Older name: High was too slow, so start on Low. */
-  setGraphicsAutoLow(on) {
-    return this.setGraphicsAutoFloor(on ? lighterPreset('low', this.graphicsAutoFloor || 'high') : '');
-  }
-
-  get graphicsAutoLow() {
-    return this.graphicsAutoFloor !== '';
-  }
-
   /**
    * The preset to start with. `device` is { touch, chromeOS, gpu }; a bare
    * boolean is the older touch-only form.

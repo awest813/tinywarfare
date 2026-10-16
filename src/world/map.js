@@ -42,6 +42,12 @@ const BACKDROPS = {
 };
 
 const WALL_H = 5; // default interior wall height
+// Chromebook preset: ambient fill per unit of hidden lamp intensity, and its
+// cap. Neon Foundry's lamps sum to about 350 units (after the practicals'
+// gain), which lands near the 0.35 that keeps its buildings readable at
+// night; a day map's two or three lamps add a few hundredths.
+const LAMP_FILL_PER_UNIT = 0.001;
+const LAMP_FILL_MAX = 0.36;
 /** Metres covered by one tile of the skyline's window texture (4 x 4 storeys/bays). */
 const WINDOW_TILE = 12;
 const _Y = new THREE.Vector3(0, 1, 0);
@@ -167,15 +173,22 @@ export default class World {
     // (no per-light cost), or night maps go nearly black.
     this._lampFill = null;
     if (this.game.gfx?.mapLights === false) {
+      // Weighted by each lamp's power: dark rig lamps (intensity 0) add
+      // nothing, and a dim lamp counts less than a bright one.
       const color = new THREE.Color(0, 0, 0);
-      let count = 0;
+      let power = 0;
       this.environment.traverse((o) => {
         if (!o.isPointLight) return;
         o.visible = false;
-        color.add(o.color);
-        count++;
+        if (!(o.intensity > 0)) return;
+        color.r += o.color.r * o.intensity;
+        color.g += o.color.g * o.intensity;
+        color.b += o.color.b * o.intensity;
+        power += o.intensity;
       });
-      if (count) this._lampFill = { color: color.multiplyScalar(1 / count), amount: Math.min(0.36, 0.035 * count) };
+      if (power > 0) {
+        this._lampFill = { color: color.multiplyScalar(1 / power), amount: Math.min(LAMP_FILL_MAX, power * LAMP_FILL_PER_UNIT) };
+      }
     }
 
     this.game.scene.add(this.environment);

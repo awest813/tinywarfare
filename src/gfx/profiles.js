@@ -13,11 +13,12 @@
 // material shader. Map layout, props and cover are identical on every preset:
 // they are gameplay.
 //
-// Auto picks: a phone or tablet gets Low; a Chromebook, or any device whose
-// GPU is a known low-power part or a software renderer, gets Chromebook; a
-// desktop with an older Intel HD/UHD part gets Low; everything else High. A
-// device that cannot hold the frame rate is stepped down at runtime by
-// auto-graphics, which remembers the floor for the next visit.
+// Auto picks: a software renderer gets Chromebook; a phone or tablet Low; a
+// Chromebook (unless its GPU is an Iris Xe / Radeon Vega class part) or a
+// laptop with a known low-power GPU, Chromebook; a desktop with an older
+// Intel HD/UHD part Low; everything else High. A device that cannot hold
+// the frame rate is stepped down at runtime by auto-graphics, which
+// remembers the floor for the next visit.
 // ============================================================================
 
 export const GRAPHICS_PRESETS = Object.freeze(['high', 'low', 'chromebook']);
@@ -39,6 +40,7 @@ export const GRAPHICS_PROFILES = Object.freeze({
     fxLights: true,
     mapLights: true,
     precipitation: 1,
+    radarInterval: 0.05,
   }),
   low: Object.freeze({
     id: 'low',
@@ -56,6 +58,7 @@ export const GRAPHICS_PROFILES = Object.freeze({
     fxLights: true,
     mapLights: true,
     precipitation: 0.5,
+    radarInterval: 0.05,
   }),
   chromebook: Object.freeze({
     id: 'chromebook',
@@ -73,6 +76,8 @@ export const GRAPHICS_PROFILES = Object.freeze({
     fxLights: false,
     mapLights: false,
     precipitation: 0.3,
+    // the radar's canvas redraw is a measurable share of a slow CPU's frame
+    radarInterval: 0.1,
   }),
 });
 
@@ -84,9 +89,16 @@ export const GRAPHICS_LABELS = Object.freeze({
   chromebook: 'CHROMEBOOK / LOW-POWER',
 });
 
-const WEAK_GPU = /mali|powervr|adreno \(tm\) [1-5]\d\d|adreno [1-5]\d\d|swiftshader|llvmpipe|softpipe|software|basic render|microsoft basic/i;
+// Low-power parts on a laptop or desktop: ARM Mali and PowerVR, Adreno below
+// the 630 class (the Snapdragon 7c's 618 included), and AMD's Stoney Ridge
+// Radeon R2-R7. Checked before the strong list. Phones are judged on touch
+// alone: recent flagships ship Mali GPUs that handle Low well.
+const WEAK_GPU = new RegExp([
+  'mali', 'powervr', 'adreno (?:\\(tm\\) )?(?:[1-5]\\d\\d|6[0-2]\\d)\\b', 'stoney', 'radeon r[2-7]\\b',
+].join('|'), 'i');
+const SOFTWARE_GPU = /swiftshader|llvmpipe|softpipe|software|basic render|microsoft basic/i;
 const OLD_INTEL = /intel.*\b(u?hd) graphics\b/i;
-const STRONG_INTEGRATED = /iris|\bxe\b|arc|radeon|geforce|nvidia|apple|adreno \(tm\) [6-9]\d\d|adreno [6-9]\d\d/i;
+const STRONG_INTEGRATED = /iris|\bxe\b|\barc\b|radeon|geforce|nvidia|apple|adreno (?:\(tm\) )?(?:6[3-9]\d|[7-9]\d\d)\b/i;
 
 /** True on ChromeOS (client hints first; the frozen UA string still says CrOS). */
 export function isChromeOS(nav = globalThis.navigator) {
@@ -118,14 +130,20 @@ export function probeGpuName(doc = globalThis.document) {
 /** The preset Auto starts from on this device, before any runtime step-down. */
 export function autoGraphicsPreset({ touch = false, chromeOS = false, gpu = '' } = {}) {
   const name = String(gpu || '');
-  if (WEAK_GPU.test(name)) return 'chromebook';
-  if (chromeOS) return STRONG_INTEGRATED.test(name) ? 'high' : 'chromebook';
+  if (SOFTWARE_GPU.test(name)) return 'chromebook';
+  // ChromeOS before touch: a Chromebook tablet (Lenovo Duet and kin) is
+  // a Chromebook first.
+  if (chromeOS) {
+    if (WEAK_GPU.test(name) || !STRONG_INTEGRATED.test(name)) return 'chromebook';
+    return touch ? 'low' : 'high';
+  }
   if (touch) return 'low';
+  if (WEAK_GPU.test(name)) return 'chromebook';
   if (OLD_INTEL.test(name) && !STRONG_INTEGRATED.test(name)) return 'low';
   return 'high';
 }
 
-const ORDER = ['high', 'low', 'chromebook'];
+const ORDER = GRAPHICS_PRESETS;
 
 /** The lighter of two presets (Auto never starts above its remembered floor). */
 export function lighterPreset(a, b) {

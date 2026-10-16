@@ -2113,9 +2113,8 @@ export default class HUD {
       this._updateScoreboard(phase);
       this._updateBuy(st);
 
-      // ~20 Hz; 10 Hz on the Chromebook preset, where the canvas redraw is
-      // a measurable share of a slow CPU's frame.
-      const radarStep = this.game.gfx?.id === 'chromebook' ? 0.1 : 0.05;
+      // ~20 Hz; the graphics preset can slow it (src/gfx/profiles.js).
+      const radarStep = this.game.gfx?.radarInterval || 0.05;
       this._radarTimer += dt;
       if (this._radarTimer >= radarStep) {
         this._radarTimer %= radarStep;
