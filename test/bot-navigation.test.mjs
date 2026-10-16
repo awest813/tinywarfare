@@ -619,9 +619,9 @@ test('the commander splits a Domination team between taking and holding flags', 
   assert.equal(count('defend:A'), 1, 'one defender on the held flag');
   assert.equal(count('capture:B'), 2);
   assert.equal(count('capture:C'), 2);
-  // The held flag comes under attack: a second defender.
+  // The held flag comes under attack: a second defender, once jobs have settled.
   objective.flags[0].contested = true;
-  brain.time += 1;
+  brain.time += 5;
   const again = squad.map((b) => brain._commander().orderFor(b)?.key);
   assert.equal(again.filter((x) => x === 'defend:A').length, 2);
 });
@@ -659,4 +659,28 @@ test('Hardpoint bots do not chase noises or lost enemies away from the zone', ()
   assert.equal(brain._offLeash(far, new THREE.Vector3(30, 0, 0)), false, 'a noise on the way back is fine');
   brain.game.rounds.tdm.objective = { botGoal: () => zone };
   assert.equal(brain._offLeash(bot, new THREE.Vector3(45, 0, 0)), false, 'no leash outside Hardpoint');
+});
+
+test('a flickering fight at a held flag does not send and recall its second defender', () => {
+  const { brain } = makeBrain({ findPath: (from, to) => [to.clone()] });
+  brain.game.state.mode = 'dom';
+  const flag = (name, x, owner) => ({ name, pos: new THREE.Vector3(x, 0, 0), owner, control: owner === 'ct' ? 1 : 0, contested: false });
+  const objective = { goalRadius: 4.5, flags: [flag('A', -20, 'ct'), flag('B', 0, null), flag('C', 20, 't')] };
+  brain.game.rounds = { tdm: { objective } };
+  const squad = [-22, -18, -2, 2, 18].map((x) => makeBot({ pos: new THREE.Vector3(x, 0, 5), plan: 'hunt', state: 'hold' }));
+  brain.all = squad;
+  const commander = brain._commander();
+  const changes = new Map(squad.map((b) => [b, { id: null, n: 0 }]));
+  for (let i = 0; i < 40; i++) {
+    objective.flags[0].contested = i % 2 === 0; // a fight that flickers every pass
+    brain.time += 0.5;
+    for (const b of squad) {
+      const id = commander.orderFor(b)?.id ?? null;
+      const c = changes.get(b);
+      if (id !== c.id) { c.n++; c.id = id; }
+    }
+  }
+  for (const [bot, c] of changes) {
+    assert.ok(c.n <= 2, `bot at ${bot.pos.x} changed job ${c.n} times in 20 s`);
+  }
 });

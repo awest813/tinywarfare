@@ -29,6 +29,8 @@ const DOM_SPREAD = 3;             // m: arrivals spread inside the 4.5 m flag
 const ENGAGED_RELEASE = 4;        // s in a fight before a job goes to someone else
 const REJECT_TIME = 12;           // s a bot is not resent to a job it could not reach
 const URGENCY_MARGIN = 0.3;       // weight by which a job must outrank another to take its bot
+const LOSING_MEMORY = 8;          // s a flag stays "under attack" after the last sign of it
+const SETTLE_TIME = 4;            // s before a bot's fresh job can be taken for a more urgent one
 
 function flatDistance(a, b) {
   return Math.hypot(a.x - b.x, a.z - b.z);
@@ -42,6 +44,9 @@ export default class TeamCommander {
     this._objective = null;
     this._at = -Infinity;
     this._seq = 0;
+    // A flag's "being taken" flickers through a firefight; remembering it
+    // keeps a second defender from being sent and recalled every half second.
+    this._losingUntil = new Map(); // team:flag -> time
   }
 
   /** The bot's current job, or null to hunt. */
@@ -64,6 +69,7 @@ export default class TeamCommander {
   reset() {
     this.orders.clear();
     this._rejected.clear();
+    this._losingUntil.clear();
     this._objective = null;
     this._at = -Infinity;
   }
@@ -112,7 +118,11 @@ export default class TeamCommander {
       const radius = objective.goalRadius || 0;
       for (const flag of objective.flags) {
         const held = flag.owner === team;
-        const losing = held && (flag.contested || Math.abs(flag.control) < 1);
+        const memo = team + ':' + flag.name;
+        if (held && (flag.contested || Math.abs(flag.control) < 1)) {
+          this._losingUntil.set(memo, this.bots.time + LOSING_MEMORY);
+        }
+        const losing = held && (this._losingUntil.get(memo) || -Infinity) > this.bots.time;
         tasks.push({
           key: (held ? 'defend:' : 'capture:') + flag.name,
           pos: flag.pos,
@@ -198,6 +208,7 @@ export default class TeamCommander {
         for (const bot of squad) {
           const order = this.orders.get(bot);
           if (!order || order.key === task.key || bot.state === 'engage') continue;
+          if (now - order.since < SETTLE_TIME) continue;
           if (task.weight - (order.weight || 0) < URGENCY_MARGIN) continue;
           const until = this._rejected.get(bot)?.get(task.key);
           if (until !== undefined && until > now) continue;
@@ -221,6 +232,7 @@ export default class TeamCommander {
       radius: task.radius,
       spread: task.spread,
       weight: task.weight,
+      since: this.bots.time,
       engagedSince: null,
     });
   }
