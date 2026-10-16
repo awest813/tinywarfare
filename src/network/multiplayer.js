@@ -16,6 +16,7 @@ import {
 } from './room-directory.js';
 import { GAME_MODES, isRespawnMode, normalizeModeId } from '../game/tdm.js';
 import { DEFAULT_BOT_SKILL, botSkill, normalizeBotSkill } from '../ai/skill.js';
+import { armorDamageScale } from '../weapons/data.js';
 
 
 function escHtml(value) {
@@ -1078,7 +1079,7 @@ export default class Multiplayer {
     if (target.spawnProtection > 0) return; // respawn modes: fresh spawns are briefly immune
     let healthDamage = amount;
     if (target.armor > 0) {
-      healthDamage = amount * (info.headshot ? 0.85 : this.game.config.ARMOR_DAMAGE_SCALE);
+      healthDamage = amount * armorDamageScale(info, this.game.config.ARMOR_DAMAGE_SCALE);
       target.armor = Math.max(0, target.armor - amount * 0.5);
     }
     target.health = Math.max(0, target.health - healthDamage);

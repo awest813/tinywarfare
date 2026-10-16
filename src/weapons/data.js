@@ -42,6 +42,10 @@ function mulberry32(seed) {
 // Each entry is { p, y }: the aim-drift kick (pitch up / yaw) added AFTER that
 // shot leaves the barrel (first bullet always flies true to the crosshair).
 // ---------------------------------------------------------------------------
+// Primary patterns run to 1.5x the magazine so an extended mag (and the
+// LMG's 100-round belt) keeps the settled, wandering spray to the last
+// round instead of repeating the final kick as a straight diagonal drift.
+// Extending `shots` only appends: the seeded opening shots stay identical.
 function makeSprayPattern(o) {
   const shots = o.shots;
   const base = o.base;
@@ -85,6 +89,7 @@ export const WEAPONS = {
     damage: 55,              // two slashes; MW2-lite, not CS's three
     damageBack: 120,         // backstab: one hit
     headshotMult: 1.0,
+    armorPen: 0.85,          // share of a body hit that gets through armor
     rpm: 120,
     magSize: 0,
     reserve: 0,
@@ -123,6 +128,7 @@ export const WEAPONS = {
     price: 200,
     damage: 26,
     headshotMult: 2.5,
+    armorPen: 0.47,          // share of a body hit that gets through armor
     rpm: 400,
     magSize: 20,
     reserve: 120,
@@ -158,6 +164,7 @@ export const WEAPONS = {
     price: 200,
     damage: 34,
     headshotMult: 2.5,
+    armorPen: 0.505,         // share of a body hit that gets through armor
     rpm: 352,
     magSize: 12,
     reserve: 100,
@@ -194,6 +201,7 @@ export const WEAPONS = {
     price: 700,
     damage: 58,
     headshotMult: 2.5,
+    armorPen: 0.93,          // share of a body hit that gets through armor
     rpm: 160,                // heavy, deliberate
     magSize: 7,
     reserve: 35,
@@ -230,7 +238,9 @@ export const WEAPONS = {
     price: 1500,
     damage: 26,
     headshotMult: 2,
-    rpm: 750,
+    armorPen: 0.6,           // share of a body hit that gets through armor
+    rpm: 800,
+    adsTime: 0.16,           // s hip to sights (slot default 0.22): the SMG's edge up close
     magSize: 30,
     reserve: 120,
     reloadTime: 2.6,
@@ -243,15 +253,15 @@ export const WEAPONS = {
       pitchPerShot: 0.0078,
       yawJitter: 0.0028,
       recovery: 9,
-      pattern: makeSprayPattern({ shots: 30, base: 0.0078, amp: 0.0019, period: 7.5, phase: 2.8, ramp: 4, decay: 7, seed: 14 }),
+      pattern: makeSprayPattern({ shots: 45, base: 0.0078, amp: 0.0019, period: 7.5, phase: 2.8, ramp: 4, decay: 7, seed: 14 }),
     },
     bloomPerShot: 0.0009,
     bloomMax: 0.008,
     penetration: 0.4,
-    falloffStart: 12,
+    falloffStart: 16,
     falloffEnd: 50,
     falloffMinScale: 0.45,
-    moveSpeedMult: 0.92,
+    moveSpeedMult: 0.95,
     zoomFov: null,
     fireSound: 'mp5',
     tracerEvery: 1,
@@ -265,6 +275,7 @@ export const WEAPONS = {
     price: 2700,
     damage: 36,
     headshotMult: 2,
+    armorPen: 0.775,         // share of a body hit that gets through armor
     rpm: 600,
     magSize: 30,
     reserve: 90,
@@ -279,7 +290,7 @@ export const WEAPONS = {
       yawJitter: 0.004,
       recovery: 6.5,
       // The classic: 4 shots straight up, then swinging left-first drift.
-      pattern: makeSprayPattern({ shots: 30, base: 0.0135, amp: 0.0038, period: 9, phase: 2.9, ramp: 4, decay: 6, seed: 15 }),
+      pattern: makeSprayPattern({ shots: 45, base: 0.0135, amp: 0.0038, period: 9, phase: 2.9, ramp: 4, decay: 6, seed: 15 }),
     },
     bloomPerShot: 0.0014,
     bloomMax: 0.011,
@@ -301,6 +312,7 @@ export const WEAPONS = {
     price: 3100,
     damage: 34,              // 3 x 34 = 102: a three-shot kill like the AK, not 99
     headshotMult: 2,
+    armorPen: 0.7,           // share of a body hit that gets through armor
     rpm: 666,
     magSize: 30,
     reserve: 90,
@@ -314,7 +326,7 @@ export const WEAPONS = {
       pitchPerShot: 0.011,
       yawJitter: 0.0032,
       recovery: 7.5,
-      pattern: makeSprayPattern({ shots: 30, base: 0.0112, amp: 0.0030, period: 8, phase: -2.9, ramp: 4, decay: 6.5, seed: 16 }),
+      pattern: makeSprayPattern({ shots: 45, base: 0.0112, amp: 0.0030, period: 8, phase: -2.9, ramp: 4, decay: 6.5, seed: 16 }),
     },
     bloomPerShot: 0.0012,
     bloomMax: 0.010,
@@ -336,6 +348,7 @@ export const WEAPONS = {
     price: 4750,
     damage: 115,
     headshotMult: 2.5,
+    armorPen: 0.975,         // share of a body hit that gets through armor
     rpm: 41,                 // bolt action
     magSize: 10,
     reserve: 30,
@@ -350,7 +363,7 @@ export const WEAPONS = {
       pitchPerShot: 0.045,
       yawJitter: 0.006,
       recovery: 4,
-      pattern: makeSprayPattern({ shots: 10, base: 0.045, amp: 0.004, period: 5, phase: 2.4, ramp: 1, decay: 3, seed: 17 }),
+      pattern: makeSprayPattern({ shots: 15, base: 0.045, amp: 0.004, period: 5, phase: 2.4, ramp: 1, decay: 3, seed: 17 }),
     },
     bloomPerShot: 0,
     bloomMax: 0,
@@ -493,7 +506,7 @@ export const WEAPONS = {
       pitchPerShot: 0.03,
       yawJitter: 0.008,
       recovery: 5,
-      pattern: makeSprayPattern({ shots: 7, base: 0.03, amp: 0.004, ramp: 1, seed: 21 }),
+      pattern: makeSprayPattern({ shots: 11, base: 0.03, amp: 0.004, ramp: 1, seed: 21 }),
     },
     bloomPerShot: 0.004,
     bloomMax: 0.012,
@@ -515,6 +528,7 @@ export const WEAPONS = {
     price: 5200,
     damage: 32,
     headshotMult: 2,
+    armorPen: 0.775,         // share of a body hit that gets through armor
     rpm: 650,                // a heavy weapon: four shots, slower cycle
     magSize: 100,
     reserve: 200,
@@ -528,7 +542,7 @@ export const WEAPONS = {
       pitchPerShot: 0.0105,
       yawJitter: 0.006,
       recovery: 5.5,
-      pattern: makeSprayPattern({ shots: 40, base: 0.0105, amp: 0.0042, period: 11, phase: 1.4, ramp: 5, decay: 9, seed: 23 }),
+      pattern: makeSprayPattern({ shots: 150, base: 0.0105, amp: 0.0042, period: 11, phase: 1.4, ramp: 5, decay: 9, seed: 23 }),
     },
     bloomPerShot: 0.0012,
     bloomMax: 0.014,
@@ -646,6 +660,21 @@ export const BUY_MENU = [
 ];
 
 // HUD convenience: resolves real weapons AND gear pseudo-items.
+/**
+ * Share of a hit that reaches health while the target wears armor
+ * (CS-style penetration). Armor covers torso and head only, helmets stop
+ * little, and each weapon's armorPen decides the rest: a flat 50% made the
+ * AWP and a knife backstab two-hit kills on any armored target.
+ */
+export function armorDamageScale(info, fallback = 0.5) {
+  if (!info) return fallback;
+  if (info.part === 'legs') return 1;
+  if (info.headshot) return 0.85;
+  const id = typeof info.weapon === 'string' ? info.weapon : info.weapon && info.weapon.id;
+  const pen = WEAPONS[id] && WEAPONS[id].armorPen;
+  return Number.isFinite(pen) ? pen : fallback;
+}
+
 export function getItemDef(id) {
   return WEAPONS[id] || GEAR[id] || null;
 }

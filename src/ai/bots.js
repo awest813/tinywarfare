@@ -18,6 +18,7 @@ import { isRespawnMode } from '../game/tdm.js';
 import { hostile, isFfa } from '../game/hostility.js';
 import { BOT_SKILLS, botSkill } from './skill.js';
 import TeamCommander from './commander.js';
+import { armorDamageScale } from '../weapons/data.js';
 import { buildSightlines, findCover, laneYaw } from './sightlines.js';
 import { getCharacterPalette } from '../player/profile.js';
 import { buildAnimationSet, OperativeAnimator, IK_FAR_SQ } from './operative-anim.js';
@@ -1982,7 +1983,7 @@ export default class Bots {
     let dmg = amount;
     if (bot.armor > 0) {
       // Headshots mostly punch through helmets (0.85 of the damage lands).
-      dmg = amount * (info.headshot ? 0.85 : (this.game.config.ARMOR_DAMAGE_SCALE || 0.5));
+      dmg = amount * armorDamageScale(info, this.game.config.ARMOR_DAMAGE_SCALE || 0.5);
       bot.armor = Math.max(0, bot.armor - amount * 0.5);
     }
     bot.health -= dmg;
@@ -2078,10 +2079,16 @@ export default class Bots {
     ev.on('weapon:fire', (p) => {
       if (!p || !p.byPlayer || !p.origin) return;
       const w = this.game.weapons;
-      const suppressed = this.game.player && this.game.player.attachment === 'suppressor' &&
-        w && typeof w.current === 'function' && w.current().slot === 1;
+      const def = w && typeof w.current === 'function' ? w.current() : null;
+      // A knife swing is footstep-quiet, not a gunshot; the USP-S is built
+      // suppressed, as a suppressor attachment makes a primary.
+      const range = def && def.melee
+        ? this._cfg.HEAR_RANGE * 0.5
+        : this._cfg.HEAR_RANGE * 1.6;
+      const suppressed = !!(def && (def.quiet ||
+        (def.slot === 1 && this.game.player && this.game.player.attachment === 'suppressor')));
       this._hearSound(p.origin, (this.game.player && this.game.player.team) || 'ct',
-        this._cfg.HEAR_RANGE * 1.6 * (suppressed ? SUPPRESSED_HEARING : 1));
+        range * (suppressed ? SUPPRESSED_HEARING : 1));
     });
 
     // A non-host human's shot, resolved on the authority (combat.fireRemote).

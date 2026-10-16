@@ -62,7 +62,7 @@ const STUN_RANGE = 11;
 const SEMTEX_STICK_RADIUS = 0.6;   // m from a body's centre line            // smoke pops on rest OR after this
 
 const HE_RADIUS = 9;
-const HE_MAX_DMG = 98;
+const HE_MAX_DMG = 98;              // fallback only; data.js damage is the peak
 const HE_FALLOFF_EXP = 1.6;
 
 const FLASH_RANGE = 18;
@@ -1241,7 +1241,10 @@ export default class Combat {
       host.takeDamage(250, { from: p.thrower, weapon: weaponId, headshot: false, part: 'body' });
       if (this._isPlayer(p.thrower)) this.game.events.emit('hud:hitmarker', { headshot: false, kill: host.alive === false });
     }
-    this._radialDamage(p.pos, HE_RADIUS, HE_MAX_DMG, p.thrower, p.throwerTeam, weaponId, true, false);
+    // Peak damage comes from the weapon data (150: a kill inside ~2 m); the
+    // old flat 98 meant a grenade at someone's feet could never kill.
+    const peak = Number(this._def(weaponId)?.damage) || HE_MAX_DMG;
+    this._radialDamage(p.pos, HE_RADIUS, peak, p.thrower, p.throwerTeam, weaponId, true, false);
     this._shakePlayer(p.pos, HE_RADIUS * 1.8, 0.9);
   }
 

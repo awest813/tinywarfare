@@ -10,6 +10,7 @@ import GameSettings, {
 import { exposureWithBrightnessEv } from '../src/gfx/sky/index.js';
 import { BASE_LOOK_SENSITIVITY, lookSensitivityFor } from '../src/player/player.js';
 import HUD from '../src/ui/hud.js';
+import Weapons from '../src/weapons/weapons.js';
 
 class MemoryStorage {
   constructor(seed = {}) {
@@ -257,8 +258,12 @@ test('key capture consumes the assignment, Escape cancels, and Tab navigates whi
 test('look and brightness helpers preserve authored defaults and scoped ratios', () => {
   assert.equal(lookSensitivityFor(1), BASE_LOOK_SENSITIVITY);
   assert.equal(lookSensitivityFor(3), BASE_LOOK_SENSITIVITY * 3);
-  assert.equal(lookSensitivityFor(1, 1), BASE_LOOK_SENSITIVITY * 0.45);
-  assert.equal(lookSensitivityFor(1, 2), BASE_LOOK_SENSITIVITY * 0.22);
+  // Scoped turn rate follows the zoom (tan ratio), as ADS does.
+  const scoped = (fov) => Weapons.prototype.adsSensitivityScale.call({ _fovCurrent: fov, _baseFov: () => 74 });
+  const tanRatio = (fov) => Math.tan((fov * Math.PI) / 360) / Math.tan((74 * Math.PI) / 360);
+  assert.ok(Math.abs(scoped(26) - tanRatio(26)) < 1e-12);
+  assert.ok(Math.abs(scoped(11) - tanRatio(11)) < 1e-12);
+  assert.equal(scoped(74), 1);
   assert.equal(exposureWithBrightnessEv(0.95, 0), 0.95);
   assert.ok(Math.abs(exposureWithBrightnessEv(0.95, 0.5) - 0.95 * Math.SQRT2) < 1e-12);
   assert.ok(Math.abs(exposureWithBrightnessEv(0.95, -0.5) - 0.95 / Math.SQRT2) < 1e-12);

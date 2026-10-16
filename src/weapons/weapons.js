@@ -222,13 +222,14 @@ export default class Weapons {
     return this.adsT;
   }
 
-  /** Look sensitivity multiplier that keeps ADS tracking speed constant. */
+  /** Look sensitivity multiplier that keeps ADS and scoped tracking speed constant. */
   adsSensitivityScale() {
-    if (this.scopeLevel > 0) return 1;
     // On-screen speed goes with tan(fov/2), not with the angle itself: the
-    // linear ratio left aimed turning ~6% fast at the rifle's 20% zoom.
+    // linear ratio left aimed turning ~6% fast at the rifle's 20% zoom. The
+    // scope uses the same rule (fixed 0.45 / 0.22 factors turned 1.5-1.7x
+    // too fast at the default FOV, and worse at a wide one).
     const half = (deg) => Math.tan((deg * Math.PI) / 360);
-    return clamp(half(this._fovCurrent) / half(this._baseFov()), 0.5, 1);
+    return clamp(half(this._fovCurrent) / half(this._baseFov()), 0.05, 1);
   }
 
   /** Grenade hand for the viewmodel: 'winding', 'throwing' or null. */
@@ -241,10 +242,16 @@ export default class Weapons {
     const input = this.game.input;
     return !!(
       (input && (input.firing || input.aiming)) ||
+      this._semiQueued ||
       this.scopeLevel > 0 ||
       this._state === 'winding' ||
       this._state === 'throwing'
     );
+  }
+
+  /** Seconds after a sprint before the held weapon can fire. */
+  sprintOutTime() {
+    return this._sprintOutTime(this.current());
   }
 
   _sprintOutTime(def) {
@@ -410,6 +417,9 @@ export default class Weapons {
     }
     const old = this.slots[def.slot];
     if (old && old !== id) delete this.ammo[old];
+    // Respawn loadouts swap the team pistol for the class sidearm after the
+    // equip; Q pointed at a pistol no longer owned and did nothing.
+    if (old && old !== id && this.lastWeaponId === old) this.lastWeaponId = id;
     this.slots[def.slot] = id;
     this.ammo[id] = { mag: this.magSizeOf(def), reserve: def.reserve };
     return true;
@@ -513,6 +523,7 @@ export default class Weapons {
 
     // Wipe transient combat state.
     this._nextFireAt = 0;
+    this._nextFireById = {};
     this._lastShotAt = -10;
     this._dryAt = 0;
     this._semiQueued = false;
@@ -576,6 +587,7 @@ export default class Weapons {
       if (this.scopeLevel > 0 || this._fovTarget !== this._baseFov()) this._unscope();
       if (this._state === 'winding' || this._state === 'throwing') this._state = 'idle';
       this.adsT = 0;
+      g.input?.clearAimLatch?.();
       this._wasSprinting = false;
       this._semiQueued = false;
       this._rmbQueued = false;
@@ -587,7 +599,14 @@ export default class Weapons {
     // ---- advance state machine timers -------------------------------------
     if (this._state === 'equipping') {
       this._stateT += dt;
-      if (this._stateT >= this._stateDur) this._state = 'idle';
+      if (this._stateT >= this._stateDur) {
+        this._state = 'idle';
+        // R pressed during the raise, or a gun drawn empty, reloads now.
+        const drawn = this.ammo[this.currentId];
+        const reload = this._reloadQueued || (drawn && drawn.mag === 0 && drawn.reserve > 0);
+        this._reloadQueued = false;
+        if (reload) this._startReload();
+      }
     } else if (this._state === 'reloading') {
       this._stateT += dt;
       if (this._stateT >= this._stateDur) {
@@ -609,9 +628,12 @@ export default class Weapons {
       }
       if (this._stateT >= this._stateDur) {
         this._state = 'idle';
+        // Out of that grenade: back to the gun it was thrown from.
+        const last = this.lastWeaponId;
+        const lastDef = last && WEAPONS[last];
         const next = this.owns(def.id)
           ? def.id
-          : this.slots[1] || this.slots[2] || 'knife';
+          : (lastDef && lastDef.slot !== 4 && this.owns(last) ? last : this.slots[1] || this.slots[2] || 'knife');
         this._forceEquip(next, FAST_SWITCH_TIME, false);
       }
     }
@@ -630,7 +652,9 @@ export default class Weapons {
 
     // ---- RMB: scope toggle (buffered briefly through a raise) ---------------
     if (this._rmbQueued) {
-      if (this._state === 'idle' || this._now - this._rmbQueuedAt > INPUT_BUFFER * 4) {
+      // Kept for the whole raise (the AWP's is 0.45 s); otherwise briefly.
+      const stale = this._state !== 'equipping' && this._now - this._rmbQueuedAt > INPUT_BUFFER * 4;
+      if (this._state === 'idle' || stale) {
         this._rmbQueued = false;
         this._toggleScope();
       }
@@ -716,6 +740,7 @@ export default class Weapons {
   _onWheel(e) {
     const dir = e && e.dir ? e.dir : 0;
     if (!dir) return;
+    if (this.game.player && this.game.player.alive === false) return;
     const list = this._equipList();
     if (list.length < 2) return;
     let idx = list.indexOf(this.currentId);
@@ -727,6 +752,9 @@ export default class Weapons {
   _onKey(e) {
     const key = e && e.key;
     if (!key) return;
+    // Dead, 1-4 pick the next class (HUD); here they would only replay the
+    // equip sound and raise on a body.
+    if (key !== 'b' && this.game.player && this.game.player.alive === false) return;
     switch (key) {
       case '1':
         if (this.slots[1]) this.equip(this.slots[1]);
@@ -1026,6 +1054,17 @@ export default class Weapons {
     // (stateT >= NaN is never true) — a gun that can never fire.
     if (!Number.isFinite(dur) || dur < 0) dur = SWITCH_TIME[1];
     this._cancelActivity();
+    this._reloadQueued = false;
+    // Each gun keeps its own cooldown: the AWP's 1.46 s bolt used to lock out
+    // a pistol drawn straight after the shot (the click was lost), and a
+    // shared reset would let a quick switch skip the bolt instead.
+    if (id !== this.currentId) {
+      if (!this._nextFireById) this._nextFireById = {};
+      if (this.currentId) this._nextFireById[this.currentId] = this._nextFireAt;
+      const own = this._nextFireById[id];
+      this._nextFireAt = Number.isFinite(own) ? own : 0;
+    }
+    this.game.input?.clearAimLatch?.(); // toggle aim drops on a switch
     if (trackLast && id !== this.currentId) this.lastWeaponId = this.currentId;
     this.currentId = id;
     this._state = 'equipping';
@@ -1053,9 +1092,12 @@ export default class Weapons {
   _startReload() {
     const def = this.current();
     if (!def || def.melee || def.slot === 4 || def.magSize <= 0) return;
+    if (this._state === 'equipping') {
+      this._reloadQueued = true; // runs when the raise ends
+      return;
+    }
     if (
       this._state === 'reloading' ||
-      this._state === 'equipping' ||
       this._state === 'winding' ||
       this._state === 'throwing'
     ) {
@@ -1067,6 +1109,7 @@ export default class Weapons {
     if (player && player.alive === false) return;
 
     this._unscope(); // reloading the AWP drops the scope
+    this.game.input?.clearAimLatch?.();
     this._state = 'reloading';
     this._stateT = 0;
     this._stateDur = def.reloadTime * (hasPerk(player, 'quickhands') ? PERK_TUNING.QUICKHANDS_RELOAD : 1);
@@ -1080,7 +1123,7 @@ export default class Weapons {
     const can = this._canAds(def);
     const want = can && !!(input && input.aiming) && !buyOpen && !sprinting &&
       this._state !== 'reloading' && this._state !== 'equipping';
-    const rate = can ? 1 / ADS_TIME[def.slot] : 8;
+    const rate = can ? 1 / (def.adsTime || ADS_TIME[def.slot]) : 8;
     this.adsT = want ? Math.min(1, this.adsT + dt * rate) : Math.max(0, this.adsT - dt * rate);
     if (can && this.scopeLevel === 0 && this._rescopeAt < 0) {
       const e = this.adsT * this.adsT * (3 - 2 * this.adsT);

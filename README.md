@@ -146,7 +146,8 @@ and simulates pointer lock for synthetic input).
 Keyboard controls can be remapped from **Settings** on the main menu. Settings
 also has look sensitivity (`0.25×–3.00×`), field of view (65–100), brightness
 (`−0.50–+0.50 EV`), master volume, an announcer voice toggle, the killcam
-(a replay of how you died; Jump or a click skips it), Show FPS and
+(a replay of how you died; Jump or a click skips it), toggle aim (right
+click aims in and out instead of holding; sprint cancels it), Show FPS and
 **Graphics** (Auto, High, Low or Chromebook / Low-power; applies on reload).
 Auto picks by device: Chromebooks and low-power GPUs start on the Chromebook
 preset (below-native resolution, simple shadows and shading, no lamp or

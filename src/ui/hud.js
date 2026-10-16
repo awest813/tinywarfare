@@ -478,6 +478,8 @@ export default class HUD {
       announcer: $('hud-announcer'),
       announcerOutput: $('hud-announcer-output'),
       showFps: $('hud-show-fps'),
+      aimToggle: $('hud-aim-toggle'),
+      aimToggleOutput: $('hud-aim-toggle-output'),
       killcamSetting: $('hud-killcam-setting'),
       killcamSettingOutput: $('hud-killcam-setting-output'),
       showFpsOutput: $('hud-show-fps-output'),
@@ -865,6 +867,11 @@ export default class HUD {
       settings.setKillcam(event.currentTarget.checked);
       this._syncSettingsUi();
     });
+    this._el.aimToggle?.addEventListener('change', (event) => {
+      settings.setAimToggle(event.currentTarget.checked);
+      this.game.input?.clearAimLatch?.();
+      this._syncSettingsUi();
+    });
     this._el.showFps?.addEventListener('change', (event) => {
       settings.setShowFps(event.currentTarget.checked);
       this._syncSettingsUi();
@@ -981,6 +988,8 @@ export default class HUD {
     if (this._el.announcer) this._el.announcer.checked = settings.announcer !== false;
     if (this._el.announcerOutput) this._el.announcerOutput.textContent = settings.announcer !== false ? 'ON' : 'OFF';
     if (this._el.showFps) this._el.showFps.checked = !!settings.showFps;
+    if (this._el.aimToggle) this._el.aimToggle.checked = !!settings.aimToggle;
+    if (this._el.aimToggleOutput) this._el.aimToggleOutput.textContent = settings.aimToggle ? 'ON' : 'OFF';
     if (this._el.killcamSetting) this._el.killcamSetting.checked = settings.killcam !== false;
     if (this._el.killcamSettingOutput) this._el.killcamSettingOutput.textContent = settings.killcam !== false ? 'ON' : 'OFF';
     if (this._el.showFpsOutput) this._el.showFpsOutput.textContent = settings.showFps ? 'ON' : 'OFF';
@@ -2545,7 +2554,7 @@ export default class HUD {
     }
     // A grenade 'magazine' is the one in hand, so it would always read low.
     const magLow = !spectating && mag !== null && def && !def.grenade && Number.isFinite(def.magSize) &&
-      mag <= Math.max(1, Math.ceil(def.magSize * 0.25));
+      mag <= Math.max(1, Math.ceil((w && typeof w.magSizeOf === 'function' ? w.magSizeOf(def) : def.magSize) * 0.25));
     if (magLow !== c.magLow) {
       c.magLow = magLow;
       if (this._el.ammoMag) this._el.ammoMag.classList.toggle('low', !!magLow);
@@ -2839,7 +2848,14 @@ export default class HUD {
     }
 
     const spread = (w && typeof w.currentSpread === 'function') ? w.currentSpread() : 0.012;
-    let gap = 2.5 + clamp(spread, 0, 0.085) * 900;
+    // The arms sit at the real edge of the cone (each axis is clamped to
+    // ±spread): pixels per radian at the live FOV and screen height. A fixed
+    // 900 px/rad drew it 1.25-2x too wide, more so at a wide FOV.
+    const cam = this.game.camera;
+    const halfFov = ((cam && cam.fov) || 74) * Math.PI / 360;
+    const screenH = (typeof innerHeight === 'number' && innerHeight > 0) ? innerHeight : 768;
+    const pxPerRad = (screenH / 2) / Math.tan(halfFov);
+    let gap = 2.5 + clamp(spread, 0, 0.085) * pxPerRad;
     gap = Math.round(gap * 2) / 2;
     if (gap !== c.gap) {
       c.gap = gap;
@@ -4661,6 +4677,10 @@ export default class HUD {
       '<output id="hud-killcam-setting-output" for="hud-killcam-setting">' + (settings?.killcam === false ? 'OFF' : 'ON') + '</output></span>' +
       '<small class="mn-setting-note">REPLAY HOW YOU DIED · JUMP OR CLICK SKIPS</small>' +
       '<input id="hud-killcam-setting" type="checkbox"' + (settings?.killcam === false ? '' : ' checked') + '></label>' +
+      '<label class="mn-setting mn-setting-toggle" for="hud-aim-toggle"><span><strong>TOGGLE AIM</strong>' +
+      '<output id="hud-aim-toggle-output" for="hud-aim-toggle">' + (settings?.aimToggle ? 'ON' : 'OFF') + '</output></span>' +
+      '<small class="mn-setting-note">RIGHT CLICK AIMS IN AND OUT · SPRINT CANCELS</small>' +
+      '<input id="hud-aim-toggle" type="checkbox"' + (settings?.aimToggle ? ' checked' : '') + '></label>' +
       '<label class="mn-setting mn-setting-toggle" for="hud-show-fps"><span><strong>SHOW FPS</strong>' +
       '<output id="hud-show-fps-output" for="hud-show-fps">' + (settings?.showFps ? 'ON' : 'OFF') + '</output></span>' +
       '<small class="mn-setting-note">FRAME RATE IN THE CORNER</small>' +

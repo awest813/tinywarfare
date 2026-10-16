@@ -174,6 +174,7 @@ export default class GameSettings {
     this.announcer = true;
     this.showFps = false;
     this.killcam = true;
+    this.aimToggle = false;
     this.graphics = 'auto';
     // Set when Auto found High too slow on this device: start on Low.
     this.graphicsAutoFloor = '';
@@ -236,6 +237,15 @@ export default class GameSettings {
     if (next === this.killcam) return next;
     this.killcam = next;
     this._commit('killcam');
+    return next;
+  }
+
+  /** Right mouse button: hold to aim (default) or click to toggle. */
+  setAimToggle(on) {
+    const next = !!on;
+    if (next === this.aimToggle) return next;
+    this.aimToggle = next;
+    this._commit('aimToggle');
     return next;
   }
 
@@ -346,6 +356,7 @@ export default class GameSettings {
     this.announcer = true;
     this.showFps = false;
     this.killcam = true;
+    this.aimToggle = false;
     this.graphics = 'auto';
     this.graphicsAutoFloor = '';
     this.bindings = defaultBindings();
@@ -362,6 +373,7 @@ export default class GameSettings {
       announcer: this.announcer,
       showFps: this.showFps,
       killcam: this.killcam,
+      aimToggle: this.aimToggle,
       graphics: this.graphics,
       bindings: Object.freeze({ ...this.bindings }),
     });
@@ -384,6 +396,7 @@ export default class GameSettings {
       this.announcer = parsed.announcer !== false;
       this.showFps = parsed.showFps === true;
       this.killcam = parsed.killcam !== false;
+      this.aimToggle = parsed.aimToggle === true;
       this.graphics = GRAPHICS_OPTIONS.includes(parsed.graphics) ? parsed.graphics : 'auto';
       this.graphicsAutoFloor = ['low', 'chromebook'].includes(parsed.graphicsAutoFloor)
         ? parsed.graphicsAutoFloor
@@ -422,6 +435,7 @@ export default class GameSettings {
           announcer: this.announcer,
           showFps: this.showFps,
           killcam: this.killcam,
+          aimToggle: this.aimToggle,
           graphics: this.graphics,
           graphicsAutoFloor: this.graphicsAutoFloor,
           bindingsVersion: BINDINGS_VERSION,

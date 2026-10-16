@@ -13,6 +13,7 @@ import * as THREE from 'three';
 import { EXPLOSIVE_WEAPONS, PERK_TUNING, hasPerk } from '../game/loadouts.js';
 import { generateRandomPlayerName } from './profile.js';
 import { SpectatorCamera } from './spectator.js';
+import { armorDamageScale } from '../weapons/data.js';
 
 // ---- tuning (module-local feel constants; gameplay numbers live in CONFIG) --
 export const BASE_LOOK_SENSITIVITY = 0.0022; // rad per input pixel at 1.00×
@@ -61,11 +62,9 @@ const DEATH_EYE = 0.5;           // m: dead camera sinks toward this height
 const DEATH_CAMERA_FALL_DURATION = 1.05; // s: readable collapse before the hold
 export const DEATH_SPECTATE_DELAY = 1.55; // s: let the death land before spectating
 
-export function lookSensitivityFor(multiplier = 1, scopeLevel = 0) {
+export function lookSensitivityFor(multiplier = 1) {
   const value = Number(multiplier);
-  let sensitivity = BASE_LOOK_SENSITIVITY * (Number.isFinite(value) ? value : 1);
-  if (scopeLevel > 0) sensitivity *= scopeLevel >= 2 ? 0.22 : 0.45;
-  return sensitivity;
+  return BASE_LOOK_SENSITIVITY * (Number.isFinite(value) ? value : 1);
 }
 
 function monotonicSeconds() {
@@ -224,7 +223,7 @@ export default class Player {
     if (this.armor > 0) {
       // Helmets mitigate far less than body armor (CS-style): rifle headshots
       // stay lethal through armor.
-      const scale = info.headshot ? 0.85 : game.config.ARMOR_DAMAGE_SCALE;
+      const scale = armorDamageScale(info, game.config.ARMOR_DAMAGE_SCALE);
       healthDmg = amount * scale;
       this.armor = Math.max(0, this.armor - amount * 0.5);
     } else {
@@ -450,15 +449,12 @@ export default class Player {
     if (!look) return;
 
     const weapons = this.game.weapons;
-    const scopeLevel = weapons && typeof weapons.isScoped === 'function' && weapons.isScoped()
-      ? (weapons.scopeLevel || 1)
-      : 0;
-    // Scoped aim keeps its existing zoom ratios; the device preference is a
-    // multiplier on the shipped base feel and updates without rebuilding Player.
-    let sens = lookSensitivityFor(this.game.settings?.lookSensitivity, scopeLevel);
-    // Aiming down sights zooms the view; scale turn rate with it so the
-    // crosshair tracks at the same on-screen speed.
-    if (!scopeLevel && weapons && typeof weapons.adsSensitivityScale === 'function') {
+    // The device preference is a multiplier on the shipped base feel and
+    // updates without rebuilding Player.
+    let sens = lookSensitivityFor(this.game.settings?.lookSensitivity);
+    // Aiming down sights or through a scope zooms the view; scale turn rate
+    // with it so the crosshair tracks at the same on-screen speed.
+    if (weapons && typeof weapons.adsSensitivityScale === 'function') {
       sens *= weapons.adsSensitivityScale();
     }
     if (this.stunned > 0) sens *= STUN_LOOK_SCALE;
@@ -555,6 +551,11 @@ export default class Player {
     //    aim, or throw input breaks it (weapons owns that veto) --
     const weapons = game.weapons;
     const analogSprint = analogMagnitude > 0.96 && (Number(analog.y) || 0) > 0.85;
+    // With toggle aim, a fresh sprint press drops the sights and runs.
+    if (sprintKey && !this._sprintKeyPrev && fmove > 0.5 && game.settings?.aimToggle) {
+      game.input?.clearAimLatch?.();
+    }
+    this._sprintKeyPrev = sprintKey;
     const sprintVeto = !!(weapons && typeof weapons.blocksSprint === 'function' && weapons.blocksSprint());
     this.sprinting = !moveLocked && (sprintKey || analogSprint) && fmove > 0.5 &&
       !this.crouching && !walkKey && !sprintVeto && !this.sliding;

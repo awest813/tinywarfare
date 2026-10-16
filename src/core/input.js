@@ -587,6 +587,8 @@ export default class Input {
 
     const button = e.button | 0;
     const alreadyDown = this._buttonIsDown(button);
+    // Toggle aim (a setting): each right click flips the sight in or out.
+    if (button === 2 && this.game.settings?.aimToggle) this._aimLatched = !this._aimLatched;
     this._buttonsDown.add(button);
     this._syncButtonFlags();
     if (!alreadyDown) this.game.events.emit('input:mousedown', { button });
@@ -742,9 +744,19 @@ export default class Input {
     return this._buttonsDown.has(button) || this._virtualButtonsDown.has(button);
   }
 
+  /** Drop a toggled aim (weapon switch, reload, sprint, death). */
+  clearAimLatch() {
+    if (!this._aimLatched) return;
+    this._aimLatched = false;
+    this._syncButtonFlags();
+  }
+
   _syncButtonFlags() {
     this.firing = this._buttonIsDown(0);
-    this.aiming = this._buttonIsDown(2);
+    // Touch AIM is its own latch (a virtual button); the mouse either holds
+    // or, with toggle aim on, flips _aimLatched per click.
+    const mouseAim = this.game.settings?.aimToggle ? !!this._aimLatched : this._buttonsDown.has(2);
+    this.aiming = this._virtualButtonsDown.has(2) || mouseAim;
   }
 
   _releaseHardwareKeys() {
@@ -768,6 +780,7 @@ export default class Input {
     }
     this._buttonsDown.clear();
     this._virtualButtonsDown.clear();
+    this._aimLatched = false;
     this._syncButtonFlags();
     this._down.clear();
     this._virtualDown.clear();

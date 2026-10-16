@@ -55,8 +55,9 @@ const ADS_PIVOT_X = 0.019;
 const ADS_PIVOT_Y = -0.095;
 const ADS_PIVOT_Z = -0.2;
 const ADS_SWAY_KEEP = 0.25;
-// Per-model nudges so each sight line lands on the screen centre (measured
-// from ADS renders at the default FOV).
+// Per-model nudges so each sight line lands on the screen centre. Procedural
+// guns align from their own exported sight point instead (adsAlignment); these
+// only apply to the fallback models used before the procedural ones load.
 const ADS_TRIM = {
   ak47: [0, 0.026],
   mp5: [0.014, 0.02],
@@ -74,7 +75,8 @@ const SWAY_ROT_Y = 0.011;       // rad per rad/s
 const SWAY_ROT_X = 0.009;
 const SWAY_POS_CLAMP = 0.02;    // m
 const SWAY_ROT_CLAMP = 0.055;   // rad
-const BOB_STRIDE = 1.9;         // meters per full bob cycle
+const BOB_STRIDE = 5.0;         // meters per bob cycle: one dip per footstep
+                                // (player.js STRIDE 2.5 m, |sin| halves it)
 const BOB_AMP_X = 0.013;
 const BOB_AMP_Y = 0.010;
 const BOB_AMP_ROLL = 0.022;
@@ -85,6 +87,14 @@ const THROW_HIDE_AT = 0.11;     // grenade leaves the hand (matches weapons.js)
 const BOLT_DUR = 0.85;          // AWP bolt-work choreography
 const LAND_RECOVER = 6.5;       // 1/s land-dip recovery
 const MUZZLE_FALLBACK_DIST = 0.4;
+// Gun pulled back from a wall in front of the eye (the viewmodel draws in the
+// world, so a long barrel would otherwise sink into it). Reach per slot is
+// roughly the crown's distance from the eye.
+const WALL_REACH = { 1: 0.95, 2: 0.62, 3: 0.45, 4: 0.45 };
+const WALL_NEAR = 0.34;         // eye-to-wall distance with the gun fully pulled in
+// Per-shot action cycle (pistol slide, rifle bolt): back, then home.
+const CYCLE_BACK = 0.035;
+const CYCLE_HOME = 0.055;
 
 // Per-weapon pose (camera-space) + fire-kick scale + optional equip time.
 const POSES = {
@@ -571,6 +581,27 @@ function clamp(v, lo, hi) {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
+/**
+ * Pivot pose that puts a procedural gun's exported sight point (its rear
+ * notch or optic centre, object space) on the camera's view axis at full
+ * ADS, with the pivot rotation cancelling the wrapper's hip-pose rotation so
+ * front and rear sights line up. Hand-measured trims drifted 10-25 px off the
+ * dot as the models changed; this follows the model.
+ */
+function adsAlignment(group, object) {
+  const sight = object && object.userData && object.userData.sight;
+  if (!Array.isArray(sight) || sight.length < 3 || !sight.every(Number.isFinite)) return null;
+  const cancel = group.quaternion.clone().invert();
+  object.updateMatrix();
+  group.updateMatrix();
+  const v = new THREE.Vector3().fromArray(sight)
+    .applyMatrix4(object.matrix)
+    .applyMatrix4(group.matrix)
+    .applyQuaternion(cancel);
+  const e = new THREE.Euler().setFromQuaternion(cancel);
+  return { x: -v.x, y: -v.y, rx: e.x, ry: e.y, rz: e.z };
+}
+
 function smoothstep(a, b, x) {
   const t = clamp((x - a) / (b - a), 0, 1);
   return t * t * (3 - 2 * t);
@@ -582,10 +613,6 @@ function bump(x, c, w) {
   return Math.exp(-d * d);
 }
 
-function easeOutCubic(t) {
-  const u = 1 - clamp(t, 0, 1);
-  return 1 - u * u * u;
-}
 
 function easeOutQuad(t) {
   const u = clamp(t, 0, 1);
@@ -696,6 +723,11 @@ export default class ViewModel {
     this._wind = 0;
     this._throw = { active: false, t: 0 };
     this._hand = null;
+    this._cycleT = 1;             // per-shot slide/bolt cycle clock
+    this._wallK = 0;              // 0..1 pull-back from a wall ahead
+    this._wallRay = new THREE.Ray();
+    this._wallHit = new THREE.Vector3();
+    this._wallFrame = 0;
     this._payloadHidden = false;
 
     // AWP bolt cycle
@@ -720,6 +752,9 @@ export default class ViewModel {
         this._haveLook = false;
         this._yawVel = 0;
         this._pitchVel = 0;
+        // Frozen while dead: a death mid-sprint would respawn in sprint carry.
+        this._sprint = 0;
+        this._wallK = 0;
       });
       ev.on('profile:changed', (p) => this.applyProfileAppearance(p?.characterId));
     }
@@ -842,6 +877,8 @@ export default class ViewModel {
       if (th.t >= THROW_DUR) th.active = false;
     }
 
+    if (this._cycleT < 1) this._cycleT += dt;
+
     const bo = this._bolt;
     if (bo.active) {
       bo.t += dt;
@@ -899,7 +936,8 @@ export default class ViewModel {
     const cfg = g.config;
     const runSpeed = (cfg && cfg.PLAYER && cfg.PLAYER.RUN_SPEED) || 5.2;
     const speedFrac = clamp(speed / runSpeed, 0, 1);
-    const bobTarget = onGround && speed > 0.35 ? speedFrac : 0;
+    // No footsteps while sliding, so no bob either.
+    const bobTarget = onGround && !(player && player.sliding) && speed > 0.35 ? speedFrac : 0;
     this._bobAmp += (bobTarget - this._bobAmp) * (1 - Math.exp(-8 * dt));
     this._bobPhase += speed * dt * ((Math.PI * 2) / BOB_STRIDE);
 
@@ -916,24 +954,42 @@ export default class ViewModel {
     // 74 degrees; scaling camera-space x/y by the tangent ratio keeps the gun
     // framed exactly as authored at any hip FOV (ADS zoom still reads, since
     // it narrows the live FOV, not this base).
+    // At the hip the framing follows the LIVE fov, which eases back over a few
+    // frames after a scope, an unscope or a setting change; framing from the
+    // base alone drew the gun 3-8x too big on the frame after a scoped shot.
+    // Down the sights it holds the base, so the ADS zoom still magnifies.
     const baseFov = Number(g.config?.PLAYER?.FOV) || VIEWMODEL_AUTHORED_FOV;
-    const k = Math.tan(baseFov * Math.PI / 360) / Math.tan(VIEWMODEL_AUTHORED_FOV * Math.PI / 360);
+    const adsRaw = weapons && typeof weapons.adsFraction === 'function' ? weapons.adsFraction() : 0;
+    const liveFov = Number.isFinite(cam.fov) && cam.fov > 1 ? cam.fov : baseFov;
+    const fovK = liveFov + (baseFov - liveFov) * clamp(adsRaw, 0, 1);
+    const k = Math.tan(fovK * Math.PI / 360) / Math.tan(VIEWMODEL_AUTHORED_FOV * Math.PI / 360);
     if (this.rig.scale.x !== k) this.rig.scale.set(k, k, 1);
     if (!show) return; // hidden: skip pose composition + matrix flush
 
     // ---- compose pivot offsets --------------------------------------------
-    const adsRaw = weapons && typeof weapons.adsFraction === 'function' ? weapons.adsFraction() : 0;
     const ads = adsRaw * adsRaw * (3 - 2 * adsRaw);
     const sway = 1 - (1 - ADS_SWAY_KEEP) * ads;
     const sprintTarget = player && player.sprinting ? 1 : 0;
-    this._sprint = (this._sprint || 0) + (sprintTarget - (this._sprint || 0)) * (1 - Math.exp(-10 * dt));
+    // Leaving a sprint, the gun is back on target (95%) by the moment the
+    // weapon lets it fire, not ~0.3 s later.
+    const sprintOut = weapons && typeof weapons.sprintOutTime === 'function' ? weapons.sprintOutTime() : 0.2;
+    const sprintRate = sprintTarget > (this._sprint || 0) ? 10 : 3 / Math.max(0.05, sprintOut);
+    this._sprint = (this._sprint || 0) + (sprintTarget - (this._sprint || 0)) * (1 - Math.exp(-sprintRate * dt));
+    this._updateWall(cam, g.world, dt);
+    // Down the sights a procedural gun's own sight point lands on the view
+    // axis with the sight line parallel to it (see adsAlignment); the hand
+    // trims are only for models that export no sight.
+    const held = this._models[this._currentId];
+    const align = held && held.userData.weaponSource === 'procedural' ? held.userData.adsAlign : null;
     const trim = ADS_TRIM[this._currentId];
-    let px = PIVOT_X + (ADS_PIVOT_X + (trim ? trim[0] : 0) - PIVOT_X) * ads;
-    let py = PIVOT_Y + (ADS_PIVOT_Y + (trim ? trim[1] : 0) - PIVOT_Y) * ads;
+    const adsX = align ? align.x : ADS_PIVOT_X + (trim ? trim[0] : 0);
+    const adsY = align ? align.y : ADS_PIVOT_Y + (trim ? trim[1] : 0);
+    let px = PIVOT_X + (adsX - PIVOT_X) * ads;
+    let py = PIVOT_Y + (adsY - PIVOT_Y) * ads;
     let pz = PIVOT_Z + (ADS_PIVOT_Z - PIVOT_Z) * ads;
-    let rx = 0;
-    let ry = 0;
-    let rz = 0;
+    let rx = align ? align.rx * ads : 0;
+    let ry = align ? align.ry * ads : 0;
+    let rz = align ? align.rz * ads : 0;
 
     // idle breathing (fades out while moving)
     const idle = 1 - this._bobAmp;
@@ -965,6 +1021,14 @@ export default class ViewModel {
     py += -Math.abs(Math.sin(ph)) * BOB_AMP_Y * amp;
     rz += Math.sin(ph) * BOB_AMP_ROLL * amp;
 
+    // pulled back from a wall in front of the eye
+    const wk = this._wallK;
+    if (wk > 0.001) {
+      pz += 0.14 * wk;
+      py -= 0.05 * wk;
+      rx -= 0.45 * wk;
+    }
+
     // airborne float + landing dip
     py += this._airY;
     py -= 0.05 * this._landK;
@@ -985,7 +1049,9 @@ export default class ViewModel {
 
     // equip raise — from below, tilted down, over the raise window
     if (this._equipT < this._equipDur) {
-      const raise = 1 - easeOutCubic(this._equipT / this._equipDur);
+      // Ease in and out: an ease-out looked 97% raised at 70% of the lockout.
+      const e = clamp(this._equipT / this._equipDur, 0, 1);
+      const raise = 1 - e * e * (3 - 2 * e);
       py -= 0.24 * raise;
       rx -= 0.85 * raise;
       rz += 0.3 * raise;
@@ -1057,15 +1123,18 @@ export default class ViewModel {
     const model = this._models[this._currentId];
     if (model) {
       const ud = model.userData;
+      // One full action cycle per shot, whatever the kick: the slide (or
+      // bolt) snaps back and returns before a fast follow-up.
+      const ct = this._cycleT;
+      const cycle = ct < CYCLE_BACK ? ct / CYCLE_BACK : Math.max(0, 1 - (ct - CYCLE_BACK) / CYCLE_HOME);
       if (ud.slide) {
-        // pistol slide cycles back with the kick
-        ud.slide.position.z = ud.slideBaseZ + Math.min(1, kick) * 0.022;
+        ud.slide.position.z = ud.slideBaseZ + cycle * 0.022;
       }
       if (ud.mag) {
         ud.mag.position.y = ud.magBaseY - 0.09 * magOut;
       }
       if (ud.bolt) {
-        ud.bolt.position.z = ud.boltBaseZ + 0.032 * boltPull;
+        ud.bolt.position.z = ud.boltBaseZ + (this._currentId === 'awp' ? 0.032 * boltPull : 0.03 * cycle);
       }
       // Trigger finger. The rest pose already has the slack taken up on the
       // trigger face, so this only drives the last 0.3 rad of press — tied to
@@ -1159,6 +1228,7 @@ export default class ViewModel {
       this._slash.side = -this._slash.side; // alternate slash direction
       return;
     }
+    this._cycleT = 0;
     const pose = POSES[p.weaponId];
     const ks = pose ? pose.kick : 0.6;
     if (ks <= 0) return;
@@ -1211,12 +1281,48 @@ export default class ViewModel {
   // ==========================================================================
   // Weapon switching
   // ==========================================================================
+  /** Ease `_wallK` toward how far a wall ahead intrudes on the gun's reach. */
+  _updateWall(cam, world, dt) {
+    let target = 0;
+    const boxes = world && world.colliders;
+    const def = WEAPONS[this._currentId];
+    const reach = WALL_REACH[def && def.slot] || 0.6;
+    // Every other frame is plenty for a value that is smoothed anyway.
+    if (boxes && boxes.length && (this._wallFrame = (this._wallFrame + 1) & 1) === 0) {
+      const ray = this._wallRay;
+      ray.origin.copy(cam.position);
+      cam.getWorldDirection(ray.direction);
+      let best = Infinity;
+      for (let i = 0; i < boxes.length; i++) {
+        const box = boxes[i];
+        if (box.distanceToPoint(ray.origin) > reach) continue;
+        if (ray.intersectBox(box, this._wallHit)) {
+          const d = this._wallHit.distanceTo(ray.origin);
+          if (d < best) best = d;
+        }
+      }
+      target = best < reach ? clamp((reach - best) / (reach - WALL_NEAR), 0, 1) : 0;
+      this._wallTarget = target;
+    } else {
+      target = this._wallTarget || 0;
+    }
+    this._wallK += (target - this._wallK) * (1 - Math.exp(-14 * dt));
+  }
+
   _beginEquip(id) {
     if (!this._models[id]) return;
     this._currentId = id;
 
+    // Only the held weapon stays parented: three walks hidden children in
+    // updateMatrixWorld, and each wrapper carries a ~46-bone arm clone.
     for (const key in this._models) {
-      this._models[key].visible = key === id;
+      const wrapper = this._models[key];
+      wrapper.visible = key === id;
+      if (key === id) {
+        if (wrapper.parent !== this.pivot) this.pivot.add(wrapper);
+      } else if (wrapper.parent === this.pivot) {
+        this.pivot.remove(wrapper);
+      }
     }
 
     // Each wrapper carries its own arm clone, posed for that weapon's family,
@@ -1474,6 +1580,7 @@ export default class ViewModel {
     );
     group.rotation.set(pose.rot[0], pose.rot[1], pose.rot[2]);
     group.scale.setScalar(pose.scale ?? 1);
+    group.userData.adsAlign = adsAlignment(group, object);
 
     // Muzzle marker, in wrapper space, at the real crown of the barrel — this
     // is where tracers and the flash spawn.
