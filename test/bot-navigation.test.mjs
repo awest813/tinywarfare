@@ -684,3 +684,21 @@ test('a flickering fight at a held flag does not send and recall its second defe
     assert.ok(c.n <= 2, `bot at ${bot.pos.x} changed job ${c.n} times in 20 s`);
   }
 });
+
+test('a Kill Confirmed bot detours to deny its own tag only when an enemy is near it', async () => {
+  const { KillConfirmed } = await import('../src/game/objectives.js');
+  const { brain } = makeBrain({ findPath: (from, to) => [to.clone()] });
+  brain.game.state.mode = 'kc';
+  brain.game.player = { team: 'ct', alive: false, position: new THREE.Vector3(0, 0, 500) };
+  const kc = new KillConfirmed({ scene: null, player: { team: 'ct' } });
+  kc.onDeath('ct', new THREE.Vector3(8, 0, 0));    // CT's own tag, 8 m from the bot
+  brain.game.rounds = { tdm: { objective: kc } };
+  const bot = makeBot({ pos: new THREE.Vector3(0, 0, 0), plan: 'hunt', state: 'hold' });
+  const enemy = makeBot({ team: 't', pos: new THREE.Vector3(40, 0, 0), plan: 'hunt', state: 'hold' });
+  brain.all = [bot, enemy];
+  const commander = brain._commander();
+  assert.equal(commander.orderFor(bot), null, 'no enemy near: leave it');
+  enemy.pos.set(18, 0, 0);                          // 10 m from the tag
+  brain.time += 1;
+  assert.equal(commander.orderFor(bot)?.key, 'tag:1', 'an enemy could confirm it: deny it');
+});

@@ -7,7 +7,7 @@
 // dice on its own. Bots without a job hunt.
 //
 //   Kill Confirmed  one bot per enemy tag within reach; a side's own tag
-//                   only by a bot already close to it
+//                   only by a bot already close to it, with an enemy near
 //   Domination      two bots per flag the side does not hold, one defender
 //                   per held flag (two while it is being taken)
 //   Hardpoint       every bot but one holds the zone; the last one hunts
@@ -22,7 +22,8 @@ import { isRespawnMode } from '../game/tdm.js';
 
 const REFRESH = 0.5;              // s between assignment passes
 const KC_CONFIRM_RANGE = 40;      // m: a bot is sent to an enemy tag this close
-const KC_DENY_RANGE = 12;         // m: ...and to its own side's tag only this close
+const KC_DENY_RANGE = 12;         // m: ...and to its own side's tag only this close,
+const KC_DENY_THREAT = 15;        // m: ...and only with an enemy this near the tag
 const DOM_CAPTURE_SLOTS = 2;
 const DOM_DEFEND_SLOTS = 1;
 const DOM_SPREAD = 3;             // m: arrivals spread inside the 4.5 m flag
@@ -104,6 +105,10 @@ export default class TeamCommander {
     if (Array.isArray(objective.tags)) {
       for (const tag of objective.tags) {
         const own = tag.team === team;
+        // Denying is worth a detour only when an enemy could confirm the
+        // tag first; otherwise it lets the enemy's tags be confirmed and
+        // the match never reaches its limit (55 denies to 38 confirms a match).
+        if (own && !this._enemyNear(team, tag.pos, KC_DENY_THREAT)) continue;
         tasks.push({
           key: 'tag:' + tag.id,
           pos: tag.pos,
@@ -148,6 +153,18 @@ export default class TeamCommander {
       }
     }
     return tasks;
+  }
+
+  /** Whether a living enemy of `team` (bot or human) is within `r` m of `pos`. */
+  _enemyNear(team, pos, r) {
+    const near = (actor, at) => actor && actor.alive !== false && at && actor.team && actor.team !== team &&
+      flatDistance(at, pos) <= r && Math.abs(at.y - pos.y) < 3;
+    for (const bot of this.bots.all) if (near(bot, bot.pos)) return true;
+    const game = this.bots.game;
+    const mp = game.multiplayer;
+    const humans = mp && mp.active && typeof mp.humans === 'function' ? mp.humans() : [game.player];
+    for (const human of humans) if (near(human, human && human.position)) return true;
+    return false;
   }
 
   _assign(squad, tasks) {
