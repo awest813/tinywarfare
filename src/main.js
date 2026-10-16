@@ -327,6 +327,10 @@ let shadowFrame = 0;
 const COVERED_PHASES = new Set(['menu', 'gameEnd']);
 const COVERED_FRAME_SECONDS = 0.25;
 let coveredAge = Infinity;
+// ?perf: the FPS readout adds the frame's draw calls, triangles and shader
+// programs (summed over every pass, so the counters reset per frame).
+game.perfOverlay = new URLSearchParams(location.search).has('perf');
+if (game.perfOverlay) renderer.info.autoReset = false;
 let frames = 0;
 let fpsTime = 0;
 game.fps = 60;
@@ -399,6 +403,7 @@ renderer.setAnimationLoop(() => {
   coveredAge = covered ? coveredAge + rawDt : Infinity;
   if (!covered || coveredAge >= COVERED_FRAME_SECONDS) {
     if (covered) coveredAge = 0;
+    if (game.perfOverlay) renderer.info.reset();
     try {
       game.renderFrame();
     } catch (error) {

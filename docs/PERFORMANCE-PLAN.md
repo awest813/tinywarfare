@@ -232,10 +232,8 @@ Done:
 6. Bot sightlines are built at map load and round start.
 7. A Show FPS setting (frame rate and frame time in the corner).
 8. Stale sky comments corrected.
-
-Left:
-- A `?perf` overlay with draw calls, triangles, programs, preset and
-  pixel ratio, for testers.
+9. A `?perf` URL flag: the readout adds the preset, the frame's draw calls
+   and triangles summed over every pass, shader programs and pixel ratio.
 
 ### Phase 2: load time and first-use hitches
 

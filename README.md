@@ -145,10 +145,17 @@ and simulates pointer lock for synthetic input).
 
 Keyboard controls can be remapped from **Settings** on the main menu. Settings
 also has look sensitivity (`0.25×–3.00×`), field of view (65–100), brightness
-(`−0.50–+0.50 EV`), master volume, an announcer voice toggle and **Graphics**
-(Auto, High or Low; applies on reload). On Auto, a desktop that can't hold
-about 40 fps in a match drops ambient occlusion, then resolution, and starts on
-Low next time. Preferences are saved on this device.
+(`−0.50–+0.50 EV`), master volume, an announcer voice toggle, Show FPS and
+**Graphics** (Auto, High, Low or Chromebook / Low-power; applies on reload).
+Auto picks by device: Chromebooks and low-power GPUs start on the Chromebook
+preset (below-native resolution, simple shadows and shading, no lamp or
+effect lights), phones and older Intel laptops on Low, everything else on
+High. A device that can't hold about 40 fps in a match drops ambient
+occlusion, then resolution, and starts one preset lower next time. Add
+`?perf` to the URL for draw calls, triangles and shader programs next to the
+frame rate. Preferences are saved on this device. See
+[docs/PERFORMANCE-PLAN.md](docs/PERFORMANCE-PLAN.md) for what each preset
+changes and what is planned.
 
 | Input | Action |
 |---|---|

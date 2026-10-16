@@ -2135,7 +2135,7 @@ export default class HUD {
       }
     }
     this._updatePause(phase);
-    this._updateFps(dt, !!(g && (g.debug || g.settings?.showFps)));
+    this._updateFps(dt, !!(g && (g.debug || g.perfOverlay || g.settings?.showFps)));
   }
 
   // --------------------------------------------------------------------------
@@ -4258,8 +4258,16 @@ export default class HUD {
     this._fpsTimer += dt;
     if (this._fpsTimer < 0.5 && this._cache.fps) return;
     this._fpsTimer = 0;
-    const fps = Math.round(this.game.fps || 0);
-    const text = fps + ' FPS · ' + (fps > 0 ? Math.round(1000 / fps) : 0) + ' MS';
+    const raw = Number(this.game.fps) || 0;
+    let text = raw >= 1
+      ? Math.round(raw) + ' FPS · ' + Math.round(1000 / raw) + ' MS'
+      : raw > 0 ? '<1 FPS' : '— FPS';
+    const r = this.game.perfOverlay && this.game.renderer;
+    if (r) {
+      text += ' · ' + String(this.game.gfxPreset || '').toUpperCase() +
+        ' · ' + r.info.render.calls + ' CALLS · ' + Math.round(r.info.render.triangles / 1000) + 'K TRIS · ' +
+        (r.info.programs?.length ?? 0) + ' PROGRAMS · ×' + r.getPixelRatio().toFixed(2);
+    }
     if (text !== this._cache.fps) {
       this._cache.fps = text;
       if (this._el.fps) {
