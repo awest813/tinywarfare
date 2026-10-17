@@ -79,7 +79,7 @@ export class MaterialSystem {
       return false;
     }
     const t0 = performance.now();
-    this._forge = new TextureForge(renderer, { anisotropy: this._anisotropy });
+    this._forge ??= new TextureForge(renderer, { anisotropy: this._anisotropy });
     // 1K, not 512: the micro tooth is 1.6-4 mm over a 0.25 m tile, which needs
     // ~6 texels per grain to survive mip 1 instead of averaging to flat grey.
     const detail = this._forge.buildDetail(this._size(1024));
@@ -93,6 +93,17 @@ export class MaterialSystem {
     const ms = performance.now() - t0;
     if (this.debug && ms > 30) console.info(`[materials] shared maps ${ms.toFixed(0)}ms`);
     return true;
+  }
+
+  /**
+   * Compile every surface's bake program in parallel ahead of the first bake
+   * (see TextureForge.precompile). Resolves to true when it ran.
+   */
+  precompile() {
+    const renderer = this._renderer();
+    if (!renderer || this._built) return Promise.resolve(false);
+    this._forge ??= new TextureForge(renderer, { anisotropy: this._anisotropy });
+    return this._forge.precompile(Object.entries(LIBRARY).map(([key, def]) => [key, def.glsl]));
   }
 
   _size(base) {

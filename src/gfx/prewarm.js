@@ -1,3 +1,5 @@
+import * as THREE from 'three';
+
 /**
  * Compile every shader the scene can show before it is needed.
  *
@@ -17,10 +19,12 @@
  * runs again after a map change, not only at boot.
  *
  * `compile` does not reach the shadow pass, whose depth programs vary with
- * each caster (skinned, alpha-tested): those two still compiled on the first
- * live frame. With shadows on, the shadow pass alone is run once for every
- * caster shown (no main pass: drawing a frame off-screen compiled a second,
- * off-screen copy of every material, ~30 programs nobody uses).
+ * each caster (skinned, alpha-tested): those still compiled on the first live
+ * frame. With shadows on, one real frame is drawn into the target play uses,
+ * scissored to a single pixel, so its shadow pass runs over every caster
+ * shown. (The shadow pass cannot run on its own: three.js only has light
+ * state inside `render`. And drawing into a separate off-screen target
+ * compiled a second copy of every material, ~30 programs nobody uses.)
  *
  * A program also keys on the render target it draws into (tone mapping and
  * output colour space differ off-screen), so pass every target the frame
@@ -54,33 +58,57 @@ export function prewarmShaders(renderer, scene, camera, targets = [null]) {
       }
     }
     const shadowMap = renderer.shadowMap;
-    if (shadowMap?.enabled && typeof shadowMap.render === 'function') {
-      const casters = [];
-      scene.traverse((object) => {
-        if (object.isLight && object.castShadow && object.visible && object.shadow) casters.push(object);
-      });
-      if (casters.length) {
-        // Parked objects (the viewmodel, soldiers waiting to spawn) sit outside
-        // the sun's shadow frustum now and would be culled before compiling.
-        const culled = [];
-        scene.traverse((object) => {
-          if (object.frustumCulled && (object.isMesh || object.isPoints || object.isLine)) {
-            object.frustumCulled = false;
-            culled.push(object);
-          }
-        });
-        try {
-          shadowMap.needsUpdate = true;
-          shadowMap.render(casters, scene, camera);
-        } finally {
-          for (const object of culled) object.frustumCulled = true;
-          shadowMap.needsUpdate = true; // the next real frame redraws it properly
-        }
-      }
+    let casters = false;
+    if (shadowMap?.enabled && typeof renderer.render === 'function') {
+      scene.traverse((object) => { if (object.isLight && object.castShadow && object.visible) casters = true; });
     }
+    if (casters) warmShadowPass(renderer, scene, camera, targets[0] ?? null);
   } finally {
     if (typeof renderer.setRenderTarget === 'function') renderer.setRenderTarget(previous);
     for (const object of shown) object.visible = false;
   }
   return shown.length;
+}
+
+const _scissor = new THREE.Vector4();
+const _viewport = new THREE.Vector4();
+
+function warmShadowPass(renderer, scene, camera, target) {
+  const shadowMap = renderer.shadowMap;
+  // Parked objects (the viewmodel, soldiers waiting to spawn) sit outside
+  // the sun's shadow frustum now and would be culled before compiling.
+  const culled = [];
+  scene.traverse((object) => {
+    if (object.frustumCulled && (object.isMesh || object.isPoints || object.isLine)) {
+      object.frustumCulled = false;
+      culled.push(object);
+    }
+  });
+  // A render target carries its own scissor; the screen uses the renderer's.
+  const saved = target
+    ? { rect: target.scissor.clone(), test: target.scissorTest }
+    : { rect: renderer.getScissor(_scissor).clone(), test: renderer.getScissorTest(), viewport: renderer.getViewport(_viewport).clone() };
+  try {
+    renderer.setRenderTarget(target);
+    if (target) {
+      target.scissor.set(0, 0, 1, 1);
+      target.scissorTest = true;
+    } else {
+      renderer.setScissor(0, 0, 1, 1);
+      renderer.setScissorTest(true);
+    }
+    shadowMap.needsUpdate = true;
+    renderer.render(scene, camera);
+  } finally {
+    if (target) {
+      target.scissor.copy(saved.rect);
+      target.scissorTest = saved.test;
+    } else {
+      renderer.setScissor(saved.rect);
+      renderer.setScissorTest(saved.test);
+      renderer.setViewport(saved.viewport);
+    }
+    for (const object of culled) object.frustumCulled = true;
+    shadowMap.needsUpdate = true; // the next real frame redraws it properly
+  }
 }

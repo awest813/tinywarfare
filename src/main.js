@@ -193,6 +193,10 @@ game.materials = new MaterialSystem({
   lite: GFX.liteShading,
   anisotropy: Math.min(GFX.liteShading ? 4 : 8, renderer.capabilities.getMaxAnisotropy()),
 });
+// The map's surface textures are baked on the GPU, one program per surface.
+// Start all of those compiling in parallel now (where the driver can) instead
+// of one after another inside the map build; awaited just before it.
+const surfacePrograms = game.materials.precompile().catch(() => false);
 
 // HDR post chain (src/gfx/post): render to a half-float target so emissives,
 // muzzle flashes, tracers and the sun disc keep their real radiance, then bloom
@@ -243,8 +247,12 @@ applyFov();
 game.events.on('settings:changed', applyFov);
 game.profile = new PlayerProfile(game);
 game.input = new Input(game);
+// Never hold the boot on a driver that stops answering: the bake compiles
+// whatever is not ready itself.
+await Promise.race([surfacePrograms, new Promise((resolve) => setTimeout(resolve, 10000))]);
 game.world = new World(game);
 loadingScreen?.setStage?.('Deploying operatives', 72);
+await loadingScreen?.waitForPaint?.();
 game.effects = new Effects(game);
 game.audio = new AudioSys(game);
 game.player = new Player(game);

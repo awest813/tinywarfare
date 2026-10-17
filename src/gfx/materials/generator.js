@@ -342,6 +342,45 @@ export class TextureForge {
   }
 
   /** Shared micro-detail normal + a matching micro albedo/roughness. */
+  /**
+   * Start compiling every surface program at once, before any bake needs one.
+   *
+   * Each surface is its own noise-heavy program, and `build` waits for its
+   * compile before drawing, so a boot compiled ~26 of them one after another
+   * (most of the loading bar on a low-end GPU). With
+   * KHR_parallel_shader_compile the driver compiles them side by side while
+   * the page keeps building; the promise resolves once all are ready.
+   * Without that extension a compile blocks either way, and compiling
+   * surfaces this map never uses would only add to it, so it does nothing.
+   *
+   * @param {Array<[string, string]>} surfaces [key, glsl] pairs
+   */
+  precompile(surfaces) {
+    const r = this.renderer;
+    if (!r?.extensions?.has?.('KHR_parallel_shader_compile') || typeof r.compileAsync !== 'function') {
+      return Promise.resolve(false);
+    }
+    const scene = new THREE.Scene();
+    const add = (material) => {
+      const mesh = new THREE.Mesh(this._geo, material);
+      mesh.frustumCulled = false;
+      scene.add(mesh);
+    };
+    add(this._sobelMat);
+    add(this._material('__detail', DETAIL_SRC));
+    add(this._material('__macro', MACRO_SRC));
+    for (const [key, glsl] of surfaces) add(this._material(key, glsl));
+    // Same target kind the bakes draw into, so the program keys match.
+    const prev = r.getRenderTarget();
+    const target = this._target(1);
+    r.setRenderTarget(target);
+    const done = r.compileAsync(scene, this._camera);
+    r.setRenderTarget(prev);
+    this._owned.splice(this._owned.indexOf(target), 1);
+    target.dispose();
+    return done.then(() => true, () => false);
+  }
+
   buildDetail(size = 1024, seed = 1) {
     return this.build({
       key: '__detail',
