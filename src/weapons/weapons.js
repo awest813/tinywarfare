@@ -287,6 +287,10 @@ export default class Weapons {
       spread = unscoped + (def.spreadBase - unscoped) * k;
     } else {
       spread = def.spreadBase;
+      // Hip fire: the gun is not shouldered. spreadBase alone is a 0.1-0.2 deg
+      // cone, so a rifle fired from the hip put head shots on a target across a
+      // corridor as surely as aimed fire. This cone is gone at full ADS.
+      if (def.spreadHip) spread += def.spreadHip * (1 - this.adsT);
     }
 
     // Movement inaccuracy — rewards stopping to shoot. Superlinear so a slow

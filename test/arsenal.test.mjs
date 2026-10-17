@@ -199,7 +199,7 @@ test('recoil moves the aim and bullets follow the crosshair (no hidden offset)',
   assert.equal(weapons._driftP, 0, 'no hidden drift accumulates');
   // With the camera held still, every bullet stays inside the base spread cone
   // around the crosshair: none of the climb is a hidden offset.
-  const cone = WEAPONS.ak47.spreadBase + WEAPONS.ak47.bloomMax;
+  const cone = WEAPONS.ak47.spreadBase + WEAPONS.ak47.spreadHip + WEAPONS.ak47.bloomMax;
   for (const d of shots) assert.ok(Math.acos(-d.z) <= cone * 1.42 + 1e-9, `shot ${Math.acos(-d.z).toFixed(4)} off the crosshair`);
 
   // Aimed down sights the same shot kicks less.

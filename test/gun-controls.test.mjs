@@ -291,3 +291,41 @@ test('toggle aim does not latch on weapons without sights', (t) => {
   click();
   assert.equal(input.aiming, true);
 });
+
+test('hip fire has a real cone that aiming down sights takes away', () => {
+  const game = makeGame();
+  const w = game.weapons;
+  const settled = () => {
+    game.player.onGround = true;
+    game.player.moveSpeed2D = 0;
+    w._airT = 0;
+    w._landT = 99;
+    w._bloom = 0;
+  };
+  for (const id of ['m4a1', 'ak47', 'lmg']) {
+    w.give(id);
+    w.equip(id);
+    run(game, 1);
+    settled();
+    w.adsT = 0;
+    const hip = w.currentSpread();
+    w.adsT = 1;
+    const ads = w.currentSpread();
+    // A head (0.131 m) across a 15 m corridor is ~0.5 deg: from the hip the
+    // cone must be several times that, aimed it must be well inside it.
+    assert.ok(hip > 0.03, `${id} hip cone ${hip.toFixed(4)} rad`);
+    assert.ok(ads < 0.004, `${id} aimed cone ${ads.toFixed(4)} rad`);
+  }
+  w.give('mp5');
+  w.equip('mp5');
+  run(game, 1);
+  settled();
+  w.adsT = 0;
+  const smg = w.currentSpread();
+  w.give('m4a1');                    // one primary slot: the MP-5 replaced it
+  w.equip('m4a1');
+  run(game, 1);
+  settled();
+  w.adsT = 0;
+  assert.ok(smg < w.currentSpread(), 'an SMG hip-fires tighter than a rifle');
+});

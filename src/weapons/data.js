@@ -136,6 +136,7 @@ export const WEAPONS = {
     killReward: 300,
     auto: false,
     spreadBase: 0.0035,
+    spreadHip: 0.024,
     spreadMove: 0.030,
     spreadJump: 0.10,
     recoil: {
@@ -173,6 +174,7 @@ export const WEAPONS = {
     auto: false,
     quiet: true,             // suppressed — audio plays it muffled
     spreadBase: 0.0028,
+    spreadHip: 0.022,
     spreadMove: 0.028,
     spreadJump: 0.10,
     recoil: {
@@ -209,6 +211,7 @@ export const WEAPONS = {
     killReward: 300,
     auto: false,
     spreadBase: 0.0045,
+    spreadHip: 0.032,
     spreadMove: 0.045,
     spreadJump: 0.14,
     recoil: {
@@ -247,6 +250,7 @@ export const WEAPONS = {
     killReward: 600,
     auto: true,
     spreadBase: 0.0028,
+    spreadHip: 0.028,
     spreadMove: 0.018,
     spreadJump: 0.09,
     recoil: {
@@ -283,6 +287,7 @@ export const WEAPONS = {
     killReward: 300,
     auto: true,
     spreadBase: 0.0022,
+    spreadHip: 0.042,
     spreadMove: 0.045,
     spreadJump: 0.14,
     recoil: {
@@ -320,6 +325,11 @@ export const WEAPONS = {
     killReward: 300,
     auto: true,
     spreadBase: 0.0018,
+    // Hip-fire cone (rad), faded out by ADS. Sized so a rifle from the hip
+    // still wins a doorway fight (~5 m: nearly every shot on the torso) but
+    // a head across a 15 m corridor is about a one-in-ten shot instead of a
+    // sure thing. SMGs and pistols hip-fire better, the LMG worse.
+    spreadHip: 0.038,
     spreadMove: 0.040,
     spreadJump: 0.13,
     recoil: {
@@ -501,6 +511,7 @@ export const WEAPONS = {
     killReward: 900,
     auto: false,
     spreadBase: 0.004,
+    spreadHip: 0,
     spreadMove: 0.02,
     spreadJump: 0.08,
     recoil: {
@@ -537,6 +548,7 @@ export const WEAPONS = {
     killReward: 300,
     auto: true,
     spreadBase: 0.0032,
+    spreadHip: 0.050,
     spreadMove: 0.06,
     spreadJump: 0.16,
     recoil: {
