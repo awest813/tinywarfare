@@ -5900,8 +5900,9 @@ html.touch-device .kc-row { padding-right: 104px; }
 .mn-map-art i:nth-child(2) { left:30%; height:62%; background:var(--map-b); }
 .mn-map-art i:nth-child(3) { right:-8%; height:46%; }
 .mn-map-copy { display:flex; min-width:0; align-items:baseline; justify-content:space-between; gap:6px; padding:6px 8px 7px; }
-.mn-map-copy strong { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12.5px; font-weight:900; letter-spacing:.06em; color:#f0f4e9; }
-.mn-map-copy span { flex:0 0 auto; font-size:10px; font-weight:900; letter-spacing:.1em; text-transform:uppercase; color:var(--map-a); }
+/* The name wins the space: at 844 px "Frostline" was cut to "Frost…" so its tag could fit. */
+.mn-map-copy strong { flex:0 0 auto; max-width:100%; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12.5px; font-weight:900; letter-spacing:.06em; color:#f0f4e9; }
+.mn-map-copy span { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:10px; font-weight:900; letter-spacing:.1em; text-transform:uppercase; color:var(--map-a); }
 .mn-map > b { display:none; position:absolute; right:4px; top:4px; width:15px; height:15px; text-align:center; line-height:15px; background:var(--map-a); color:#101510; font-size:10px; }
 .mn-map.selected > b { display:block; }
 .mn-mode-picker { position:relative; flex:0 0 auto; width:min(880px,94vw); }
