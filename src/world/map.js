@@ -72,6 +72,7 @@ const _wrapTmp = new THREE.Vector3();
 const MAX_DEPENETRATION = 0.75; // m a capsule found inside a box may be pushed out per axis
 const KNEE_HEIGHT = 0.6;       // m: rays below this pass over steppable curbs
 const REACH_CANDIDATES = 6;    // nearest nodes tried for a walkable entry
+const REACH_STEP = 0.6;        // m: a fallback entry node may sit this far above the feet
 const _reachFrom = new THREE.Vector3();
 const _reachDir = new THREE.Vector3();
 
@@ -2051,6 +2052,13 @@ export default class World {
       _reachDir.multiplyScalar(1 / dist);
       const hit = this.raycast(from, _reachDir, dist);
       if (!hit || hit.distance >= dist - 0.2) return n;
+    }
+    // None in a straight line: rather than the nearest node outright, which
+    // beside a raised platform is one up on top of it (a bot ran into the
+    // 1.2 m face of Citadel's terraces for good), take the nearest one no
+    // more than a step above the feet, which the bot can at least slide to.
+    for (let i = 0; i < near.length; i++) {
+      if (near[i][1].pos.y - pos.y <= REACH_STEP) return near[i][1];
     }
     return near[0][1];
   }

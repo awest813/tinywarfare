@@ -59,3 +59,20 @@ for (const mapId of ['dustyard', 'frostline', 'neon_foundry', 'harbor', 'citadel
     }
   });
 }
+
+test('a bot at the foot of a raised platform enters the nav graph on its own floor', () => {
+  // Neon Foundry: beside a 0.9 m ledge every near node is up on it, and the
+  // nearest one outright was what bots walked into, for good.
+  const world = dressedWorld('neon_foundry');
+  const node = world.reachableWaypoint(new THREE.Vector3(29, 0, -14.6));
+  assert.ok(node.pos.y <= 0.6, `entered by a node ${node.pos.y} m up`);
+});
+
+test("Citadel has no dead-end slot between the terraces and the east keep wings", () => {
+  const world = dressedWorld('citadel');
+  for (const z of [19.5, -19.5]) {
+    for (const x of [11, 14, 17]) {
+      assert.equal(world._clearAt(x, 0.01, z, R, H), false, `a soldier fits at (${x}, ${z}) at ground level`);
+    }
+  }
+});

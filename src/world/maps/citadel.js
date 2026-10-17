@@ -52,6 +52,11 @@ export const CITADEL = {
     // Raised northern and southern site terraces.
     [10, 39, 0, 1.2, -36, -20, 'padPlat', 'stone'],
     [10, 39, 0, 1.2, 20, 36, 'padPlatB', 'stone'],
+    // The terraces run on to the east keep wings: the metre between them
+    // was an 8 m dead-end slot beside the stairs that bots strafed into and
+    // could not path out of.
+    [10, 18, 0, 1.2, -20, -19, 'padPlat', 'stone'],
+    [10, 18, 0, 1.2, 19, 20, 'padPlatB', 'stone'],
     [39, 47, 0, 6.8, -38, -19, 'wallA'],
     [39, 47, 0, 6.8, 19, 38, 'wallB'],
     // West barracks and east gatehouse frame each spawn.
