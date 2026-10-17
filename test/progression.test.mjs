@@ -154,3 +154,40 @@ test('a page that went into the back/forward cache still pays the rest and the r
   p._onAbandon(false);
   assert.equal(p.xp, 1000 + MATCH_XP.WIN, 'a finished match pays nothing more');
 });
+
+test('a tab left open since before another tab played builds on its save', () => {
+  const storage = memoryStorage();
+  const older = new Progression(null, storage);           // opened first, never reloaded
+  const newer = new Progression(null, storage);
+  newer.awardMatch({ score: 2000, result: 'win', kills: { awp: 10 } });
+  older.awardMatch({ score: 100, result: 'loss', kills: { awp: 1 } });
+  const saved = JSON.parse(storage.getItem(LOCAL_PROGRESS_KEY));
+  assert.equal(saved.xp, 2000 + MATCH_XP.WIN + 100 + MATCH_XP.LOSS);
+  assert.equal(saved.weaponXp.awp, 11 * WEAPON_XP_PER_KILL);
+  // A lower career still changes nothing, and the merge alone is announced.
+  const events = new EventBus();
+  const third = new Progression({ events }, storage);
+  let syncs = 0;
+  events.on('progress:sync', () => syncs++);
+  assert.equal(third.syncCareer({ xp: 10 }), false);
+  assert.equal(syncs, 0);
+});
+
+test('the end screen covers the whole match after the page was hidden mid-match', () => {
+  const events = new EventBus();
+  const shown = [];
+  events.on('progress:local', (b) => shown.push(b));
+  const game = { events, player: { team: 'ct' }, score: { total: 0 }, state: { mode: 'tdm' } };
+  const p = new Progression(game, memoryStorage());
+  events.emit('ui:start');
+  game.score.total = 900;
+  p._onAbandon(false);                      // tab hidden / bfcache, then back
+  game.score.total = 1500;
+  events.emit('game:end', { winner: 'ct' });
+  const last = shown.at(-1);
+  assert.equal(p.xp, 1500 + MATCH_XP.WIN);
+  assert.equal(last.score, 1500);
+  assert.equal(last.earned, 1500 + MATCH_XP.WIN);
+  assert.equal(last.before, 1);
+  assert.ok(last.unlocks.includes('shotgun'), 'the rank-2 unlock paid early still shows');
+});

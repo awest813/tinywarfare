@@ -144,7 +144,14 @@ export class LeaderboardClient {
 
   async startFreshProgress() {
     this._clearSessionToken();
-    this._writePending([]);
+    // Matches still owed to the career being left stay queued under it (sent
+    // if its key is restored later); untagged ones are claimed for it now so
+    // they are not credited to the new career instead.
+    const leaving = this.playerId;
+    const pending = this._readPending();
+    this._writePending(leaving
+      ? pending.map((entry) => (entry?._ownerPlayerId ? entry : { ...entry, _ownerPlayerId: leaving }))
+      : pending);
     this._clearCareerCache();
     this.progression = null;
     this.playerId = '';
@@ -300,31 +307,39 @@ export class LeaderboardClient {
     };
   }
 
-  async flushPending({ ensureIdentity = true } = {}) {
+  flushPending(options) {
+    // One flush at a time: two overlapping ones sent the same match twice.
+    const run = () => this._flushPendingOnce(options);
+    this._flushChain = (this._flushChain || Promise.resolve()).then(run, run);
+    return this._flushChain;
+  }
+
+  async _flushPendingOnce({ ensureIdentity = true } = {}) {
     const pending = this._readPending();
     if (!pending.length) return 0;
     if (ensureIdentity && !this.playerId) await this.ensureSession({ refresh: true });
-    const remaining = [];
+    const done = new Set();
     let sent = 0;
     for (const payload of pending) {
-      if (payload?._ownerPlayerId && this.playerId && payload._ownerPlayerId !== this.playerId) {
-        remaining.push(payload);
-        continue;
-      }
+      if (payload?._ownerPlayerId && this.playerId && payload._ownerPlayerId !== this.playerId) continue;
       try {
         const cleanPayload = { ...payload };
         delete cleanPayload._ownerPlayerId;
         await this.submitMatch(cleanPayload);
+        done.add(payload?.matchId);
         sent++;
       } catch (error) {
         const recoveryRequired = error?.status === 401 || this.identityStatus === 'recovery-required';
-        if (recoveryRequired || error?.retryable !== false) remaining.push(payload);
-        else this.game?.events?.emit('leaderboard:submit-rejected', {
+        if (recoveryRequired || error?.retryable !== false) continue;
+        done.add(payload?.matchId);
+        this.game?.events?.emit('leaderboard:submit-rejected', {
           payload, error: error instanceof Error ? error.message : String(error),
         });
       }
     }
-    this._writePending(remaining);
+    // Re-read: a match that ended (or another tab queued) while the requests
+    // were out was overwritten by the list read at the start.
+    this._writePending(this._readPending().filter((entry) => !done.has(entry?.matchId)));
     return sent;
   }
 

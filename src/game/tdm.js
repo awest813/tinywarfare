@@ -674,7 +674,18 @@ export default class TeamDeathmatch {
           const b = nodes[edge[1]];
           if (!a || !b || !a.pos || !b.pos || Math.abs(a.pos.y - b.pos.y) > 0.6) continue;
           if (a.pos.distanceTo(b.pos) < 6) continue;
-          list.push({ pos: a.pos.clone().add(b.pos).multiplyScalar(0.5), yaw: 0 });
+          const mid = a.pos.clone().add(b.pos).multiplyScalar(0.5);
+          // A run up a step averages to a height between the floors (Harbor's
+          // quay steps: 0.25 m, half inside the platform), and a crate can
+          // sit beside the line: stand it on the real floor, and skip it if
+          // a body would not fit there.
+          mid.y = Math.max(a.pos.y, b.pos.y) + 0.1;
+          const floor = typeof world.groundHeightBelow === 'function' ? world.groundHeightBelow(mid, 2) ?? 0 : Math.min(a.pos.y, b.pos.y);
+          if (floor < Math.min(a.pos.y, b.pos.y) - 0.3) continue;
+          mid.y = floor;
+          const radius = this.game.config?.PLAYER?.RADIUS ?? 0.35;
+          if (typeof world._clearAt === 'function' && !world._clearAt(mid.x, mid.y + 0.01, mid.z, radius, 1.83)) continue;
+          list.push({ pos: mid, yaw: 0 });
         }
       }
     }

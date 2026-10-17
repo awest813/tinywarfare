@@ -94,12 +94,13 @@ export default class Progression {
     this._matchKills = {};   // primary kills not yet paid as weapon XP
     this._paidScore = 0;     // match score already paid as XP (a pagehide pays early)
     this._inMatch = false;   // one result per match, whatever fires game:end twice
+    this._paidEarly = null;  // what a pagehide / hidden tab paid, for the end screen
 
     const ev = game && game.events;
     if (ev) {
       ev.on('kill', (e) => this._onKill(e));
       ev.on('game:end', (r) => this._onGameEnd(r || {}));
-      const fresh = () => { this._matchKills = {}; this._paidScore = 0; this._inMatch = true; };
+      const fresh = () => { this._matchKills = {}; this._paidScore = 0; this._paidEarly = null; this._inMatch = true; };
       ev.on('ui:start', fresh);
       ev.on('ui:restart', fresh);
       // Quitting mid-match keeps what was earned (score and weapon kills, no
@@ -113,6 +114,18 @@ export default class Progression {
       // Not the end of the match: a page put in the back/forward cache comes
       // back mid-match, and its game:end must still pay the rest and the result.
       globalThis.addEventListener?.('pagehide', () => this._onAbandon(false));
+      // A mobile browser can discard a backgrounded tab without a pagehide:
+      // hiding the page is the last reliable moment to save.
+      globalThis.document?.addEventListener?.('visibilitychange', () => {
+        if (globalThis.document.visibilityState === 'hidden') this._onAbandon(false);
+      });
+      // Another tab saved: adopt it now, so this one's menu shows the same
+      // rank and its next save builds on it.
+      globalThis.addEventListener?.('storage', (e) => {
+        if (e && e.key !== LOCAL_PROGRESS_KEY && e.key !== null) return;
+        const before = this.rank();
+        if (this._mergeStored()) this.game?.events?.emit('progress:sync', { before, after: this.rank(), summary: this.summary() });
+      });
     } catch { /* no window */ }
   }
 
@@ -181,9 +194,13 @@ export default class Progression {
 
   /**
    * Apply one finished match. Returns the breakdown the HUD shows, and emits
-   * it as 'progress:local'.
+   * it as 'progress:local'. `earlier` is a breakdown already paid for part of
+   * this match (the page was hidden mid-match): the one emitted covers both.
    */
-  awardMatch({ score = 0, result = 'loss', kills = {} } = {}) {
+  awardMatch({ score = 0, result = 'loss', kills = {}, earlier = null } = {}) {
+    // A second tab may have saved since this one loaded: build on that, not
+    // over it (each tab adds its own match to the larger total).
+    this._mergeStored();
     const before = this.rank();
     const beforeLevels = {};
     for (const id of Object.keys(kills)) beforeLevels[id] = this.weaponLevel(id);
@@ -207,7 +224,22 @@ export default class Progression {
         .filter((a) => ATTACHMENT_LEVEL[a] > beforeLevels[id] && ATTACHMENT_LEVEL[a] <= level);
       weaponUps.push({ id, level, attachments: newAttachments });
     }
-    const breakdown = { score: Math.round(Number(score) || 0), bonus, result, earned, before, after, unlocks, weaponUps, summary: this.summary() };
+    let breakdown = { score: Math.round(Number(score) || 0), bonus, result, earned, before, after, unlocks, weaponUps, summary: this.summary() };
+    if (earlier) {
+      const ups = new Map((earlier.weaponUps || []).map((up) => [up.id, up]));
+      for (const up of weaponUps) {
+        const prev = ups.get(up.id);
+        ups.set(up.id, prev ? { ...up, attachments: [...prev.attachments, ...up.attachments] } : up);
+      }
+      breakdown = {
+        ...breakdown,
+        score: breakdown.score + (earlier.score || 0),
+        earned: earned + (earlier.earned || 0),
+        before: Math.min(before, earlier.before ?? before),
+        unlocks: [...(earlier.unlocks || []), ...unlocks],
+        weaponUps: [...ups.values()],
+      };
+    }
     this.game?.events?.emit('progress:local', breakdown);
     return breakdown;
   }
@@ -224,10 +256,15 @@ export default class Progression {
    */
   syncCareer(career) {
     const xp = Number(career && career.xp);
-    if (!Number.isFinite(xp) || xp <= this.xp) return false;
+    if (!Number.isFinite(xp)) return false;
     const before = this.rank();
-    this.xp = Math.min(MAX_STORED_XP, Math.floor(xp));
-    this._save();
+    const merged = this._mergeStored();
+    if (xp > this.xp) {
+      this.xp = Math.min(MAX_STORED_XP, Math.floor(xp));
+      this._save();
+    } else if (!merged) {
+      return false;
+    }
     const after = this.rank();
     this.game?.events?.emit('progress:sync', { before, after, summary: this.summary() });
     return after > before;
@@ -250,8 +287,9 @@ export default class Progression {
     this._inMatch = false;
     const team = (this.game.player && this.game.player.team) || 'ct';
     const result = r.draw ? 'draw' : r.winner === team ? 'win' : 'loss';
-    this.awardMatch({ score: this._unpaidScore(), result, kills: this._matchKills });
+    this.awardMatch({ score: this._unpaidScore(), result, kills: this._matchKills, earlier: this._paidEarly });
     this._matchKills = {};
+    this._paidEarly = null;
   }
 
   /**
@@ -266,7 +304,8 @@ export default class Progression {
     const score = this._unpaidScore();
     const kills = this._matchKills;
     if (!(score > 0) && !Object.keys(kills).length) return;
-    this.awardMatch({ score, result: 'abandon', kills });
+    const paid = this.awardMatch({ score, result: 'abandon', kills, earlier: this._paidEarly });
+    this._paidEarly = ends ? null : paid;
     this._matchKills = {};
   }
 
@@ -278,21 +317,47 @@ export default class Progression {
   }
 
   _load() {
+    const stored = this._readStored();
+    if (!stored) return;
+    this.xp = stored.xp;
+    this.weaponXp = stored.weaponXp;
+  }
+
+  /** The saved progress, cleaned, or null. */
+  _readStored() {
     try {
       const parsed = JSON.parse(this.storage?.getItem?.(LOCAL_PROGRESS_KEY) || 'null');
-      if (!parsed || typeof parsed !== 'object') return;
+      if (!parsed || typeof parsed !== 'object') return null;
       // A non-finite save (Infinity parses from 1e400) would write back null
       // and wipe the career on the next load.
       const xp = Number(parsed.xp);
-      this.xp = Number.isFinite(xp) ? Math.max(0, Math.min(MAX_STORED_XP, Math.floor(xp))) : 0;
+      const out = { xp: Number.isFinite(xp) ? Math.max(0, Math.min(MAX_STORED_XP, Math.floor(xp))) : 0, weaponXp: {} };
       const weaponXp = parsed.weaponXp && typeof parsed.weaponXp === 'object' ? parsed.weaponXp : {};
       for (const [id, xp] of Object.entries(weaponXp)) {
         const n = Number(xp);
-        if (/^[a-z0-9]{1,24}$/.test(id) && Number.isFinite(n)) this.weaponXp[id] = Math.max(0, Math.min(MAX_STORED_XP, Math.floor(n)));
+        if (/^[a-z0-9]{1,24}$/.test(id) && Number.isFinite(n)) out.weaponXp[id] = Math.max(0, Math.min(MAX_STORED_XP, Math.floor(n)));
       }
+      return out;
     } catch {
       // Corrupt or blocked storage: start fresh.
+      return null;
     }
+  }
+
+  /**
+   * Take the larger of this tab's progress and the saved one. A tab left open
+   * since before another tab's matches would otherwise save its older total
+   * over them. Returns true when anything rose.
+   */
+  _mergeStored() {
+    const stored = this._readStored();
+    if (!stored) return false;
+    let changed = false;
+    if (stored.xp > this.xp) { this.xp = stored.xp; changed = true; }
+    for (const [id, n] of Object.entries(stored.weaponXp)) {
+      if (n > (this.weaponXp[id] || 0)) { this.weaponXp[id] = n; changed = true; }
+    }
+    return changed;
   }
 
   _save() {

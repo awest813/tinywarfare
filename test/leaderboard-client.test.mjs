@@ -496,3 +496,52 @@ test('leaderboard normalization retains opaque player identity for reliable self
   ]);
   assert.equal(board.self.playerId, 'player-self-17');
 });
+
+test('a match queued while a flush is out survives it, and flushes never overlap', async () => {
+  const storage = new MemoryStorage({
+    'tiny-strike-leaderboard-token': 'tok-xxxxxxxxxxxxxxxxxxxxxxxx',
+    'tiny-strike-pending-matches': JSON.stringify([{ matchId: 'old-1', _ownerPlayerId: 'p1' }]),
+  });
+  let release;
+  const sent = [];
+  const fetchImpl = async (url, init) => {
+    if (url.endsWith('/matches')) {
+      const body = JSON.parse(init.body);
+      sent.push(body.matchId);
+      if (body.matchId === 'old-1') {
+        await new Promise((resolve) => { release = resolve; });
+        return jsonResponse(200, { accepted: true, progression: progression() });
+      }
+      return jsonResponse(503, { error: 'down' });
+    }
+    return jsonResponse(200, { token: 'tok-xxxxxxxxxxxxxxxxxxxxxxxx', player: { id: 'p1' } });
+  };
+  const events = new EventBus();
+  const game = { events, state: { mode: 'tdm', scores: { ct: 50, t: 20 } }, player: { team: 'ct' }, sessionMode: 'solo' };
+  const client = new LeaderboardClient(game, { storage, fetchImpl, autoSession: false, offline: false });
+  client.playerId = 'p1';
+  const first = client.flushPending();
+  const second = client.flushPending();      // waits for the first instead of resending old-1
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await client._onGameEnd({ winner: 'ct', mode: 'tdm', scores: { ct: 50, t: 20 } }); // 503: queued
+  release();
+  await first;
+  const queued = JSON.parse(storage.getItem('tiny-strike-pending-matches')).map((entry) => entry.matchId);
+  assert.equal(queued.length, 1, 'the match that just ended is still queued');
+  assert.notEqual(queued[0], 'old-1');
+  await second;
+  assert.equal(sent.filter((id) => id === 'old-1').length, 1);
+});
+
+test('starting a new career keeps the old career\'s queued matches under it', async () => {
+  const storage = new MemoryStorage({
+    'tiny-strike-pending-matches': JSON.stringify([{ matchId: 'm1' }, { matchId: 'm2', _ownerPlayerId: 'p0' }]),
+  });
+  const client = new LeaderboardClient({ events: new EventBus() }, { storage, fetchImpl: null, autoSession: false, offline: true });
+  client.playerId = 'p1';
+  client.ensureSession = async () => null;
+  await client.startFreshProgress();
+  assert.deepEqual(JSON.parse(storage.getItem('tiny-strike-pending-matches')), [
+    { matchId: 'm1', _ownerPlayerId: 'p1' }, { matchId: 'm2', _ownerPlayerId: 'p0' },
+  ]);
+});

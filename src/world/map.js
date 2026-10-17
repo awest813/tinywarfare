@@ -1528,7 +1528,7 @@ export default class World {
     this.slab(32, 42, 2, 3.1, -26.2, -25.8, M.wallAs);
     // partial west parapet (bridge lands z[-14,-10])
     this.slab(21.8, 22.2, 2, 2.9, -20, -14, M.wallAs);
-    this.siteMarker('A', '#ffb050', 32, 2.0, -17, 7);
+    this.siteMarker('A', '#ffb050', 30, 2.0, -15, 7);
     // CT plaza -> A stairs (4 treads x 0.5, climbing south)
     this.stairs(26, 32, -30, -26, 4, 0.5, '+z', M.wallAs);
     // A site props: classic default boxes
@@ -1628,7 +1628,10 @@ export default class World {
     this.bombSites = [
       {
         name: 'A',
-        center: new THREE.Vector3(32, 2, -17),
+        // Clear of the default boxes at (31.6..33.5, -18.4..-16.5): the old
+        // centre (32, -17) was inside them, so a bot sent to plant (and the
+        // Hardpoint zone built on it) stood in the stack.
+        center: new THREE.Vector3(30, 2, -15),
         box: new THREE.Box3(new THREE.Vector3(27, 1.8, -22), new THREE.Vector3(37, 4.6, -12)),
       },
       {
