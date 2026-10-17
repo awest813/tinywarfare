@@ -78,3 +78,34 @@ test('game:end awards the match from the live score and local kills', () => {
   assert.deepEqual(breakdown.weaponUps, []);
   assert.ok(Object.values(UNLOCK_RANK).every((r) => r >= 2 && r <= 30));
 });
+
+test('unlocks are spread across the ladder, awards happen once, quitting keeps what was earned', async () => {
+  const { default: Progression, UNLOCK_RANK: U, FINAL_UNLOCK_RANK } = await import('../src/game/progression.js');
+  const { EventBus } = await import('../src/shared/events.js');
+  assert.ok(FINAL_UNLOCK_RANK >= 20, 'something left to earn deep into the ladder');
+  const ranks = Object.values(U);
+  assert.ok(new Set(ranks).size === ranks.length, 'one unlock per rank step');
+
+  const store = new Map();
+  const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+  const events = new EventBus();
+  const game = { events, state: { mode: 'tdm', phase: 'live' }, player: { team: 'ct' }, score: { total: 900 } };
+  const prog = new Progression(game, storage);
+  events.emit('ui:start');
+  events.emit('kill', { killerIsLocal: true, weaponId: 'm4a1', killerTeam: 'ct', victimTeam: 't' });
+  events.emit('game:end', { winner: 'ct' });
+  const after = prog.xp;
+  events.emit('game:end', { winner: 'ct' });
+  assert.equal(prog.xp, after, 'a second game:end pays nothing');
+
+  events.emit('ui:start');
+  events.emit('kill', { killerIsLocal: true, weaponId: 'm4a1', killerTeam: 'ct', victimTeam: 't' });
+  game.state.phase = 'menu';
+  events.emit('ui:menu');
+  assert.equal(prog.xp, after + 900, 'a quit match pays its score, no result bonus');
+  assert.equal(prog.weaponXp.m4a1, 200);
+
+  store.set('tiny-strike-progress-v1', '{"xp":1e400,"weaponXp":{"m4a1":1e400}}');
+  const loaded = new Progression({ events: new EventBus() }, storage);
+  assert.ok(Number.isFinite(loaded.xp) && Number.isFinite(loaded.weaponXp.m4a1 ?? 0));
+});

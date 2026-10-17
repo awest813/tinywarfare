@@ -25,28 +25,38 @@ export const RANK_TITLES = Object.freeze([
   'LIEUTENANT GENERAL', 'GENERAL',
 ]);
 
-/** Rank at which each item unlocks (anything absent is available at rank 1). */
+/**
+ * Rank at which each item unlocks (anything absent is available at rank 1).
+ * Spread across the ladder: everything used to unlock by rank 8, so a first
+ * match handed out up to six at once and ranks 9-30 (35-55 matches) had
+ * nothing left to earn.
+ */
 export const UNLOCK_RANK = Object.freeze({
   shotgun: 2,
-  quickhands: 2,
-  counteruav: 3,
-  deagle: 3,
-  semtex: 4,
-  flakjacket: 4,
-  awp: 5,
-  scavenger: 5,
-  carepackage: 6,
-  stun: 6,
-  lmg: 7,
-  hardline: 8,
+  quickhands: 3,
+  counteruav: 4,
+  deagle: 6,
+  semtex: 8,
+  flakjacket: 10,
+  awp: 12,
+  scavenger: 14,
+  carepackage: 17,
+  stun: 20,
+  lmg: 24,
+  hardline: 28,
 });
+
+/** Rank of the last unlock: past it the career is all titles. */
+export const FINAL_UNLOCK_RANK = Math.max(...Object.values(UNLOCK_RANK));
+
+const MAX_STORED_XP = 1e9;
 
 /** Weapon level (from kills with it) at which each attachment unlocks. */
 export const ATTACHMENT_LEVEL = Object.freeze({ none: 1, laser: 2, grip: 3, extmag: 4, suppressor: 5 });
 export const WEAPON_XP_PER_KILL = 100;
 export const WEAPON_LEVEL_XP = Object.freeze([0, 300, 900, 1800, 3000]); // level 1..5
 
-export const MATCH_XP = Object.freeze({ WIN: 500, DRAW: 300, LOSS: 150 });
+export const MATCH_XP = Object.freeze({ WIN: 500, DRAW: 300, LOSS: 150, ABANDON: 0 });
 
 /** Total XP needed to reach `rank` (rank 1 needs 0). */
 export function xpForRank(rank) {
@@ -82,14 +92,23 @@ export default class Progression {
     this.weaponXp = {};
     this._load();
     this._matchKills = {};
+    this._awarded = false;   // one award per match, whatever fires game:end twice
+    this._inMatch = false;
 
     const ev = game && game.events;
     if (ev) {
       ev.on('kill', (e) => this._onKill(e));
       ev.on('game:end', (r) => this._onGameEnd(r || {}));
-      ev.on('ui:start', () => { this._matchKills = {}; });
-      ev.on('ui:restart', () => { this._matchKills = {}; });
+      const fresh = () => { this._matchKills = {}; this._awarded = false; this._inMatch = true; };
+      ev.on('ui:start', fresh);
+      ev.on('ui:restart', fresh);
+      // Quitting mid-match keeps what was earned (score and weapon kills, no
+      // result bonus) instead of losing all of it.
+      ev.on('ui:menu', () => this._onAbandon());
     }
+    try {
+      globalThis.addEventListener?.('pagehide', () => this._onAbandon());
+    } catch { /* no window */ }
   }
 
   rank() {
@@ -164,9 +183,10 @@ export default class Progression {
     const beforeLevels = {};
     for (const id of Object.keys(kills)) beforeLevels[id] = this.weaponLevel(id);
 
-    const bonus = result === 'win' ? MATCH_XP.WIN : result === 'draw' ? MATCH_XP.DRAW : MATCH_XP.LOSS;
+    const bonus = result === 'win' ? MATCH_XP.WIN : result === 'draw' ? MATCH_XP.DRAW
+      : result === 'abandon' ? MATCH_XP.ABANDON : MATCH_XP.LOSS;
     const earned = Math.max(0, Math.round(Number(score) || 0)) + bonus;
-    this.xp += earned;
+    this.xp = Math.min(MAX_STORED_XP, this.xp + earned);
     for (const [id, n] of Object.entries(kills)) {
       this.weaponXp[id] = (this.weaponXp[id] || 0) + n * WEAPON_XP_PER_KILL;
     }
@@ -200,6 +220,9 @@ export default class Progression {
   }
 
   _onGameEnd(r) {
+    if (this._awarded) return;
+    this._awarded = true;
+    this._inMatch = false;
     const team = (this.game.player && this.game.player.team) || 'ct';
     const result = r.draw ? 'draw' : r.winner === team ? 'win' : 'loss';
     const score = this.game.score ? this.game.score.total : 0;
@@ -207,14 +230,30 @@ export default class Progression {
     this._matchKills = {};
   }
 
+  _onAbandon() {
+    // The phase is already 'menu' when ui:menu fires, so track the match here.
+    if (this._awarded || !this._inMatch) return;
+    this._inMatch = false;
+    const score = this.game.score ? this.game.score.total : 0;
+    const kills = this._matchKills;
+    if (!(score > 0) && !Object.keys(kills).length) return;
+    this._awarded = true;
+    this.awardMatch({ score, result: 'abandon', kills });
+    this._matchKills = {};
+  }
+
   _load() {
     try {
       const parsed = JSON.parse(this.storage?.getItem?.(LOCAL_PROGRESS_KEY) || 'null');
       if (!parsed || typeof parsed !== 'object') return;
-      this.xp = Math.max(0, Math.floor(Number(parsed.xp) || 0));
+      // A non-finite save (Infinity parses from 1e400) would write back null
+      // and wipe the career on the next load.
+      const xp = Number(parsed.xp);
+      this.xp = Number.isFinite(xp) ? Math.max(0, Math.min(MAX_STORED_XP, Math.floor(xp))) : 0;
       const weaponXp = parsed.weaponXp && typeof parsed.weaponXp === 'object' ? parsed.weaponXp : {};
       for (const [id, xp] of Object.entries(weaponXp)) {
-        if (/^[a-z0-9]{1,24}$/.test(id)) this.weaponXp[id] = Math.max(0, Math.floor(Number(xp) || 0));
+        const n = Number(xp);
+        if (/^[a-z0-9]{1,24}$/.test(id) && Number.isFinite(n)) this.weaponXp[id] = Math.max(0, Math.min(MAX_STORED_XP, Math.floor(n)));
       }
     } catch {
       // Corrupt or blocked storage: start fresh.

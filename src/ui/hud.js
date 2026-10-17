@@ -15,7 +15,9 @@ import { GAME_MODES, SD_BRIEF, TDM, isRespawnMode, modeGoal, modeRules, normaliz
 import { STREAKS, STREAK_IDS } from '../game/streaks.js';
 import { BOT_SKILLS, BOT_SKILL_STORAGE_KEY, normalizeBotSkill } from '../ai/skill.js';
 import { ATTACHMENTS, ATTACHMENT_IDS, LETHALS, PRIMARIES, SECONDARIES, TACTICALS, PERKS, PERK1_IDS, PERK2_IDS } from '../game/loadouts.js';
-import { ATTACHMENT_LEVEL } from '../game/progression.js';
+import {
+  ATTACHMENT_LEVEL, FINAL_UNLOCK_RANK, UNLOCK_RANK, WEAPON_LEVEL_XP, WEAPON_XP_PER_KILL,
+} from '../game/progression.js';
 import { hostile, hostileTeams, isFfa } from '../game/hostility.js';
 import { resolveHumanPlayerName } from '../player/profile.js';
 import { serviceOffline } from '../network/endpoints.js';
@@ -1656,6 +1658,8 @@ export default class HUD {
     this.game.events.on('progress:local', (d) => {
       this._localProgress = d || null;
       this._renderClasses();
+      // A streak unlocked by this rank-up becomes pickable now, not on reload.
+      this._renderStreakPicker?.();
       // Rank-ups and unlocks join the end screen whichever way it renders.
       const endRewards = this._el.endRewards;
       if (this.game.state?.phase === 'gameEnd' && endRewards) {
@@ -1687,8 +1691,19 @@ export default class HUD {
       b.innerHTML = options;
       [a.value, b.value] = streaks.selected;
       const detail = document.getElementById('hud-streak-detail');
-      if (detail) detail.textContent = streaks.selected.map((id) => STREAKS[id].detail).join('  ·  ');
+      if (detail) {
+        // A saved pick that is still locked is swapped in the match: say so.
+        const effective = progression && typeof progression.resolveStreaks === 'function'
+          ? progression.resolveStreaks(streaks.selected, STREAK_IDS) : streaks.selected;
+        detail.textContent = streaks.selected.map((id, i) => {
+          const used = effective[i];
+          return used && used !== id
+            ? STREAKS[id].label + ' AT RANK ' + progression.unlockRank(id) + ' — ' + STREAKS[used].label + ' FOR NOW'
+            : STREAKS[id].detail;
+        }).join('  ·  ');
+      }
     };
+    this._renderStreakPicker = render;
     const onChange = (changed) => {
       const next = [a.value, b.value];
       // Both slots on one streak: the other slot keeps its previous pick.
@@ -1716,7 +1731,19 @@ export default class HUD {
         return '🔒 ' + weaponName(c.primary) + (rank ? ' AT RANK ' + rank : '') +
           ' — ' + weaponName(shown.primary) + ' FOR NOW' + (others > 0 ? ' · +' + others + ' LOCKED' : '');
       }
-      return '🔒 ' + pending + (pending === 1 ? ' PICK UNLOCKS' : ' PICKS UNLOCK') + ' WITH RANK';
+      // An attachment comes from kills with the gun, not from rank.
+      const attachmentLocked = (shown.attachment || 'none') !== (c.attachment || 'none');
+      const rankLocked = pending - (attachmentLocked ? 1 : 0);
+      const parts = [];
+      if (attachmentLocked) {
+        const need = ATTACHMENT_LEVEL[c.attachment] || 1;
+        const kills = Math.floor((progressionForCards?.weaponXp?.[c.primary] || 0) / WEAPON_XP_PER_KILL);
+        const goal = Math.ceil((WEAPON_LEVEL_XP[need - 1] || 0) / WEAPON_XP_PER_KILL);
+        parts.push((ATTACHMENTS[c.attachment]?.short || c.attachment).toUpperCase() + ' AT ' +
+          weaponName(c.primary) + ' LV ' + need + ' (' + kills + '/' + goal + ' KILLS)');
+      }
+      if (rankLocked > 0) parts.push(rankLocked + (rankLocked === 1 ? ' PICK UNLOCKS' : ' PICKS UNLOCK') + ' WITH RANK');
+      return '🔒 ' + parts.join(' · ');
     };
     // Rebuilding the row would drop keyboard focus to the page: remember
     // which card had it and give it back.
@@ -1766,8 +1793,29 @@ export default class HUD {
     const chip = document.getElementById('hud-rank-chip');
     if (chip && progression) {
       const r = progression.summary();
-      chip.textContent = 'WEAPON RANK ' + r.rank + ' · ' + r.title + ' · ' + r.xp.toLocaleString('en-US') +
-        (r.next > r.floor ? ' / ' + r.next.toLocaleString('en-US') + ' XP' : ' XP');
+      // The next unlock is the reason to keep going: name it.
+      let nextUnlock = null;
+      for (const [id, rank] of Object.entries(UNLOCK_RANK)) {
+        if (rank > r.rank && (!nextUnlock || rank < nextUnlock.rank)) nextUnlock = { id, rank };
+      }
+      const nextName = nextUnlock
+        ? String(this._names[nextUnlock.id] || PERKS[nextUnlock.id]?.label || STREAKS[nextUnlock.id]?.label || nextUnlock.id).toUpperCase()
+        : '';
+      chip.textContent = 'RANK ' + r.rank + ' · ' + r.title + ' · ' + r.xp.toLocaleString('en-US') +
+        (r.next > r.floor ? ' / ' + r.next.toLocaleString('en-US') + ' XP' : ' XP') +
+        (nextUnlock ? ' · NEXT: ' + nextName + ' AT RANK ' + nextUnlock.rank : ' · ALL GEAR UNLOCKED');
+    }
+    const weaponProgress = document.getElementById('hud-class-weapon-progress');
+    if (weaponProgress && progression) {
+      // Attachments come from kills with the gun: show the gun's level and
+      // how many kills the next attachment needs.
+      const level = progression.weaponLevel(active.primary);
+      const kills = Math.floor((progression.weaponXp?.[active.primary] || 0) / WEAPON_XP_PER_KILL);
+      const next = Object.entries(ATTACHMENT_LEVEL).find(([, lv]) => lv === level + 1);
+      const goal = next ? Math.ceil((WEAPON_LEVEL_XP[level] || 0) / WEAPON_XP_PER_KILL) : 0;
+      weaponProgress.textContent = weaponName(active.primary) + ' LV ' + level +
+        (next ? ' · ' + kills + '/' + goal + ' KILLS → ' + (ATTACHMENTS[next[0]]?.label || next[0]).toUpperCase()
+          : ' · EVERY ATTACHMENT UNLOCKED');
     }
     if (el.classPerkDetail) {
       const att = ATTACHMENTS[active.attachment];
@@ -4217,7 +4265,9 @@ export default class HUD {
       this._el.endRewards.classList.remove('pending');
       this._el.endRewards.classList.add('unranked');
     }
-    const local = modeOnly || rejected ? this._localProgress : null;
+    // Device progress was earned whatever kept the match off the leaderboard
+    // (a guest seat, a rejected result, an offline build): show it.
+    const local = this._localProgress || null;
     this._setEndRewardLabels(!!local);
     if (local) {
       // Respawn modes still pay device-local rank XP.
@@ -4225,13 +4275,14 @@ export default class HUD {
       if (this._el.endRewardPoints) this._el.endRewardPoints.textContent = '+' + local.earned.toLocaleString('en-US') + ' XP';
       if (this._el.endRewardRank) this._el.endRewardRank.textContent = 'RANK ' + local.after;
       if (this._el.endRewardLevel) {
-        this._el.endRewardLevel.textContent = local.after > local.before ? 'PROMOTED · ' + local.summary.title : local.summary.title;
+        this._el.endRewardLevel.textContent = local.after > local.before
+          ? 'RANK UP · ' + local.summary.title : local.summary.title;
       }
       if (this._el.endXpFill) this._el.endXpFill.style.width = Math.round(local.summary.fraction * 100) + '%';
       if (this._el.endXpLabel) {
         this._el.endXpLabel.textContent = 'SCORE ' + local.score.toLocaleString('en-US') + ' + ' +
-          local.result.toUpperCase() + ' ' + local.bonus + ' · ' + local.summary.xp.toLocaleString('en-US') + ' / ' +
-          local.summary.next.toLocaleString('en-US') + ' XP';
+          local.result.toUpperCase() + ' ' + local.bonus + ' · ' + local.summary.xp.toLocaleString('en-US') +
+          (local.summary.next > local.summary.floor ? ' / ' + local.summary.next.toLocaleString('en-US') : '') + ' XP';
       }
       if (this._el.endUnlocks) {
         const items = names(local.unlocks).map((n) => '<span>UNLOCKED ' + esc(n) + '</span>');
@@ -4239,7 +4290,9 @@ export default class HUD {
           items.push('<span>' + esc(names([up.id])[0]) + ' LEVEL ' + up.level +
             (up.attachments.length ? ' · ' + esc(up.attachments.map((a) => ATTACHMENTS[a]?.label || a).join(', ')) : '') + '</span>');
         }
-        this._el.endUnlocks.innerHTML = items.length ? items.join('') : '<span class="steady">KEEP PLAYING TO UNLOCK MORE</span>';
+        const allDone = local.after >= FINAL_UNLOCK_RANK;
+        this._el.endUnlocks.innerHTML = items.length ? items.join('')
+          : '<span class="steady">' + (allDone ? 'ALL GEAR UNLOCKED' : 'KEEP PLAYING TO UNLOCK MORE') + '</span>';
       }
       return;
     }
@@ -4701,7 +4754,8 @@ export default class HUD {
       '<div class="mn-class-editor" id="hud-class-editor" hidden>' +
       '<label>NAME<input id="hud-class-name" maxlength="16" autocomplete="off" spellcheck="false"></label>' +
       '<label>PRIMARY<select id="hud-class-primary" data-slot="primary"></select></label>' +
-      '<label>ATTACHMENT<select id="hud-class-attachment" data-slot="attachment"></select></label>' +
+      '<label>ATTACHMENT<select id="hud-class-attachment" data-slot="attachment"></select>' +
+      '<small id="hud-class-weapon-progress" class="mn-weapon-progress"></small></label>' +
       '<label>SECONDARY<select id="hud-class-secondary" data-slot="secondary"></select></label>' +
       '<label>LETHAL<select id="hud-class-lethal" data-slot="lethal"></select></label>' +
       '<label>TACTICAL<select id="hud-class-tactical" data-slot="tactical"></select></label>' +
@@ -4852,7 +4906,7 @@ export default class HUD {
       '<div id="hud-end-rank"></div>' +
       '<section id="hud-end-rewards" class="end-rewards pending"><div class="end-reward-grid">' +
       '<span><small data-local="RANK XP">MATCH POINTS</small><strong id="hud-end-reward-points">SYNCING</strong></span>' +
-      '<span><small data-local="WEAPON RANK">OVERALL RANK</small><strong id="hud-end-reward-rank">—</strong></span>' +
+      '<span><small data-local="RANK">OVERALL RANK</small><strong id="hud-end-reward-rank">—</strong></span>' +
       '<span><small data-local="TITLE">CAREER</small><strong id="hud-end-reward-level">LEVEL 1 · ROOKIE</strong></span></div>' +
       '<div class="end-xp"><div><span id="hud-end-xp-fill"></span></div><small id="hud-end-xp-label">VERIFYING MATCH REWARDS…</small></div>' +
       '<div id="hud-end-unlocks" class="end-unlocks"><span class="steady">REWARDS WILL APPEAR HERE</span></div></section>' +
@@ -5926,6 +5980,7 @@ html.touch-device .kc-row { padding-right: 104px; }
 .mn-sr { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
 /* ---------- collapsed sections ---------- */
 #hud-menu:not(.mn-online-open) #mp-panel { display:none; }
+.mn-weapon-progress { display:block; margin-top:3px; font-size:10px; font-weight:800; letter-spacing:.08em; color:var(--olive); }
 #hud-menu.mn-room-guest [aria-disabled="true"] { pointer-events:none; opacity:.55; }
 #hud-menu.mn-room-guest #hud-map-picker::before { content:'HOST PICKS'; display:block; margin-bottom:4px; font-size:10px;
   font-weight:900; letter-spacing:.22em; color:var(--olive); }
