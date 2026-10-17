@@ -758,8 +758,11 @@ html.touch-device #hud-usehint { display:none!important; }
 html.touch-device #hud-death { top:auto; bottom:calc(max(8px,env(safe-area-inset-bottom)) + 10px); width:min(500px,58vw); }
 html.touch-device .death-inner { padding:9px 13px; }
 html.touch-device .death-sub { white-space:normal; }
-html.touch-device #hud-msg { top:20%; }
-html.touch-device #hud-msg-main { font-size:clamp(22px,5vw,34px); }
+/* Under the score panel (~110 px with Domination's flag row), clear of the
+   radar and kill feed at the sides, one line for "THE BOMB HAS BEEN PLANTED":
+   at 20% and .24em it wrapped to two lines across the panel on a 667x375 phone. */
+html.touch-device #hud-msg { top:max(20%,calc(max(8px,env(safe-area-inset-top)) + 112px)); padding:0 12vw; }
+html.touch-device #hud-msg-main { font-size:clamp(18px,3.4vw,30px); letter-spacing:.14em; }
 html.touch-device #hud-msg-sub { font-size:10px; }
 
 html.touch-device #hud-buy,html.touch-device #hud-scoreboard { padding:max(7px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left)); }

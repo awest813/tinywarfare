@@ -5341,7 +5341,9 @@ export default class HUD {
 
 /* ---------- center messages ---------- */
 #hud-msg {
-  position: absolute; left: 0; right: 0; top: 20%; text-align: center;
+  /* Never above the score panel: on a 375 px-tall phone 20% is 75 px, and
+     "GO GO GO!" sat on Domination's A/B/C chips (the panel ends near 110). */
+  position: absolute; left: 0; right: 0; top: max(20%, 122px); text-align: center;
   opacity: 0; transform: translateY(6px);
   transition: opacity .32s, transform .32s; z-index: 6; pointer-events: none;
 }
