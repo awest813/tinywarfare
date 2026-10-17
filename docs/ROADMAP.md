@@ -537,8 +537,9 @@ Shipped:
 - **Death recap**: the killer's weapon, distance, headshot, and remaining HP.
 
 Still to do:
-- Killcam: replay every actor, not just the killer and you; replay their
-  animation state rather than inferring it from speed.
+- Killcam: replay animation state (reloads, grenade throws) rather than
+  inferring it from speed. (Up to six soldiers near the kill are now
+  replayed alongside the killer and you.)
 - Map authoring pass: landmarks, hero props, asymmetry, the upstream
   backdrop and stain defects, and three-lane TDM variants.
 
