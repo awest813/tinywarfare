@@ -40,6 +40,7 @@ const RESUME_OWNER_STALE_MS = 12_000;
 // trade it in a tight loop.
 const TAKEOVER_CONTEST_COOLDOWN_MS = 10_000;
 const RECOVERY_RETRY_MS = 10_000;
+const SYNC_LEAVE_AFTER_MS = 8_000;      // stuck in sync this long: offer LEAVE MATCH
 export const RESUME_TICKET_KEY = 'tiny-strike-room-resume-v1';
 const RESUME_OWNER_KEY = 'tiny-strike-tab-owner-v1';
 const RESUME_SEAT_PREFIX = 'tiny-strike-room-seat-v1:';
@@ -319,11 +320,22 @@ export default class Multiplayer {
 
   async connect(action, discoveredRoom = '') {
     if (!this._ui || this._connecting || (this.socket && this.socket.readyState <= WebSocket.OPEN)) return;
-    if (discoveredRoom) this._ui.room.value = String(discoveredRoom).toUpperCase();
+    if (discoveredRoom) {
+      this._ui.room.value = String(discoveredRoom).toUpperCase();
+      this._roomFromCard = this._ui.room.value;
+    }
+    const typed = String(this._ui.name.value || '').trim();
     const name = this._resolveLocalCallsign(this._ui.name.value);
     if (this._ui.name.value !== name) this._ui.name.value = name;
+    // A typed callsign that had to be cleaned up (emoji, symbols) says why,
+    // rather than silently turning into something else.
+    const cleaned = typed && typed !== name;
     const characterId = normalizeCharacterId(this.game.profile?.characterId);
-    const room = this._ui.room.value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+    let room = this._ui.room.value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+    // A code that a room card filled in (a join that then failed, say) is not
+    // a code the player chose: CREATE ROOM makes a fresh room instead of
+    // asking for that one and being told it is taken.
+    if (action === 'create' && room && room === this._roomFromCard) room = '';
     const mode = this._ui.mode.value === 'humans' ? 'humans' : 'mixed';
     if (action === 'join' && !room) {
       this._status('Enter a room code to join.', true);
@@ -349,7 +361,7 @@ export default class Multiplayer {
         this._status('Leaderboard offline — joining without rank sync.');
       }
     }
-    this._status('Connecting…');
+    this._status(cleaned ? 'Callsigns use letters, numbers, space, _ . - · connecting…' : 'Connecting…');
 
     this._openSocket({
       type: 'hello',
@@ -443,7 +455,10 @@ export default class Multiplayer {
     try {
       endpoint = resolveWebSocketEndpoint();
     } catch (error) {
-      this._status(error.message || 'Online service configuration is invalid.', true);
+      // A misconfigured endpoint is a deploy problem, not something a player
+      // can act on: log the detail, show a plain line.
+      console.warn('[multiplayer] online endpoint unavailable', error);
+      this._status('Online play is unavailable right now.', true);
       this._setConnecting(false);
       return;
     }
@@ -827,7 +842,17 @@ export default class Multiplayer {
       if (this._ui.syncTitle) this._ui.syncTitle.textContent = title;
       if (this._ui.syncDetail) this._ui.syncDetail.textContent = detail;
     }
-    if (first) this.game?.events?.emit('network:syncing', { title, detail });
+    if (first) {
+      this.game?.events?.emit('network:syncing', { title, detail });
+      // The overlay blocks the pause menu, and recovery retries for good: after
+      // a while stuck here the player gets a way out besides reloading.
+      if (this._syncLeaveTimer) clearTimeout(this._syncLeaveTimer);
+      this._syncLeaveTimer = setTimeout(() => {
+        this._syncLeaveTimer = null;
+        if (this.syncing && this._ui?.syncLeave) this._ui.syncLeave.hidden = false;
+      }, SYNC_LEAVE_AFTER_MS);
+      this._syncLeaveTimer?.unref?.();
+    }
   }
 
   _armResumeSyncTimeout() {
@@ -902,6 +927,9 @@ export default class Multiplayer {
     this._pendingCanonicalSelfState = null;
     if (!this.isHost) this._authoritySuspended = false;
     if (this._ui?.syncOverlay) this._ui.syncOverlay.style.display = 'none';
+    if (this._syncLeaveTimer) clearTimeout(this._syncLeaveTimer);
+    this._syncLeaveTimer = null;
+    if (this._ui?.syncLeave) this._ui.syncLeave.hidden = true;
     this._persistResumeTicket();
     this.game?.events?.emit('network:synced', {
       room: this.roomCode,
@@ -930,6 +958,8 @@ export default class Multiplayer {
     if (!this._ui || this.connected || this.active) return;
     const menu = this.game.hudRoot?.querySelector('#hud-menu');
     if (!menu || getComputedStyle(menu).display === 'none') return;
+    // Only while PLAY ONLINE is open: nobody is reading a collapsed list.
+    if (menu.classList && !menu.classList.contains('mn-online-open')) return;
     this.refreshRooms();
   }
 
@@ -973,7 +1003,7 @@ export default class Multiplayer {
 
     // Room data comes from whichever service this build points at: escape
     // every string and coerce every count before it becomes markup.
-    this._ui.rooms.innerHTML = visible.map((room) => {
+    const html = visible.map((room) => {
       const view = roomPresentation(room);
       const colors = view.map.colors;
       const code = escHtml(String(room.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6));
@@ -986,13 +1016,21 @@ export default class Multiplayer {
         ? `${players}<small>+${reserved - players}</small>`
         : String(players);
       return `<button type="button" class="mp-room-card${unavailable}" data-room-code="${code}"${disabled} ` +
-        `style="--room-a:${escHtml(colors[0])};--room-b:${escHtml(colors[1])};--room-c:${escHtml(colors[2])}" aria-label="Join room ${code}">` +
+        `style="--room-a:${escHtml(colors[0])};--room-b:${escHtml(colors[1])};--room-c:${escHtml(colors[2])}">` +
         '<span class="mp-room-art" aria-hidden="true"><i></i></span>' +
         `<span class="mp-room-copy"><strong>${code}</strong><small>${escHtml(view.map.name.toUpperCase())} · ${escHtml(view.modeLabel)}</small></span>` +
         `<span class="mp-room-phase"><b>${escHtml(view.status.label)}</b><small>${escHtml(view.status.detail)}</small></span>` +
         `<span class="mp-room-count"><strong>${current}<em>/${maxPlayers}</em></strong><small>PLAYERS</small></span>` +
         '</button>';
     }).join('');
+    // The list refreshes every few seconds: an unchanged list is left alone,
+    // and a changed one keeps keyboard focus on the same room's card.
+    if (html === this._roomsHtml && this._ui.rooms.querySelector('.mp-room-card')) return;
+    this._roomsHtml = html;
+    const active = typeof document !== 'undefined' ? document.activeElement : null;
+    const focused = active && this._ui.rooms.contains(active) ? active.dataset?.roomCode : null;
+    this._ui.rooms.innerHTML = html;
+    if (focused) this._ui.rooms.querySelector(`[data-room-code="${focused}"]`)?.focus();
     for (const button of this._ui.rooms.querySelectorAll('.mp-room-card:not(.unavailable)')) {
       button.addEventListener('click', () => this.connect('join', button.dataset.roomCode));
     }
@@ -2639,12 +2677,12 @@ export default class Multiplayer {
               <select id="mp-mode" aria-label="Room fill"><option value="mixed">HUMANS + BOTS</option><option value="humans">HUMANS ONLY</option></select>
               <input id="mp-room" maxlength="6" placeholder="ROOM CODE" aria-label="Room code" autocomplete="off">
             </div>
-            <div class="mp-actions"><button id="mp-create" type="button">CREATE ROOM</button><button id="mp-join" type="button">JOIN CODE</button></div>
-            <div id="mp-status">Choose a live room, create one, or enter a code.</div>
+            <div class="mp-actions"><button id="mp-create" type="button">CREATE ROOM</button><button id="mp-join" type="button">JOIN BY CODE</button></div>
+            <div id="mp-status" role="status" aria-live="polite">Choose a live room, create one, or enter a code.</div>
           </div>
           <section class="mp-directory" aria-labelledby="mp-directory-title">
-            <div class="mp-directory-head"><div><span id="mp-directory-title">LIVE ROOMS</span><small id="mp-rooms-meta">SCANNING…</small></div><button id="mp-refresh" type="button" aria-label="Refresh rooms" title="Refresh rooms">↻</button></div>
-            <div id="mp-rooms" role="list" aria-live="polite"></div>
+            <div class="mp-directory-head"><div><span id="mp-directory-title">LIVE ROOMS</span><small id="mp-rooms-meta" aria-live="polite">SCANNING…</small></div><button id="mp-refresh" type="button" aria-label="Refresh rooms" title="Refresh rooms">↻</button></div>
+            <div id="mp-rooms"></div>
           </section>
         </div>
       </div>
@@ -2653,7 +2691,7 @@ export default class Multiplayer {
         <div id="mp-roster"></div>
         <div class="mp-row"><select id="mp-lobby-mode" aria-label="Room fill"><option value="mixed">HUMANS + BOTS</option><option value="humans">HUMANS ONLY</option></select></div>
         <div class="mp-actions"><button id="mp-ct">JOIN ${FACTIONS.ct.name}</button><button id="mp-t">JOIN ${FACTIONS.t.name}</button><button id="mp-start">START MATCH</button><button id="mp-leave">LEAVE</button></div>
-        <div id="mp-lobby-status"></div>
+        <div id="mp-lobby-status" role="status" aria-live="polite"></div>
       </div>`;
     const syncOverlay = document.createElement('div');
     syncOverlay.id = 'mp-sync-overlay';
@@ -2661,7 +2699,8 @@ export default class Multiplayer {
     syncOverlay.setAttribute('aria-live', 'assertive');
     syncOverlay.innerHTML = '<div class="mp-sync-card"><i aria-hidden="true"></i>' +
       '<strong id="mp-sync-title">RECONNECTING</strong>' +
-      '<span id="mp-sync-detail">Synchronizing the latest match state…</span></div>';
+      '<span id="mp-sync-detail">Synchronizing the latest match state…</span>' +
+      '<button id="mp-sync-leave" type="button" hidden>LEAVE MATCH</button></div>';
     const style = document.createElement('style');
     style.textContent = `
       #hud #mp-panel { width:min(920px,94vw); padding:14px 18px; margin-top:4px; border:1px solid rgba(154,178,107,.35); background:linear-gradient(160deg,rgba(17,23,11,.94),rgba(4,7,4,.92)); pointer-events:auto; }
@@ -2682,6 +2721,9 @@ export default class Multiplayer {
       #mp-status.error,#mp-lobby-status.error { color:#e26755; }
       #mp-roster { display:grid; grid-template-columns:1fr 1fr; gap:4px 14px; color:#dce7cf; font:700 12px Arial,sans-serif; margin:8px 0; }
       .mp-player { display:flex; justify-content:space-between; padding:4px 6px; background:rgba(154,178,107,.08); }
+      .mp-player { gap:8px; min-width:0; }
+      .mp-player span:first-child { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .mp-player span:last-child { flex:none; }
       .mp-player.ct span:last-child { color:#72a7e8; }.mp-player.t span:last-child { color:#e29c55; }
       #mp-start { display:none; color:#fff!important; background:#526b2e!important; }
       #hud #mp-panel .mp-directory { min-width:0; display:flex; flex-direction:column; }
@@ -2715,7 +2757,7 @@ export default class Multiplayer {
       #hud #mp-panel .mp-room-state strong { font-size:10px; letter-spacing:.16em; }
       #hud #mp-panel .mp-room-state small { color:#879873; font-size:9px; letter-spacing:.04em; }
       #hud #mp-panel .mp-room-state.error b { color:#d76c58; }
-      #mp-sync-overlay { position:absolute; inset:0; z-index:70; display:none; align-items:center; justify-content:center;
+      #mp-sync-overlay { position:absolute; inset:0; z-index:75; display:none; align-items:center; justify-content:center;
         padding:max(18px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) max(18px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left));
         background:rgba(3,6,2,.76); backdrop-filter:blur(8px); pointer-events:auto; touch-action:none; }
       .mp-sync-card { width:min(520px,92vw); padding:24px 28px; display:grid; justify-items:center; gap:10px;
@@ -2724,6 +2766,9 @@ export default class Multiplayer {
       .mp-sync-card i { width:28px; height:28px; border:3px solid rgba(154,178,107,.22); border-top-color:#c8e59a; border-radius:50%; animation:mp-spin .75s linear infinite; }
       .mp-sync-card strong { color:#eff9de; font-size:20px; font-weight:900; letter-spacing:.24em; }
       .mp-sync-card span { color:#aabd8d; font-size:12px; font-weight:700; letter-spacing:.08em; line-height:1.5; }
+      .mp-sync-card button { margin-top:6px; padding:9px 18px; min-height:40px; font:inherit; font-size:12px; font-weight:900; letter-spacing:.18em;
+        color:#eef5df; background:rgba(82,107,46,.55); border:1px solid rgba(184,218,123,.6); cursor:pointer; }
+      .mp-sync-card button:hover, .mp-sync-card button:focus-visible { background:rgba(110,140,62,.75); }
       @keyframes mp-spin { to { transform:rotate(360deg); } }
       @media(max-width:760px) {
         #hud #mp-panel .mp-connect-grid { grid-template-columns:1fr; gap:11px; }
@@ -2759,12 +2804,15 @@ export default class Multiplayer {
       syncOverlay,
       syncTitle: syncOverlay.querySelector('#mp-sync-title'),
       syncDetail: syncOverlay.querySelector('#mp-sync-detail'),
+      syncLeave: syncOverlay.querySelector('#mp-sync-leave'),
     };
     panel.querySelector('#mp-create').addEventListener('click', () => this.connect('create'));
     panel.querySelector('#mp-join').addEventListener('click', () => this.connect('join'));
     panel.querySelector('#mp-ct').addEventListener('click', () => this.setTeam('ct'));
     panel.querySelector('#mp-t').addEventListener('click', () => this.setTeam('t'));
     panel.querySelector('#mp-leave').addEventListener('click', () => this.leaveRoomAndReturn());
+    panel.querySelector('#mp-room').addEventListener('input', () => { this._roomFromCard = null; });
+    syncOverlay.querySelector('#mp-sync-leave').addEventListener('click', () => this.leaveRoomAndReturn());
     this._ui.start.addEventListener('click', () => this.startMatch());
     this._ui.refresh.addEventListener('click', () => this.refreshRooms());
     this._ui.room.addEventListener('keydown', (event) => {

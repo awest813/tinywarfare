@@ -1545,6 +1545,26 @@ export default class HUD {
     if (changed && options.notify !== false) this.game?.events?.emit?.('ui:mode-select', { mode: id });
   }
 
+  /**
+   * In someone else's room the map, mode and bot pickers mirror the host's
+   * choice: shown as locked (and HOST PICKS) instead of accepting a click,
+   * snapping back and printing an error.
+   */
+  _syncRoomGuestPickers() {
+    const mp = this.game?.multiplayer;
+    const guest = !!(mp && mp.connected && !mp.active && !mp.isHost);
+    if (guest === this._cache.roomGuest) return;
+    this._cache.roomGuest = guest;
+    this._el.menu?.classList.toggle('mn-room-guest', guest);
+    for (const root of [this._el.mapPicker, this._el.modePicker, this._el.botSkillRow]) {
+      if (!root) continue;
+      for (const button of root.querySelectorAll('[data-map-id],[data-mode-id],[data-bot-skill]')) {
+        if (guest) button.setAttribute('aria-disabled', 'true');
+        else button.removeAttribute('aria-disabled');
+      }
+    }
+  }
+
   /** Pick the bot difficulty tier (src/ai/skill.js) for the next match. */
   _selectBotSkill(value, options = {}) {
     const id = normalizeBotSkill(value);
@@ -2103,6 +2123,15 @@ export default class HUD {
         this._setLeaderboardOpen(false);
         return;
       }
+      // PLAY ONLINE collapses like the other panels close, but not from inside
+      // a room, where the panel is the lobby.
+      if (this._onlineOpen && (e.key || '').toLowerCase() === 'escape' &&
+          (this.game?.state?.phase || 'menu') === 'menu' && !this.game?.multiplayer?.connected) {
+        e.preventDefault();
+        this._setOnlineOpen(false);
+        this._el.onlineOpen?.focus?.();
+        return;
+      }
       if ((this._howtoOpen || this._profileOpen || this._leaderboardOpen) && e.key === 'Tab') {
         const modal = this._howtoOpen ? this._el.howto : this._profileOpen ? this._el.profile : this._el.leaderboard;
         const focusable = modal ? [...modal.querySelectorAll(
@@ -2146,6 +2175,7 @@ export default class HUD {
 
     if (phase !== this._cache.phase) this._onPhaseChange(phase);
     const inGame = phase !== 'menu' && phase !== 'gameEnd';
+    if (phase === 'menu') this._syncRoomGuestPickers();
     if (inGame && this._leaderboardOpen) this._setLeaderboardOpen(false);
     if (inGame && this._profileOpen) this._setProfileOpen(false);
 
@@ -4112,8 +4142,10 @@ export default class HUD {
 
   _configureEndPrimaryAction() {
     const online = !!this.game?.multiplayer?.active;
-    if (this._el.restartMain) this._el.restartMain.textContent = online ? 'RETURN TO LOBBY' : 'PLAY AGAIN';
-    if (this._el.restartSub) this._el.restartSub.textContent = online ? 'ROOM DIRECTORY' : 'SAME MAP · VS BOTS';
+    // Online this leaves the room (the room cannot restart from one browser),
+    // so it says so rather than promising a lobby.
+    if (this._el.restartMain) this._el.restartMain.textContent = online ? 'LEAVE ROOM' : 'PLAY AGAIN';
+    if (this._el.restartSub) this._el.restartSub.textContent = online ? 'BACK TO MAIN MENU' : 'SAME MAP · VS BOTS';
   }
 
   /** Back to the main menu: solo resets in place, online leaves the room. */
@@ -4666,7 +4698,7 @@ export default class HUD {
       '<span class="btn-sub" id="hud-start-sub">INSTANT SOLO MATCH</span></button>' +
       '</div>' +
       '<div class="mn-quick" role="group" aria-label="More options">' +
-      '<button id="hud-online-open" type="button" aria-expanded="false">PLAY ONLINE<b class="mn-chev" aria-hidden="true">+</b></button>' +
+      '<button id="hud-online-open" type="button" aria-expanded="false" aria-controls="mp-panel">PLAY ONLINE<b class="mn-chev" aria-hidden="true">+</b></button>' +
       '<button id="hud-leaderboard-open" type="button">LEADERBOARDS</button>' +
       '<button id="hud-howto-open" type="button">HOW TO PLAY</button>' +
       '<button id="hud-profile-menu-open" class="hud-profile-open" type="button">PROFILE' +
@@ -5877,6 +5909,9 @@ html.touch-device .kc-row { padding-right: 104px; }
 .mn-sr { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
 /* ---------- collapsed sections ---------- */
 #hud-menu:not(.mn-online-open) #mp-panel { display:none; }
+#hud-menu.mn-room-guest [aria-disabled="true"] { pointer-events:none; opacity:.55; }
+#hud-menu.mn-room-guest #hud-map-picker::before { content:'HOST PICKS'; display:block; margin-bottom:4px; font-size:10px;
+  font-weight:900; letter-spacing:.22em; color:var(--olive); }
 .mn-settings {
   position:relative; flex:0 0 auto; width:min(920px,92vw); display:grid; gap:12px; padding:14px 16px;
   background: linear-gradient(180deg, rgba(10, 13, 6, 0.55), rgba(4, 6, 2, 0.65));
@@ -6344,6 +6379,7 @@ html.touch-device .mn-id { min-height:52px; }
 #hud #mp-panel button:hover { background: rgba(154, 178, 107, 0.22); }
 #hud #mp-panel #mp-start { background: rgba(82, 107, 46, 0.9) !important; color: #eef5df !important; }
 #hud #mp-status { font-family: inherit; font-size: 11px; letter-spacing: .16em; color: var(--olive); }
+#hud #mp-status.error { color: #e26755; }
 #hud #mp-roster { font-family: inherit; letter-spacing: .06em; }
 #hud #mp-roster .mp-player { border: 1px solid rgba(154, 178, 107, 0.14); }
 #hud #mp-roster .mp-player.ct span:last-child { color: var(--ct); }

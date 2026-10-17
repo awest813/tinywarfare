@@ -431,8 +431,8 @@ test('end primary action returns online players to rooms and only restarts solo 
   hud._el = { restartMain: fakeElement(), restartSub: fakeElement() };
 
   hud._configureEndPrimaryAction();
-  assert.equal(hud._el.restartMain.textContent, 'RETURN TO LOBBY');
-  assert.equal(hud._el.restartSub.textContent, 'ROOM DIRECTORY');
+  assert.equal(hud._el.restartMain.textContent, 'LEAVE ROOM');
+  assert.equal(hud._el.restartSub.textContent, 'BACK TO MAIN MENU');
   hud._handleEndPrimaryAction();
   assert.equal(leaves, 1);
   assert.deepEqual(emitted, []);
