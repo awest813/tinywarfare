@@ -1018,6 +1018,10 @@ export class WeaponMaterials {
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
+      // A flat or dished lens surface has no far face of its own to sort, and
+      // three's two-pass draw for transparent double-sided materials flags the
+      // material for a program re-check twice per draw, every frame.
+      forceSinglePass: true,
       toneMapped: true,
       fog: false,
     });
@@ -1091,6 +1095,7 @@ export class WeaponMaterials {
       sheenRoughness: 0.3,
       envMapIntensity: 2.4,
       side: THREE.DoubleSide,
+      forceSinglePass: true, // see the note on lensRing()
       depthWrite: false,
       premultipliedAlpha: true,
     });
@@ -1154,6 +1159,7 @@ export class WeaponMaterials {
       alphaMap: this._rimRamp(),
       depthWrite: false,
       side: THREE.DoubleSide,
+      forceSinglePass: true, // see the note on lensRing()
       toneMapped: true,
       fog: false,
     });

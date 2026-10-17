@@ -527,6 +527,10 @@ export const LIBRARY = {
       transparent: true,
       opacity: 0.22,
       side: THREE.DoubleSide,
+      // One pass, not three's back-then-front pair for transparent double-sided
+      // materials: that pair flags the material for a program re-check twice
+      // per pane per frame, and a pane has no far face of itself to sort.
+      forceSinglePass: true,
       envMapIntensity: 1.6,
       ior: 1.52,
       specularIntensity: 1,
