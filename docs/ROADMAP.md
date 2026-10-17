@@ -64,12 +64,15 @@ passing), and boots cleanly in a headless browser with no console errors.
 | ~~Deploy config still points at the upstream author's domain and Worker~~ | `wrangler.jsonc`, `server.mjs` origins | Fixed: both allow `awest813.github.io` |
 | Upstream's open visual defects: grey backdrop boxes, tiling concrete stains, low-quality dressing LOD | see `docs/archive/HANDOFF-tiny-strike-2026-07.md` | Content pass |
 
-Headshots: the head sphere now sits a quarter-radius below the top of the
-capsule (centre ~1.69 m, the operative's helmet), and a ray scores a headshot
-only if it reaches the head no later than the body (2 cm grace). Level shots
-from ~1.58 m up to the helmet top stay headshots; a shot through the neck, or
-one climbing up through the chest from below, is a body hit
-(`combat.js` `_rayCharacter`, covered by `test/combat-hitboxes.test.mjs`).
+Headshots: the head sphere is 1.2x the drawn helmet's width (0.218 m at game
+scale, so 0.131 m radius), its top at the top of the head (centre ~1.70 m,
+the helmet's own centre). A ray scores a headshot only if it reaches the head
+no later than the body (2 cm grace); a shot through the neck, or one climbing
+up through the chest from below, is a body hit. The body capsule keeps its
+old top, so air beside the helmet is a miss. Bots aiming for the head aim at
+the sphere's centre, standing or crouched. Soaked: headshots fell from 23% of
+kills to 10-15% with total kills unchanged (`combat.js` `_rayCharacter`,
+`test/combat-hitboxes.test.mjs`).
 
 ### Mode soak (2026-10-15)
 
@@ -169,6 +172,24 @@ Open: Kill Confirmed still reaches 30 less often than before the bot
 overhaul (12 of 20); most denies are bots walking over their own side's
 tags, which is the pickup rule.
 
+### Arms, guns and audio (2026-10-17)
+- **Sights:** every procedural gun aligns its own sight point to the dot at
+  full ADS (`viewmodel.js` `adsAlignment`); the gun pulls back from walls;
+  framing follows the live FOV after a scope.
+- **Mechanics:** per-weapon fire cooldowns (a pistol drawn after an AWP shot
+  fires at once; a quick switch cannot skip the bolt); armour penetration per
+  weapon (`data.js` `armorPen`, legs unarmoured); grenades use their 150 peak;
+  scoped turn rate follows the zoom; spray patterns cover extended mags.
+- **Controls:** TOGGLE AIM setting; R during a raise is kept; an empty gun
+  drawn reloads itself and a bone-dry one switches away; Q after respawn
+  swaps and after a throw; queued clicks never carry to the next weapon.
+- **Audio:** suppressed shots sound suppressed on every path; your own shot,
+  hitmarker and reload are never shed; the killcam plays on its own bus over
+  a ducked match; sounds behind you are darker and walls muffle gunfire and
+  footsteps; pause silences the bomb.
+- **Performance:** hidden first-person weapons are detached (viewmodel CPU
+  220 -> 30 us a frame); held guns cast no shadow on the Chromebook preset.
+
 ## Architecture moves that unlock everything
 
 Three couplings block every MW-style feature. Do these first:
@@ -236,7 +257,8 @@ Shipped:
   - Walk moved to C. Saved layouts with Walk on Shift migrate to Sprint on
     Shift and Walk on C.
   - On touch, pushing the stick fully forward sprints.
-- **ADS on every non-sniper gun**: hold right mouse. ADS takes 0.22 s on
+- **ADS on every non-sniper gun**: hold right mouse (or click to toggle, a
+  setting). ADS takes 0.22 s on
   rifles and SMGs and 0.15 s on pistols. At full ADS:
   - FOV narrows 20% (pistols 12%), and look sensitivity scales with the FOV.
   - Spread is ×0.55 and movement speed ×0.72.
