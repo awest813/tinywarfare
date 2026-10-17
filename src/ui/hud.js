@@ -4843,9 +4843,9 @@ export default class HUD {
       '<input id="hud-announcer" type="checkbox"' + (settings?.announcer === false ? '' : ' checked') + '></label>' +
       '<label class="mn-setting mn-setting-toggle" for="hud-killcam-setting"><span><strong>KILLCAM</strong>' +
       '<output id="hud-killcam-setting-output" for="hud-killcam-setting">' + (settings?.killcam === false ? 'OFF' : 'ON') + '</output></span>' +
-      '<small class="mn-setting-note">REPLAY HOW YOU DIED · JUMP OR CLICK SKIPS</small>' +
+      '<small class="mn-setting-note">REPLAY HOW YOU DIED · <span class="mn-note-desk">JUMP OR CLICK SKIPS</span><span class="mn-note-touch">NEXT SKIPS</span></small>' +
       '<input id="hud-killcam-setting" type="checkbox"' + (settings?.killcam === false ? '' : ' checked') + '></label>' +
-      '<label class="mn-setting mn-setting-toggle" for="hud-aim-toggle"><span><strong>TOGGLE AIM</strong>' +
+      '<label class="mn-setting mn-setting-toggle mn-setting-mouse-only" for="hud-aim-toggle"><span><strong>TOGGLE AIM</strong>' +
       '<output id="hud-aim-toggle-output" for="hud-aim-toggle">' + (settings?.aimToggle ? 'ON' : 'OFF') + '</output></span>' +
       '<small class="mn-setting-note">RIGHT CLICK AIMS IN AND OUT · SPRINT CANCELS</small>' +
       '<input id="hud-aim-toggle" type="checkbox"' + (settings?.aimToggle ? ' checked' : '') + '></label>' +
@@ -6071,6 +6071,8 @@ html.touch-device .kc-row { padding-right: 104px; }
 .mn-binding kbd { flex:0 0 auto; min-width:43px; padding:2px 5px!important; font-size:10px!important; }
 .mn-binding.capturing kbd { min-width:70px; color:#fff; }
 .mn-settings-foot { flex-wrap:wrap; min-height:30px; padding-top:2px; }
+/* Touch wording lives beside the desktop wording; touch-controls.js swaps them. */
+.mn-note-touch { display:none; }
 .mn-settings-mouse {
   flex:1 1 330px; font-size:10px; font-weight:800; letter-spacing:.1em; color:var(--olive-dim);
 }
@@ -6236,6 +6238,13 @@ html.touch-device .mn-id { min-height:52px; }
 .profile-character-copy small { margin-top:5px; font-size:11px; font-weight:650; letter-spacing:.035em; color:#9dab88; }
 .profile-character > b { display:none; position:absolute; right:8px; top:8px; padding:4px 6px; font-size:10px; letter-spacing:.14em; color:#0a0e08; background:var(--profile-swatch); }
 .profile-character.selected > b { display:block; }
+/* In a card under ~200 px (a phone, a short window) "SELECTED" covered the
+   portrait's head: it shrinks to a tick, still read out as SELECTED. */
+.profile-character { container-type:inline-size; }
+@container (max-width: 200px) {
+  .profile-character > b { right:6px; top:6px; width:22px; height:18px; padding:0; overflow:hidden; white-space:nowrap; color:transparent; }
+  .profile-character > b::before { content:'✓'; display:block; text-align:center; line-height:18px; font-size:12px; font-weight:900; letter-spacing:0; color:#0a0e08; }
+}
 .profile-note { display:flex; align-items:center; gap:14px; margin-top:22px; padding:13px 15px; background:rgba(154,178,107,.06); border-left:3px solid var(--olive); }
 .profile-note strong { flex:0 0 auto; font-size:11px; letter-spacing:.16em; color:var(--money); }
 .profile-note span { font-size:13px; color:#b9c6a7; }
@@ -6273,6 +6282,10 @@ html.touch-device .mn-id { min-height:52px; }
 #hud-progress-new-commit:disabled { cursor:wait; opacity:.55; }
 #hud-progress-status { display:block; min-height:14px; margin-top:8px; font-size:10px; font-weight:900; letter-spacing:.09em; color:#8fa573; }
 .profile-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:22px; padding-top:20px; border-top:1px solid rgba(154,178,107,.16); }
+/* Pinned to the panel's foot: at 1366x768 SAVE PROFILE sat half under the
+   bottom edge until the panel was scrolled. The side shadows cover the form's
+   padding so nothing shows through at the edges. */
+.profile-actions { position:sticky; bottom:0; z-index:2; padding-bottom:14px; background:#090d07; box-shadow:-30px 0 #090d07,30px 0 #090d07; }
 .profile-actions button { min-width:154px; height:46px; cursor:pointer; font-family:inherit; font-size:13px; font-weight:900; letter-spacing:.15em; color:var(--olive); border:1px solid rgba(154,178,107,.35); background:rgba(0,0,0,.22); }
 .profile-actions .profile-save { color:#eff5e4; border-color:var(--olive); background:linear-gradient(180deg,rgba(116,148,71,.7),rgba(59,79,36,.78)); }
 .profile-actions button:hover { color:#fff; border-color:var(--olive-bright); filter:brightness(1.12); }
@@ -6456,6 +6469,12 @@ html.touch-device .mn-id { min-height:52px; }
   html.touch-device .lb-record-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; }
   html.touch-device .lb-badge-grid { grid-template-columns:1fr; gap:4px; }
   html.touch-device .profile-new-confirm { grid-template-columns:minmax(0,1fr) auto auto; }
+  /* At 375 px tall the table got ~35 px between the stats card and the
+     dossiers: one clipped row. The panel scrolls instead, and the table keeps
+     room for four rows (it still scrolls on its own past that). */
+  .lb-panel { overflow-y:auto; }
+  .lb-panel > * { flex-shrink:0; }
+  #hud-leaderboard-body { min-height:230px; }
 }
 
 /* ---------- multiplayer panel harmonization (styles only) ---------- */

@@ -720,6 +720,12 @@ html.touch-device .mn-bindings-section,html.touch-device .mn-settings-mouse { di
   html.touch-device .mn-settings-mouse { display:inline; }
 }
 html.touch-device .mn-touch-help { display:flex; }
+html.touch-device .mn-note-touch { display:inline; }
+html.touch-device .mn-note-desk { display:none; }
+/* Right-click toggle aim means nothing without a mouse: touch AIM latches by itself. */
+@media not all and (any-pointer:fine) {
+  html.touch-device .mn-setting-mouse-only { display:none; }
+}
 html.touch-device #hud-menu { padding-top:max(12px,env(safe-area-inset-top)); padding-right:max(14px,env(safe-area-inset-right));
   padding-bottom:max(18px,env(safe-area-inset-bottom)); padding-left:max(14px,env(safe-area-inset-left)); }
 html.touch-device .mn-map-picker { width:100%; max-width:1120px; }
