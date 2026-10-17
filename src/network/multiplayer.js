@@ -2130,7 +2130,13 @@ export default class Multiplayer {
     if (Number.isFinite(state.armor) && !stale) remote.armor = state.armor;
     remote.hasKit = !!state.hasKit;
     const wasAlive = remote.alive;
-    if (typeof state.alive === 'boolean') this._setRemoteAlive(remote, state.alive);
+    // Nor its alive flag: a packet sent before the client learned of the
+    // killing hit stood the corpse back up on the host (alive, 0 health),
+    // holding up an elimination and letting the same death be scored twice.
+    // A real respawn always follows the client's ack of that hit.
+    if (typeof state.alive === 'boolean' && !(stale && state.alive && remote.alive === false)) {
+      this._setRemoteAlive(remote, state.alive);
+    }
     remote.sprinting = !!state.sprinting;
     remote.sliding = !!state.sliding;
     remote.crouching = !!state.crouching || remote.sliding; // a slide reads as a low crouch

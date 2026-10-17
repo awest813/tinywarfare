@@ -204,7 +204,14 @@ function recordRankedKill(room, data) {
     const victimStats = room.matchStats[victim.id];
     if (victimStats) victimStats.deaths++;
   }
-  if (!killer || (data.victimTeam && data.victimTeam === killer.team)) return;
+  // A team kill earns nothing, but FFA has no teams: everyone still wears a
+  // ct/t uniform there, and treating same-uniform kills as team kills dropped
+  // them from the ranked tally while the FFA score (which counts them) was
+  // validated against it: every such match was rejected with a 422.
+  const ffa = cleanGameMode(room.gameMode) === 'ffa';
+  const teamKill = ffa ? killer && victim && killer.id === victim.id
+    : !!(data.victimTeam && killer && data.victimTeam === killer.team);
+  if (!killer || teamKill) return;
   const killerStats = room.matchStats[killer.id];
   if (!killerStats) return;
   killerStats.kills++;
@@ -593,6 +600,8 @@ export class RoomDurableObject {
       disconnectDeadline: null,
     });
     room.players[connection.id] = { ...connection };
+    // Respawn-mode late joiners play from now (see server.mjs joinRoom).
+    if (lateJoin && isRespawnGameMode(room.gameMode)) enrollMatchPlayer(room, room.players[connection.id]);
     this._syncAttachment(ws, connection);
     let recoveredAuthority = null;
     const currentHost = room.hostId ? room.players[room.hostId] : null;
@@ -745,7 +754,9 @@ export class RoomDurableObject {
         continue;
       }
       const outcome = rankedOutcome(cleanGameMode(room.gameMode), state, participant);
-      const humanOpponents = participants.filter((other) => other.team !== participant.team).length;
+      // Leavers included and each counted once; capped at the validator's 5.
+      const humanOpponents = Math.min(5, participants.filter((other) => other.id !== participant.id &&
+        (cleanGameMode(room.gameMode) === 'ffa' || other.team !== participant.team)).length);
       const botOpponents = room.mode === 'mixed' ? Math.max(0, 5 - humanOpponents) : 0;
       const payload = {
         matchId: room.matchId,

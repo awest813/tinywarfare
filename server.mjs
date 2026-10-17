@@ -283,7 +283,14 @@ function recordRankedKill(room, data) {
     const victimStats = room.matchStats.get(victim.id);
     if (victimStats) victimStats.deaths++;
   }
-  if (!killer || (data.victimTeam && data.victimTeam === killer.team)) return;
+  // A team kill earns nothing, but FFA has no teams: everyone still wears a
+  // ct/t uniform there, and treating same-uniform kills as team kills dropped
+  // them from the ranked tally while the FFA score (which counts them) was
+  // validated against it: every such match was rejected with a 422.
+  const ffa = cleanGameMode(room.gameMode) === 'ffa';
+  const teamKill = ffa ? killer && victim && killer.id === victim.id
+    : !!(data.victimTeam && killer && data.victimTeam === killer.team);
+  if (!killer || teamKill) return;
   const killerStats = room.matchStats.get(killer.id);
   if (!killerStats) return;
   killerStats.kills++;
@@ -436,7 +443,10 @@ function finalizeRankedRoom(room, state) {
       continue;
     }
     const outcome = rankedOutcome(cleanGameMode(room.gameMode), state, participant);
-    const humanOpponents = participants.filter((other) => other.team !== participant.team).length;
+    // Everyone who played the match counts once, leavers included, so churn in
+    // a full room could reach 6 and fail validation (0-5) for the whole team.
+    const humanOpponents = Math.min(5, participants.filter((other) => other.id !== participant.id &&
+      (cleanGameMode(room.gameMode) === 'ffa' || other.team !== participant.team)).length);
     const botOpponents = room.mode === 'mixed' ? Math.max(0, 5 - humanOpponents) : 0;
     try {
       delivery.attempts++;
@@ -689,6 +699,10 @@ function joinRoom(ws, client, msg) {
   client.lastActivityAt = Date.now();
   client.authorityProtocol = Math.max(0, Math.floor(Number(msg.authorityProtocol) || 0));
   room.players.set(client.id, client);
+  // A respawn-mode late joiner plays from now: without this they had no match
+  // stats, so their kills were dropped and no ranked result or error was ever
+  // sent (the end screen sat on "verifying" for good).
+  if (lateJoin && respawnRoom) enrollMatchPlayer(room, client);
 
   let recoveredAuthority = null;
   const currentHost = room.hostId ? room.players.get(room.hostId) : null;
