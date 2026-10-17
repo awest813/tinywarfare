@@ -4449,15 +4449,20 @@ export default class HUD {
     if (info.ffa) {
       const place = info.ffa.place | 0;
       const won = place === 1;
+      // A shared first place is a draw (the XP pays it as one, and so does the
+      // server): calling it VICTORY over "DRAW 300" contradicted itself.
+      const tied = won && !!info.draw;
       const ord = (n) => n + (['TH', 'ST', 'ND', 'RD'][(n % 100 > 10 && n % 100 < 14) ? 0 : Math.min(n % 10, 4) % 4] || 'TH');
       if (this._el.endTitle) {
-        this._el.endTitle.textContent = won ? 'VICTORY' : place <= 3 ? 'TOP THREE' : 'DEFEATED';
+        this._el.endTitle.textContent = tied ? 'DRAW' : won ? 'VICTORY' : place <= 3 ? 'TOP THREE' : 'DEFEATED';
         this._el.endTitle.classList.toggle('lost', place > 3);
       }
-      if (this._el.endSub) this._el.endSub.textContent = 'YOU PLACED ' + ord(place) + ' OF ' + info.ffa.total;
+      if (this._el.endSub) {
+        this._el.endSub.textContent = tied ? 'YOU SHARED 1ST OF ' + info.ffa.total : 'YOU PLACED ' + ord(place) + ' OF ' + info.ffa.total;
+      }
       if (this._el.endScore) {
         this._el.endScore.textContent = 'YOU ' + ((info.scores && info.scores.ct) | 0) + '  ·  ' +
-          String(won ? 'NEXT BEST' : 'WINNER ' + String(info.ffa.leader || '').toUpperCase()) + ' ' +
+          String(tied ? 'TIED' : won ? 'NEXT BEST' : 'WINNER ' + String(info.ffa.leader || '').toUpperCase()) + ' ' +
           (won ? ((info.scores && info.scores.t) | 0) : (info.ffa.leaderKills | 0));
       }
       if (this._el.endKd) {
