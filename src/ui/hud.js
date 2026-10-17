@@ -16,7 +16,7 @@ import { STREAKS, STREAK_IDS } from '../game/streaks.js';
 import { BOT_SKILLS, BOT_SKILL_STORAGE_KEY, normalizeBotSkill } from '../ai/skill.js';
 import { ATTACHMENTS, ATTACHMENT_IDS, LETHALS, PRIMARIES, SECONDARIES, TACTICALS, PERKS, PERK1_IDS, PERK2_IDS } from '../game/loadouts.js';
 import {
-  ATTACHMENT_LEVEL, FINAL_UNLOCK_RANK, UNLOCK_RANK, WEAPON_LEVEL_XP, WEAPON_XP_PER_KILL,
+  ATTACHMENT_LEVEL, FINAL_UNLOCK_RANK, UNLOCK_RANK, WEAPON_LEVEL_XP, WEAPON_XP_PER_KILL, xpForRank,
 } from '../game/progression.js';
 import { hostile, hostileTeams, isFfa } from '../game/hostility.js';
 import { resolveHumanPlayerName } from '../player/profile.js';
@@ -1794,16 +1794,10 @@ export default class HUD {
     if (chip && progression) {
       const r = progression.summary();
       // The next unlock is the reason to keep going: name it.
-      let nextUnlock = null;
-      for (const [id, rank] of Object.entries(UNLOCK_RANK)) {
-        if (rank > r.rank && (!nextUnlock || rank < nextUnlock.rank)) nextUnlock = { id, rank };
-      }
-      const nextName = nextUnlock
-        ? String(this._names[nextUnlock.id] || PERKS[nextUnlock.id]?.label || STREAKS[nextUnlock.id]?.label || nextUnlock.id).toUpperCase()
-        : '';
+      const nextUnlock = this._nextUnlock(r.rank);
       chip.textContent = 'RANK ' + r.rank + ' · ' + r.title + ' · ' + r.xp.toLocaleString('en-US') +
         (r.next > r.floor ? ' / ' + r.next.toLocaleString('en-US') + ' XP' : ' XP') +
-        (nextUnlock ? ' · NEXT: ' + nextName + ' AT RANK ' + nextUnlock.rank : ' · ALL GEAR UNLOCKED');
+        (nextUnlock ? ' · NEXT: ' + nextUnlock.name + ' AT RANK ' + nextUnlock.rank : ' · ALL GEAR UNLOCKED');
     }
     const weaponProgress = document.getElementById('hud-class-weapon-progress');
     if (weaponProgress && progression) {
@@ -1818,10 +1812,23 @@ export default class HUD {
           : ' · EVERY ATTACHMENT UNLOCKED');
     }
     if (el.classPerkDetail) {
-      const att = ATTACHMENTS[active.attachment];
-      el.classPerkDetail.textContent = [att && att.detail, PERKS[active.perk]?.detail, PERKS[active.perk2]?.detail]
+      // What the class deploys with: a pick still locked keeps its select
+      // (labelled with what unlocks it) but must not have its effect described.
+      const used = typeof progression?.resolveLoadout === 'function' ? progression.resolveLoadout(active) : active;
+      const att = ATTACHMENTS[used.attachment];
+      el.classPerkDetail.textContent = [att && att.detail, PERKS[used.perk]?.detail, PERKS[used.perk2]?.detail]
         .filter(Boolean).join('  ·  ');
     }
+  }
+
+  /** The lowest-rank item still locked above `rank`, named, or null. */
+  _nextUnlock(rank) {
+    let next = null;
+    for (const [id, at] of Object.entries(UNLOCK_RANK)) {
+      if (at > rank && (!next || at < next.rank)) next = { id, rank: at };
+    }
+    if (next) next.name = String(this._names[next.id] || PERKS[next.id]?.label || STREAKS[next.id]?.label || next.id).toUpperCase();
+    return next;
   }
 
   _updateStartSub() {
@@ -4290,9 +4297,13 @@ export default class HUD {
           items.push('<span>' + esc(names([up.id])[0]) + ' LEVEL ' + up.level +
             (up.attachments.length ? ' · ' + esc(up.attachments.map((a) => ATTACHMENTS[a]?.label || a).join(', ')) : '') + '</span>');
         }
-        const allDone = local.after >= FINAL_UNLOCK_RANK;
+        // Nothing new this match: say what the next one is and how far off.
+        const next = local.after >= FINAL_UNLOCK_RANK ? null : this._nextUnlock(local.after);
+        const toGo = next ? Math.max(0, xpForRank(next.rank) - local.summary.xp) : 0;
         this._el.endUnlocks.innerHTML = items.length ? items.join('')
-          : '<span class="steady">' + (allDone ? 'ALL GEAR UNLOCKED' : 'KEEP PLAYING TO UNLOCK MORE') + '</span>';
+          : '<span class="steady">' + (next
+            ? 'NEXT: ' + esc(next.name) + ' AT RANK ' + next.rank + ' · ' + toGo.toLocaleString('en-US') + ' XP TO GO'
+            : 'ALL GEAR UNLOCKED') + '</span>';
       }
       return;
     }

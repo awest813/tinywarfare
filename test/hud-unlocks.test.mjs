@@ -56,3 +56,19 @@ test('class cards name what an attachment lock needs; the chip names the next un
   hud._renderClasses();
   assert.match(el('hud-rank-chip').textContent, /ALL GEAR UNLOCKED$/);
 });
+
+test('the next unlock is named with its rank; the class detail describes only what deploys', (t) => {
+  const { hud, game, el } = rig(t);
+  assert.deepEqual(hud._nextUnlock(5), { id: 'deagle', rank: 6, name: 'NIGHT HAWK' });
+  assert.equal(hud._nextUnlock(28), null);
+
+  hud._el.classPerkDetail = el('detail');
+  game.loadouts.edit(game.loadouts.selected, { perk2: 'hardline' });
+  hud._renderClasses();
+  assert.ok(!game.progression.isUnlocked('hardline'));
+  assert.equal(el('hud-class-perk2').value, 'hardline', 'the select keeps the saved pick');
+  const used = game.progression.resolveLoadout(game.loadouts.active());
+  assert.notEqual(used.perk2, 'hardline');
+  assert.ok(el('detail').textContent.length > 0);
+  assert.doesNotMatch(el('detail').textContent, /cost 20% less/i, 'a locked perk is not described as active');
+});
