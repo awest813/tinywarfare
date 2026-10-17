@@ -30,10 +30,16 @@ import * as THREE from 'three';
  * output colour space differ off-screen), so pass every target the frame
  * draws the scene into: the post chain's scene buffer as well as the screen.
  *
+ * A pass drawn with `scene.overrideMaterial` (the ambient-occlusion depth
+ * prepass) compiles a variant of that one material per kind of object
+ * (skinned or not), which `compile` cannot see either: list those in
+ * `passes` and each is drawn once the same scissored way.
+ *
  * @param {Array<THREE.WebGLRenderTarget|null>} [targets] default: the screen
+ * @param {Array<{target: THREE.WebGLRenderTarget, override: THREE.Material}>} [passes]
  * @returns {number} how many hidden objects were included
  */
-export function prewarmShaders(renderer, scene, camera, targets = [null]) {
+export function prewarmShaders(renderer, scene, camera, targets = [null], passes = []) {
   if (!renderer || !scene || !camera || typeof renderer.compile !== 'function') return 0;
   const shown = [];
   scene.traverse((object) => {
@@ -62,7 +68,10 @@ export function prewarmShaders(renderer, scene, camera, targets = [null]) {
     if (shadowMap?.enabled && typeof renderer.render === 'function') {
       scene.traverse((object) => { if (object.isLight && object.castShadow && object.visible) casters = true; });
     }
-    if (casters) warmShadowPass(renderer, scene, camera, targets[0] ?? null);
+    if (casters) warmPass(renderer, scene, camera, targets[0] ?? null, null);
+    for (const pass of passes) {
+      if (pass && pass.target && pass.override) warmPass(renderer, scene, camera, pass.target, pass.override);
+    }
   } finally {
     if (typeof renderer.setRenderTarget === 'function') renderer.setRenderTarget(previous);
     for (const object of shown) object.visible = false;
@@ -73,8 +82,10 @@ export function prewarmShaders(renderer, scene, camera, targets = [null]) {
 const _scissor = new THREE.Vector4();
 const _viewport = new THREE.Vector4();
 
-function warmShadowPass(renderer, scene, camera, target) {
+/** One real frame into `target`, a single pixel of it, with nothing culled. */
+function warmPass(renderer, scene, camera, target, override) {
   const shadowMap = renderer.shadowMap;
+  const prevOverride = scene.overrideMaterial;
   // Parked objects (the viewmodel, soldiers waiting to spawn) sit outside
   // the sun's shadow frustum now and would be culled before compiling.
   const culled = [];
@@ -97,9 +108,11 @@ function warmShadowPass(renderer, scene, camera, target) {
       renderer.setScissor(0, 0, 1, 1);
       renderer.setScissorTest(true);
     }
-    shadowMap.needsUpdate = true;
+    if (shadowMap) shadowMap.needsUpdate = true;
+    scene.overrideMaterial = override || prevOverride;
     renderer.render(scene, camera);
   } finally {
+    scene.overrideMaterial = prevOverride;
     if (target) {
       target.scissor.copy(saved.rect);
       target.scissorTest = saved.test;
@@ -109,6 +122,6 @@ function warmShadowPass(renderer, scene, camera, target) {
       renderer.setViewport(saved.viewport);
     }
     for (const object of culled) object.frustumCulled = true;
-    shadowMap.needsUpdate = true; // the next real frame redraws it properly
+    if (shadowMap) shadowMap.needsUpdate = true; // the next real frame redraws it properly
   }
 }

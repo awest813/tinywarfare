@@ -283,7 +283,10 @@ loadingScreen?.setStage?.('Calibrating combat systems', 92);
 const prewarm = () => {
   // The post chain draws the scene off-screen first (a different program key).
   const targets = game.post?.sceneRt ? [game.post.sceneRt, null] : [null];
-  try { prewarmShaders(renderer, scene, camera, targets); } catch (error) { console.warn('[prewarm]', error); }
+  // ...and the ambient-occlusion prepass draws it again with one override material.
+  const ssao = game.post?.ssao;
+  const passes = ssao?.depthRt && ssao.depthMaterial ? [{ target: ssao.depthRt, override: ssao.depthMaterial }] : [];
+  try { prewarmShaders(renderer, scene, camera, targets, passes); } catch (error) { console.warn('[prewarm]', error); }
 };
 prewarm();
 game.events.on('map:changed', () => setTimeout(prewarm, 0));
