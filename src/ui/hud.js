@@ -4064,6 +4064,7 @@ export default class HUD {
       row('FIRE', 'Shoot (hold)'),
       row('AIM', 'Aim down sights'),
       row('JUMP · CROUCH', 'Jump · crouch, slide while sprinting'),
+      row('NEXT', 'Skip the killcam · next player while spectating'),
       row('PRIMARY · SIDEARM', 'Switch weapons'),
       row('USE', 'Plant / defuse · use objectives'),
       row('$ BUY', 'Buy menu (Search & Destroy)'),
@@ -4071,13 +4072,17 @@ export default class HUD {
       row('❚❚', 'Pause · settings'),
     ] : [
       row(key('moveForward') + key('moveLeft') + key('moveBackward') + key('moveRight'), 'Move'),
-      row('MOUSE', 'Look · left click shoots · right click aims'),
+      row('MOUSE', this.game.settings?.aimToggle
+        ? 'Look · left click shoots · right click aims in / out'
+        : 'Look · left click shoots · hold right click to aim'),
       row(key('sprint'), 'Sprint'),
+      row(key('walk'), 'Walk quietly'),
       row(key('crouch'), 'Crouch · slide while sprinting'),
-      row(key('jump'), 'Jump · next player while spectating'),
+      row(key('jump'), 'Jump · skip the killcam · next player while spectating'),
       row(key('reload'), 'Reload'),
       row(key('weapon1') + ' ' + key('weapon2') + ' ' + key('weapon3'), 'Primary · sidearm · knife'),
       row(key('weapon4'), 'Grenade'),
+      row(key('lastWeapon'), 'Last weapon'),
       row(key('use'), 'Plant / defuse · use objectives'),
       row(key('buy'), 'Buy menu (Search & Destroy)'),
       row(key('streak1') + ' ' + key('streak2') + ' ' + key('streak3'), 'Call in scorestreaks'),
