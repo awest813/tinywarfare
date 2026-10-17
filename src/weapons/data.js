@@ -239,7 +239,11 @@ export const WEAPONS = {
     name: 'MP-5',
     slot: 1,
     price: 1500,
-    damage: 26,
+    // The SMG's lane is close: a 3-shot kill (150 ms) that beats a rifle's
+    // 180 ms inside ~11 m, then a steep falloff hands longer fights back to
+    // the rifles (4 shots by 15 m, 5 by 30). At 26 it lost to the M4 at
+    // every range, so the one class built for close quarters never won it.
+    damage: 34,
     headshotMult: 2,
     armorPen: 0.6,           // share of a body hit that gets through armor
     rpm: 800,
@@ -262,9 +266,9 @@ export const WEAPONS = {
     bloomPerShot: 0.0009,
     bloomMax: 0.008,
     penetration: 0.4,
-    falloffStart: 16,
-    falloffEnd: 50,
-    falloffMinScale: 0.45,
+    falloffStart: 10,
+    falloffEnd: 35,
+    falloffMinScale: 0.55,
     moveSpeedMult: 0.95,
     zoomFov: null,
     fireSound: 'mp5',
@@ -544,7 +548,12 @@ export const WEAPONS = {
     damage: 32,
     headshotMult: 2,
     armorPen: 0.775,         // share of a body hit that gets through armor
-    rpm: 650,                // a heavy weapon: four shots, slower cycle
+    // Four shots at every range (flat falloff), 250 ms: loses to the rifles
+    // up close and at mid range, beats the M4 past 28 m and the AK past 38 m
+    // (where each drops to four shots), and 100 rounds hold a lane without
+    // reloading. At 650 it matched the M4 even at 50 m while
+    // moving, aiming and reloading slower: a rank-24 unlock with no niche.
+    rpm: 720,
     magSize: 100,
     reserve: 200,
     reloadTime: 5.2,

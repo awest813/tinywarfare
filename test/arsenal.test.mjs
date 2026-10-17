@@ -281,3 +281,18 @@ test('kill events carry the killer\'s distance and credit the player\'s assist',
   combat._applyDamage(late, false, 100, mate, 'ak47', false, 'body', false);
   assert.equal(kills[2].assistIsLocal, false);
 });
+
+test('each automatic has a lane: SMG close, M4 mid, LMG at long range', async () => {
+  const { default: Combat } = await import('../src/combat/combat.js');
+  const ttk = (id, d) => {
+    const w = WEAPONS[id];
+    const shots = Math.ceil(100 / (w.damage * Combat.prototype._falloff(w, d)));
+    return (shots - 1) * 60000 / w.rpm;
+  };
+  assert.ok(ttk('mp5', 8) < ttk('m4a1', 8), 'the SMG wins a doorway');
+  assert.ok(ttk('mp5', 8) < ttk('ak47', 8));
+  assert.ok(ttk('m4a1', 20) < ttk('mp5', 20), 'a rifle wins across a room');
+  assert.ok(ttk('lmg', 45) < ttk('ak47', 45), 'the LMG holds a long lane');
+  assert.ok(ttk('lmg', 45) < ttk('m4a1', 45));
+  assert.ok(ttk('lmg', 10) > ttk('m4a1', 10), 'and loses up close');
+});

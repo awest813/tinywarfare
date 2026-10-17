@@ -80,6 +80,12 @@ export const TDM = Object.freeze({
   RESPAWN_DELAY: 3,       // s from death to respawn
   SAFE_DISTANCE: 16,      // m: never spawn closer than this to a living enemy
   SPAWN_PROTECTION: 1.5,  // s of damage immunity after a respawn (firing ends it)
+  // Health regeneration (respawn modes only; S&D keeps its bought armor). The
+  // CoD/Halo loop: win a fight, break line of sight, and you are whole for the
+  // next one. Without it a player who won at 20 HP was free for whoever came
+  // next, so being good was punished and kill chains were luck.
+  REGEN_DELAY: 4.5,       // s without taking damage before health returns
+  REGEN_RATE: 40,         // HP/s once it does (empty to full in 2.5 s)
 });
 
 // Starter class until create-a-class lands (Phase 3).
@@ -118,6 +124,24 @@ export const SPAWN_ANCHOR = Object.freeze({
  * @param {{ raycast?: Function, random?: () => number }} [opts]
  * @returns {{pos: THREE.Vector3, yaw: number} | null}
  */
+/**
+ * How much one enemy sight line counts against a spawn (1 = a full one).
+ *
+ * On four of the five maps a nine-enemy free-for-all often leaves no spawn
+ * both 16 m clear and unseen (37-71% of picks in a sweep), so which seen spawn
+ * wins decides whether the respawn survives. CoD's spawn logic weighs sight
+ * by threat: an enemy 18 m away looking at the spot is a death, one 55 m away
+ * looking elsewhere is a fight. Distance fades a line to a quarter by ~70 m;
+ * an enemy facing away (more than 60 deg off) counts 60%.
+ */
+function sightThreat(enemy, pos, d) {
+  const near = Math.max(0.25, Math.min(1, 1 - (d - TDM.SAFE_DISTANCE) / 60));
+  if (!Number.isFinite(enemy.yaw)) return near;
+  const toSpawn = Math.atan2(-(pos.x - enemy.x), -(pos.z - enemy.z));
+  const off = Math.abs(Math.atan2(Math.sin(toSpawn - enemy.yaw), Math.cos(toSpawn - enemy.yaw)));
+  return near * (off < Math.PI / 3 ? 1 : 0.6);
+}
+
 export function pickSafeSpawn(candidates, enemies, friends, opts = {}) {
   if (!Array.isArray(candidates) || candidates.length === 0) return null;
   const random = typeof opts.random === 'function' ? opts.random : Math.random;
@@ -173,7 +197,7 @@ export function pickSafeSpawn(candidates, enemies, friends, opts = {}) {
         _to.set(enemy.x - _eye.x, enemy.y + 1.6 - _eye.y, enemy.z - _eye.z);
         const dist = _to.length();
         if (dist > 1e-3 && !raycast(_eye, _to.multiplyScalar(1 / dist), dist)) {
-          seen++;
+          seen += sightThreat(enemy, pos, d);
           if (row.bound - seen * 40 <= bestScore) break; // cannot win any more
         }
       }
@@ -324,6 +348,7 @@ export default class TeamDeathmatch {
       if (!bot.alive) this._respawnBot(bot);
     }
     this._updateRemotes(dt);
+    this._regenerate(dt, [this.game.player, ...bots]);
     if (this.objective) this.objective.update(dt);
 
     const limit = this.rules().scoreLimit;
@@ -354,7 +379,35 @@ export default class TeamDeathmatch {
   replicaUpdate(dt) {
     this._time += dt;
     this._catchUpPlayerRespawn();
+    // Bots belong to the authority; this client heals only its own player,
+    // whose health the server relays like any other state.
+    if (this.game.state.phase === 'live') this._regenerate(dt, [this.game.player]);
     if (this.objective && typeof this.objective.replicaUpdate === 'function') this.objective.replicaUpdate(dt);
+  }
+
+  /**
+   * Heal anyone who has gone REGEN_DELAY without losing health. Damage is read
+   * as a drop between ticks, so every source (bullets, grenades, fire, falls)
+   * resets the wait without each one having to report in.
+   */
+  _regenerate(dt, actors) {
+    const regen = this._regen || (this._regen = new WeakMap());
+    const cfg = this.game.config || {};
+    for (const actor of actors) {
+      if (!actor) continue;
+      if (actor.alive === false || !Number.isFinite(actor.health)) { regen.delete(actor); continue; }
+      const max = actor === this.game.player
+        ? (cfg.PLAYER && cfg.PLAYER.MAX_HEALTH) || 100
+        : (cfg.BOT && cfg.BOT.HEALTH) || 100;
+      let r = regen.get(actor);
+      if (!r) { r = { last: actor.health, quiet: 0 }; regen.set(actor, r); }
+      if (actor.health < r.last) r.quiet = 0;
+      else r.quiet += dt;
+      if (r.quiet >= TDM.REGEN_DELAY && actor.health < max) {
+        actor.health = Math.min(max, actor.health + TDM.REGEN_RATE * dt);
+      }
+      r.last = actor.health;
+    }
   }
 
   _catchUpPlayerRespawn() {
@@ -635,7 +688,9 @@ export default class TeamDeathmatch {
     const ffa = this.game.state.mode === 'ffa';
     const add = (actor, pos) => {
       if (!actor || actor === self || !actor.alive || !pos) return;
-      (!ffa && actor.team === team ? friends : enemies).push(pos);
+      if (!ffa && actor.team === team) { friends.push(pos); return; }
+      // Where they are looking weighs their sight line (see sightThreat).
+      enemies.push({ x: pos.x, y: pos.y, z: pos.z, yaw: actor.yaw });
     };
     const bots = this.game.bots;
     if (bots && Array.isArray(bots.all)) for (const b of bots.all) add(b, b.pos);

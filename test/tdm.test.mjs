@@ -165,7 +165,10 @@ test('the lazy spawn search picks exactly what scoring every candidate would', (
           const eye = new THREE.Vector3(c.pos.x, c.pos.y + 1.6, c.pos.z);
           const to = new THREE.Vector3(e.x - eye.x, e.y + 1.6 - eye.y, e.z - eye.z);
           const dist = to.length();
-          if (dist > 1e-3 && !raycast(eye, to.multiplyScalar(1 / dist), dist)) seen++;
+          // Each sight line weighs by distance (no facing given): sightThreat.
+          if (dist > 1e-3 && !raycast(eye, to.multiplyScalar(1 / dist), dist)) {
+            seen += Math.max(0.25, Math.min(1, 1 - (d - TDM.SAFE_DISTANCE) / 60));
+          }
         }
       }
       for (const f of friends) friend = Math.min(friend, Math.hypot(f.x - c.pos.x, f.z - c.pos.z));
@@ -228,4 +231,33 @@ test('a player killed during the countdown still respawns once the match is live
   assert.equal(tdm.playerRespawnIn() > 0, true, 'the missed respawn is scheduled');
   tdm.update(TDM.RESPAWN_DELAY + 0.1);
   assert.equal(game.player.alive, true);
+});
+
+test('respawn modes regenerate health after a quiet spell; damage restarts the wait', () => {
+  const { game, bots } = makeGame();
+  const tdm = new TeamDeathmatch(game);
+  tdm.startMatch();
+  tdm.goLive();
+  const step = (seconds) => { for (let t = 0; t < seconds - 1e-9; t += 0.05) tdm.update(0.05); };
+  game.player.health = 40;
+  bots[0].health = 30;
+  step(0.1);
+  step(TDM.REGEN_DELAY - 0.5);
+  assert.equal(game.player.health, 40, 'no regen inside the delay');
+  game.player.health = 35;              // hit again: the wait starts over
+  step(TDM.REGEN_DELAY - 0.2);
+  assert.equal(game.player.health, 35);
+  step(0.5);
+  assert.ok(game.player.health > 35, 'regenerating');
+  step(2);
+  assert.equal(game.player.health, 100, 'full within ~2.5 s');
+  assert.equal(bots[0].health, 100, 'bots regenerate too');
+});
+
+test('when every spawn is seen, the one a nearby enemy is facing loses', () => {
+  const enemy = Object.assign(v(0, 0), { yaw: 0 });  // looking down -Z
+  const ahead = { pos: v(0, -30) };
+  const behind = { pos: v(0, 30) };
+  const pick = pickSafeSpawn([ahead, behind], [enemy], [], { random: () => 0, raycast: () => null });
+  assert.equal(pick.pos.z, 30, 'spawn behind the enemy, not in its sights');
 });
