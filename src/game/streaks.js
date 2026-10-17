@@ -32,6 +32,9 @@ export const DEFAULT_STREAKS = Object.freeze(['uav', 'airstrike']);
 export const STREAK_KEYS = Object.freeze(['5', '6', '7']); // slot 1, slot 2, bonus
 export const STREAK_STORAGE_KEY = 'tiny-strike-streaks-v1';
 
+// s between airstrikes one remote human may call (host side, see runRemote).
+const REMOTE_STRIKE_GAP = 30;
+
 export const AIRSTRIKE = Object.freeze({
   DELAY: 2.2,        // s from call-in to the first impact
   SPACING: 6,        // m between impacts along the run
@@ -334,6 +337,10 @@ export default class Scorestreaks {
     if (this.game.state.phase !== 'live' || message.streakId !== 'airstrike') return false;
     const t = message.target;
     if (!t || !Number.isFinite(t.x) || !Number.isFinite(t.y) || !Number.isFinite(t.z)) return false;
+    // One strike per caller per REMOTE_STRIKE_GAP: earning one takes kills,
+    // and a client could otherwise call as many as it liked.
+    const now = Number(this.game.bots?.time) || performance.now() / 1000;
+    if (Number.isFinite(caller._lastStrikeAt) && now - caller._lastStrikeAt < REMOTE_STRIKE_GAP) return false;
     const target = new THREE.Vector3(t.x, t.y, t.z);
     // Calls land within the caller's reach, like a local call.
     if (caller.position && target.distanceTo(caller.position) > AIRSTRIKE.RANGE + 5) return false;
@@ -341,6 +348,7 @@ export default class Scorestreaks {
     const run = d && Number.isFinite(d.x) && Number.isFinite(d.z) ? new THREE.Vector3(d.x, 0, d.z) : new THREE.Vector3(0, 0, -1);
     if (run.lengthSq() < 1e-6) run.set(0, 0, -1);
     run.normalize();
+    caller._lastStrikeAt = now;
     this._scheduleStrike(target, run, caller);
     this.game.events.emit('streak:airstrike', { target: target.clone(), dir: run.clone(), callerId: caller.networkId || null });
     return true;

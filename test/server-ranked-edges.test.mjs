@@ -143,9 +143,26 @@ test('ranked results survive FFA same-uniform kills, respawn late joins and a ch
     send(players[0], { type: 'snapshot', authorityEpoch: start.authorityEpoch, snapshot: { state: { phase: 'freeze', round: 2, scores: { ct: 1, t: 0 }, roundResult: { winner: 'ct', reason: 'elimination' } } } });
     await sleep(50);
     assert.equal(room.matchPlayers.filter((p) => p.team === other).length, 6, 'six opponents played');
+    // Eight rounds the server watched being played (as startedAt fakes the length).
+    for (let r = 1; r <= 8; r++) room.roundLiveSpans[r] = { first: 0, last: 60_000 };
     send(players[0], { type: 'snapshot', authorityEpoch: start.authorityEpoch, snapshot: { state: { phase: 'gameEnd', round: 8, scores: { ct: 8, t: 0 }, matchWinner: 'ct' } } });
     const res = await nextOf(ranked, ['leaderboard_result', 'leaderboard_error'], 3000);
     assert.equal(res?.type, 'leaderboard_result', res?.message || 'ranked');
+  }
+
+  // ---- S&D: a host that claims more rounds than were played is not ranked.
+  {
+    const host = await join({ action: 'create', room: 'SDFAKE', name: 'Forger', mode: 'mixed', leaderboardToken: await token('Forger') });
+    send(host, { type: 'set_game_mode', gameMode: 'sd' });
+    await sleep(40);
+    send(host, { type: 'start_match' });
+    const start = await nextOf(host, ['match_start']);
+    const room = rooms.get('SDFAKE');
+    room.startedAt -= 900_000;
+    room.roundLiveSpans[1] = { first: 0, last: 60_000 };       // one real round
+    send(host, { type: 'snapshot', authorityEpoch: start.authorityEpoch, snapshot: { state: { phase: 'gameEnd', round: 1, scores: { ct: 8, t: 0 }, matchWinner: 'ct' } } });
+    const res = await nextOf(host, ['leaderboard_result', 'leaderboard_error'], 3000);
+    assert.equal(res?.type, 'leaderboard_error', 'an 8-0 after one round is refused');
   }
 });
 

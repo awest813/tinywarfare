@@ -28,6 +28,9 @@ import {
   createMessageBudget,
   jsonTooDeep,
   takeMessageBudget,
+  allowRelay,
+  observeRoundLive,
+  rankedResultImplausible,
 } from '../src/shared/rooms-core.mjs';
 
 // A pose is relayed at once but written to storage at most this often per
@@ -36,6 +39,11 @@ const POSE_SAVE_INTERVAL_MS = 2000;
 
 const MAX_PLAYERS = MAX_ROOM_PLAYERS;
 const MAX_MESSAGE_BYTES = 64 * 1024;
+// The Node server's limits (server.mjs), which this hub had none of: one
+// address could open thousands of rooms, and every event rescans them all.
+const MAX_ROOMS = 500;
+const MAX_SOCKETS_PER_IP = 32;
+const MAX_ROOM_CREATES_PER_MINUTE = 30;
 const DEFAULT_RECONNECT_GRACE_MS = 120_000;
 const RANKED_RETRY_BASE_MS = 1_000;
 const RANKED_RETRY_MAX_MS = 30_000;
@@ -222,6 +230,20 @@ function recordRankedKill(room, data) {
 
 function enrollMatchPlayer(room, player) {
   room.matchStats ||= {};
+  room.matchPlayers ||= [];
+  // See server.mjs enrollMatchPlayer: one ranked identity, one participant,
+  // ranked on the side it plays for now.
+  const earlier = player.leaderboardPlayerId && room.matchPlayers.find((entry) =>
+    entry.id !== player.id && entry.leaderboardPlayerId === player.leaderboardPlayerId);
+  if (earlier) {
+    if (room.matchStats[earlier.id]) {
+      room.matchStats[player.id] = room.matchStats[earlier.id];
+      delete room.matchStats[earlier.id];
+    }
+    earlier.id = player.id;
+  }
+  const entry = room.matchPlayers.find((candidate) => candidate.id === player.id);
+  if (entry) entry.team = player.team;
   room.matchStats[player.id] ||= {
     kills: 0,
     deaths: 0,
@@ -231,8 +253,7 @@ function enrollMatchPlayer(room, player) {
     plants: 0,
     defuses: 0,
   };
-  room.matchPlayers ||= [];
-  if (!room.matchPlayers.some((entry) => entry.id === player.id)) {
+  if (!room.matchPlayers.some((candidate) => candidate.id === player.id)) {
     room.matchPlayers.push({
       id: player.id,
       name: player.name,
@@ -347,8 +368,28 @@ export class RoomDurableObject {
     );
   }
 
+  /** Per-address room creation budget (in memory: a hibernation resets it). */
+  _allowRoomCreate(ws) {
+    const tags = typeof this.ctx.getTags === 'function' ? this.ctx.getTags(ws) : [];
+    const key = (tags || []).find((t) => t.startsWith('ip:'));
+    if (!key) return true;
+    this._createWindows ||= new Map();
+    const now = Date.now();
+    let w = this._createWindows.get(key);
+    if (!w || now - w.start >= 60_000) {
+      w = { start: now, count: 0 };
+      this._createWindows.set(key, w);
+      if (this._createWindows.size > 5000) {
+        for (const [k, v] of this._createWindows) if (now - v.start >= 60_000) this._createWindows.delete(k);
+      }
+    }
+    w.count += 1;
+    return w.count <= MAX_ROOM_CREATES_PER_MINUTE;
+  }
+
   _deleteRoom(code) {
     this.sql.exec('DELETE FROM rooms WHERE code = ?', code);
+    this._poseSavedAt.delete(code);
   }
 
   _socket(playerId) {
@@ -542,11 +583,13 @@ export class RoomDurableObject {
   }
 
   async _join(ws, connection, message) {
-    if (message.action === 'reconnect') return this._reconnect(ws, connection, message);
-    if (connection.roomCode) {
+    // A seated socket cannot take over another seat (see server.mjs joinRoom).
+    if (connection.roomCode && !(message.action === 'reconnect' &&
+        String(message.reconnectToken || '') === String(connection.reconnectToken || ''))) {
       this._send(ws, { type: 'error', message: 'Already in a room.' });
       return connection;
     }
+    if (message.action === 'reconnect') return this._reconnect(ws, connection, message);
     const action = message.action === 'create' ? 'create' : 'join';
     const rankedPlayer = await this._rankedPlayer(message.leaderboardToken);
     let code = cleanRoomCode(message.room);
@@ -555,6 +598,15 @@ export class RoomDurableObject {
     if (action === 'create') {
       if (room) {
         this._send(ws, { type: 'error', message: 'That room code is already in use.' });
+        return connection;
+      }
+      const count = this.sql.exec('SELECT COUNT(*) AS n FROM rooms').toArray()[0];
+      if (Number(count?.n) >= MAX_ROOMS) {
+        this._send(ws, { type: 'error', message: 'The server is full. Try again shortly.' });
+        return connection;
+      }
+      if (!this._allowRoomCreate(ws)) {
+        this._send(ws, { type: 'error', message: 'Too many rooms opened. Try again in a minute.' });
         return connection;
       }
       code ||= this._makeRoomCode();
@@ -676,6 +728,7 @@ export class RoomDurableObject {
     room.rankedRetryAt = null;
     room.rankedCompletedAt = null;
     room.rankedDuration = null;
+    room.roundLiveSpans = {};
     room.matchStats = Object.fromEntries(players.map((entry) => [entry.id, {
       kills: 0,
       deaths: 0,
@@ -709,7 +762,25 @@ export class RoomDurableObject {
     return true;
   }
 
+  /**
+   * One finalization per room at a time. The delivery loop awaits the
+   * leaderboard, and a Durable Object takes other socket messages meanwhile:
+   * every later gameEnd frame (12 a second) started another, submitting the
+   * results again, and each saved its room copy from before the await over
+   * whatever had changed since (a player who left came back).
+   */
   async _finalizeRankedRoom(room, state) {
+    this._finalizing ||= new Set();
+    if (this._finalizing.has(room.code)) return;
+    this._finalizing.add(room.code);
+    try {
+      await this._finalizeRankedRoomOnce(room, state);
+    } finally {
+      this._finalizing.delete(room.code);
+    }
+  }
+
+  async _finalizeRankedRoomOnce(room, state) {
     const scores = state && state.scores;
     if (!scores || !Number.isFinite(Number(scores.ct)) || !Number.isFinite(Number(scores.t))) return;
     room.rankedFinalState = state;
@@ -746,10 +817,11 @@ export class RoomDurableObject {
         delivery.failureNotified = this._sendRankedFailure(room, participant, delivery);
         continue;
       }
+      const implausible = rankedResultImplausible(room, state);
       const stats = room.matchStats?.[participant.id];
-      if (!stats) {
+      if (!stats || implausible) {
         delivery.status = 'rejected';
-        delivery.lastError = 'Authoritative match stats were unavailable.';
+        delivery.lastError = implausible || 'Authoritative match stats were unavailable.';
         delivery.failureNotified = this._sendRankedFailure(room, participant, delivery);
         continue;
       }
@@ -839,8 +911,15 @@ export class RoomDurableObject {
       RANKED_RETRY_BASE_MS * (2 ** Math.min(5, attempts - 1)),
     );
     room.rankedRetryAt = room.rankedFinalized ? null : Date.now() + retryDelay;
-    if (!Object.keys(room.players || {}).length && room.rankedFinalized) this._deleteRoom(room.code);
-    else this._saveRoom(room);
+    // Write the delivery bookkeeping onto the room as it is stored now, not
+    // this copy from before the awaits.
+    const latest = this._room(room.code) || room;
+    if (latest !== room) {
+      for (const key of ['rankedFinalState', 'rankedDeliveries', 'rankedCompletedAt', 'rankedDuration',
+        'rankedFinalized', 'rankedRetryAt']) latest[key] = room[key];
+    }
+    if (!Object.keys(latest.players || {}).length && latest.rankedFinalized) this._deleteRoom(latest.code);
+    else this._saveRoom(latest);
     await this._scheduleDisconnectAlarm();
   }
 
@@ -976,6 +1055,7 @@ export class RoomDurableObject {
           }
           reconcileRoundEconomy(room, acceptedSnapshot.state);
           if (acceptedSnapshot.state) observeRankedSnapshot(room, acceptedSnapshot.state);
+          if (acceptedSnapshot.state) observeRoundLive(room, acceptedSnapshot.state);
           const currentRound = snapshotRound(room);
           let resetCanonicalPlayers = false;
           if (currentRound !== null && (previousRound === null || currentRound > previousRound)) {
@@ -1020,6 +1100,11 @@ export class RoomDurableObject {
       case 'grenade':
       case 'streak':
         if (room.started && player.id !== room.hostId && player.alive !== false && !isWaitingForRound(player)) {
+          // Budgets live in memory, not in the stored room (see rooms-core).
+          this._relayBudgets ||= new Map();
+          let budget = this._relayBudgets.get(player.id);
+          if (!budget) { budget = {}; this._relayBudgets.set(player.id, budget); }
+          if (!allowRelay(budget, message.type)) break;
           this._send(this._socket(room.hostId), { ...message, shooterId: player.id });
         }
         break;
@@ -1058,6 +1143,7 @@ export class RoomDurableObject {
     if (!room.players[player.id]) return;
     delete room.players[player.id];
     this.connections.delete(player.id);
+    this._relayBudgets?.delete(player.id);
     this._broadcast(room, { type: 'player_left', id: player.id, name: player.name });
     const remaining = Object.values(room.players);
     if (!remaining.length) {
@@ -1162,9 +1248,17 @@ export class RoomDurableObject {
     if (request.method !== 'GET' || request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
       return new Response('Expected a WebSocket upgrade.', { status: 426 });
     }
+    const ip = request.headers.get('CF-Connecting-IP') || '';
+    // Tagged by address so the count survives hibernation.
+    const tag = ip ? 'ip:' + ip.slice(0, 200) : null;
+    if (tag && typeof this.ctx.getWebSockets === 'function' &&
+        this.ctx.getWebSockets(tag).length >= MAX_SOCKETS_PER_IP) {
+      return new Response('Too many connections from this address.', { status: 429 });
+    }
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
-    this.ctx.acceptWebSocket(server);
+    if (tag) this.ctx.acceptWebSocket(server, [tag]);
+    else this.ctx.acceptWebSocket(server);
     const connection = newConnection();
     server.serializeAttachment(connection);
     this.connections.set(connection.id, server);

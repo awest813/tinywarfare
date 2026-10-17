@@ -31,6 +31,11 @@ const MAX_RANGE = 250;             // hitscan max travel (m)
 const LEG_ZONE = 0.5;              // bottom of capsule counted as legs (m)
 const LEG_MULT = 0.75;             // leg damage multiplier
 const MELEE_RANGE = 1.8;           // knife reach (m)
+// A remote human's shot or throw (host side, see _remoteActionAllowed):
+const REMOTE_ORIGIN_SLACK = 3.0;   // m from their chest: interpolation lag at a sprint
+const REMOTE_FIRE_CAP = 0.6;       // s of cycle time that may arrive in one burst
+const REMOTE_GRENADE_CAP = 3;      // grenades thrown back to back
+const REMOTE_GRENADE_REFILL = 6;   // s for another
 const BACKSTAB_MULT = 1.9;         // 34 -> ~65 per spec table
 
 // A character is a broad body capsule plus a separate head sphere. The sphere
@@ -230,9 +235,35 @@ export default class Combat {
     }
   }
 
+  /**
+   * Whether a remote human's shot or throw is believable: it leaves from
+   * near their body, and they are not firing faster than their gun cycles
+   * (each shot spends the weapon's own cycle time from a small budget, so
+   * claiming a different weapon per shot gains nothing). Grenades share a
+   * slow budget. The client's message used to be taken as given.
+   */
+  _remoteActionAllowed(shooter, origin, cost) {
+    const at = shooter.position || shooter.pos;
+    if (at && Math.hypot(origin.x - at.x, origin.y - (at.y + 1.3), origin.z - at.z) > REMOTE_ORIGIN_SLACK) return false;
+    const now = this._time;
+    const key = cost.grenade ? '_grenadeBudget' : '_fireBudget';
+    const cap = cost.grenade ? REMOTE_GRENADE_CAP : REMOTE_FIRE_CAP;
+    const rate = cost.grenade ? 1 / REMOTE_GRENADE_REFILL : 1;
+    const last = shooter[key + 'At'];
+    let budget = Number.isFinite(shooter[key]) ? shooter[key] : cap;
+    if (Number.isFinite(last)) budget = Math.min(cap, budget + Math.max(0, now - last) * rate);
+    shooter[key + 'At'] = now;
+    if (budget < cost.amount) { shooter[key] = budget; return false; }
+    shooter[key] = budget - cost.amount;
+    return true;
+  }
+
   /** Resolve a non-host human's shot on the authoritative host. */
   fireRemote(e, shooter) {
     if (!e || !shooter || !shooter.alive || !finiteVec(e.origin) || !finiteVec(e.dir)) return;
+    const shotDef = this._def(e.melee ? 'knife' : e.weaponId || 'usp');
+    const cycle = 60 / Math.max(30, Number(shotDef && shotDef.rpm) || 600);
+    if (!this._remoteActionAllowed(shooter, e.origin, { amount: cycle * 0.8 })) return;
     shooter.spawnProtection = 0; // firing ends a fresh spawn's immunity
     // The authority hears the shot here; replicas hear it from the tracer.
     this.game.events.emit('audio:shot', { origin: e.origin, weaponId: e.melee ? 'knife' : e.weaponId, suppressed: !!e.suppressed });
@@ -259,7 +290,8 @@ export default class Combat {
 
   /** Spawn a non-host human's grenade in the authoritative simulation. */
   throwRemoteGrenade(e, shooter) {
-    if (!e || !shooter || !shooter.alive) return;
+    if (!e || !shooter || !shooter.alive || !finiteVec(e.origin)) return;
+    if (!this._remoteActionAllowed(shooter, e.origin, { grenade: true, amount: 1 })) return;
     shooter.spawnProtection = 0;
     this._onGrenadeThrow({
       type: e.grenadeType || 'hegrenade',

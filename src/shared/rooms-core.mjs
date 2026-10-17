@@ -511,3 +511,56 @@ export function takeMessageBudget(budget, now = Date.now()) {
   budget.tokens -= 1;
   return true;
 }
+
+/**
+ * Per-seat budgets for the gameplay messages a client asks the host to act
+ * on. They were relayed at the generic message budget (400/s), so one client
+ * could queue hundreds of airstrikes or grenades a second, or fire faster than
+ * any weapon. Generous for honest play: the fastest gun is 12 rounds a second
+ * and a shotgun blast is one message.
+ */
+export const RELAY_BUDGETS = Object.freeze({
+  fire: { limit: 25, windowMs: 1000 },
+  grenade: { limit: 3, windowMs: 3000 },
+  streak: { limit: 3, windowMs: 10000 },
+});
+
+/** Whether `buckets` (a seat's own object) allows one more `type` message now. */
+export function allowRelay(buckets, type, now = Date.now()) {
+  const budget = RELAY_BUDGETS[type];
+  if (!budget || !buckets) return true;
+  let bucket = buckets[type];
+  if (!bucket || now - bucket.start >= budget.windowMs) {
+    bucket = { start: now, count: 0 };
+    buckets[type] = bucket;
+  }
+  bucket.count += 1;
+  return bucket.count <= budget.limit;
+}
+
+// A Search and Destroy round counts as played once the room server has seen
+// it live for this long (the host's snapshots arrive about 12 times a second).
+export const ROUND_OBSERVED_MS = 3000;
+
+/** Note how long each round has been seen live, from accepted snapshots. */
+export function observeRoundLive(room, state, now = Date.now()) {
+  if (!room || !state || (state.phase !== 'live' && state.phase !== 'planted')) return;
+  const round = Math.floor(Number(state.round));
+  if (!(round >= 1 && round <= 100)) return;
+  room.roundLiveSpans ||= {};
+  const span = room.roundLiveSpans[round] ||= { first: now, last: now };
+  span.last = Math.max(span.last, now);
+}
+
+/**
+ * Why a ranked result cannot be true, or null. The room server had taken the
+ * host's final score as given: a lone host could rank an 8-0 Search and
+ * Destroy win as its first snapshot, one round in.
+ */
+export function rankedResultImplausible(room, state) {
+  if (!room || !state || cleanGameMode(room.gameMode) !== 'sd') return null;
+  const won = Math.max(0, Number(state.scores?.ct) || 0) + Math.max(0, Number(state.scores?.t) || 0);
+  const played = Object.values(room.roundLiveSpans || {})
+    .filter((span) => span.last - span.first >= ROUND_OBSERVED_MS).length;
+  return won > played ? `The final score (${won} rounds) is more than the ${played} rounds the server saw played.` : null;
+}

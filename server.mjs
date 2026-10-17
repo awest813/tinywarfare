@@ -40,6 +40,9 @@ import {
   createMessageBudget,
   jsonTooDeep,
   takeMessageBudget,
+  allowRelay,
+  observeRoundLive,
+  rankedResultImplausible,
 } from './src/shared/rooms-core.mjs';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
@@ -60,6 +63,11 @@ const RECONNECT_GRACE_MS = Math.max(
 const MAX_SOCKETS_PER_IP = envLimit(process.env.TINY_STRIKE_MAX_SOCKETS_PER_IP, 32);
 const MAX_ROOMS = envLimit(process.env.TINY_STRIKE_MAX_ROOMS, 500);
 const socketsByIp = new Map();
+
+// Rooms one address may open per minute: an abandoned room is held for the
+// whole reconnect grace, so one script could fill MAX_ROOMS in two seconds.
+const MAX_ROOM_CREATES_PER_MINUTE = envLimit(process.env.TINY_STRIKE_MAX_ROOM_CREATES_PER_MINUTE, 30);
+const roomCreateWindows = new Map(); // ip -> { start, count }
 
 const MAX_SESSIONS_PER_MINUTE = envLimit(process.env.TINY_STRIKE_MAX_SESSIONS_PER_MINUTE, 20);
 const sessionWindows = new Map(); // ip -> { start, count }
@@ -301,6 +309,22 @@ function recordRankedKill(room, data) {
 
 function enrollMatchPlayer(room, player) {
   room.matchStats ||= new Map();
+  room.matchPlayers ||= [];
+  // The same ranked identity back under a new seat (it rejoined after the
+  // reconnect grace): carry on its first entry and stats instead of ranking
+  // two halves, of which the leaderboard kept only the first.
+  const earlier = player.leaderboardPlayerId && room.matchPlayers.find((entry) =>
+    entry.id !== player.id && entry.leaderboardPlayerId === player.leaderboardPlayerId);
+  if (earlier) {
+    if (room.matchStats.has(earlier.id)) {
+      room.matchStats.set(player.id, room.matchStats.get(earlier.id));
+      room.matchStats.delete(earlier.id);
+    }
+    earlier.id = player.id;
+  }
+  // Ranked on the side it plays for now: a leave and rejoin can change it.
+  const entry = room.matchPlayers.find((candidate) => candidate.id === player.id);
+  if (entry) entry.team = player.team;
   if (!room.matchStats.has(player.id)) {
     room.matchStats.set(player.id, {
       kills: 0,
@@ -312,8 +336,7 @@ function enrollMatchPlayer(room, player) {
       defuses: 0,
     });
   }
-  room.matchPlayers ||= [];
-  if (!room.matchPlayers.some((entry) => entry.id === player.id)) {
+  if (!room.matchPlayers.some((candidate) => candidate.id === player.id)) {
     room.matchPlayers.push({
       id: player.id,
       name: player.name,
@@ -435,10 +458,11 @@ function finalizeRankedRoom(room, state) {
       delivery.failureNotified = sendRankedFailure(room, participant, delivery);
       continue;
     }
+    const implausible = rankedResultImplausible(room, state);
     const stats = room.matchStats && room.matchStats.get(participant.id);
-    if (!stats) {
+    if (!stats || implausible) {
       delivery.status = 'rejected';
-      delivery.lastError = 'Authoritative match stats were unavailable.';
+      delivery.lastError = implausible || 'Authoritative match stats were unavailable.';
       delivery.failureNotified = sendRankedFailure(room, participant, delivery);
       continue;
     }
@@ -637,8 +661,13 @@ function reconnectToRoom(ws, msg) {
 }
 
 function joinRoom(ws, client, msg) {
+  // A socket that holds a seat cannot take over another one: its old seat
+  // kept the socket and stayed "connected" with no grace timer, so the room
+  // was never cleaned up (a ghost host locked the lobby for good).
+  if (client.roomCode && !(msg.action === 'reconnect' && String(msg.reconnectToken || '') === client.reconnectToken)) {
+    return send(ws, { type: 'error', message: 'Already in a room.' });
+  }
   if (msg.action === 'reconnect') return reconnectToRoom(ws, msg);
-  if (client.roomCode) return send(ws, { type: 'error', message: 'Already in a room.' });
   const action = msg.action === 'create' ? 'create' : 'join';
   let code = cleanRoomCode(msg.room);
   let room = code ? rooms.get(code) : null;
@@ -647,6 +676,9 @@ function joinRoom(ws, client, msg) {
     if (room) return send(ws, { type: 'error', message: 'That room code is already in use.' });
     if (MAX_ROOMS > 0 && rooms.size >= MAX_ROOMS) {
       return send(ws, { type: 'error', message: 'The server is full. Try again shortly.' });
+    }
+    if (!allowInWindow(roomCreateWindows, MAX_ROOM_CREATES_PER_MINUTE, client.ip || '')) {
+      return send(ws, { type: 'error', message: 'Too many rooms opened. Try again in a minute.' });
     }
     code = code || makeRoomCode();
     room = {
@@ -772,6 +804,7 @@ function startMatch(room, client) {
   room.rankedDuration = null;
   if (room.rankedRetryTimer) clearTimeout(room.rankedRetryTimer);
   room.rankedRetryTimer = null;
+  room.roundLiveSpans = {};
   room.matchStats = new Map(
     [...room.players.values()].map((player) => [player.id, {
       kills: 0,
@@ -911,6 +944,7 @@ function handleRoomMessage(client, msg) {
         }
         reconcileRoundEconomy(room, acceptedSnapshot.state);
         if (acceptedSnapshot.state) observeRankedSnapshot(room, acceptedSnapshot.state);
+        if (acceptedSnapshot.state) observeRoundLive(room, acceptedSnapshot.state);
         const currentRound = snapshotRound(room);
         let resetCanonicalPlayers = false;
         if (currentRound !== null && (previousRound === null || currentRound > previousRound)) {
@@ -954,6 +988,7 @@ function handleRoomMessage(client, msg) {
     case 'grenade':
     case 'streak': {
       if (!room.started || client.id === room.hostId || client.alive === false || isWaitingForRound(client)) return;
+      if (!allowRelay(client.relayBudget || (client.relayBudget = {}), msg.type)) return;
       const host = room.players.get(room.hostId);
       if (host) send(host.ws, { ...msg, shooterId: client.id });
       break;
@@ -1244,6 +1279,7 @@ wss.on('connection', (ws, req) => {
   let client = {
     id: randomUUID().replace(/-/g, '').slice(0, 12),
     ws,
+    ip,
     name: 'Operative',
     characterId: 'vanguard',
     team: 'ct',

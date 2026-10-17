@@ -22,6 +22,13 @@ function nextMessage(ws, type) {
   });
 }
 
+// Mark rounds as seen played by the room server, which ranks no more round
+// wins than that (these tests jump straight to a final score).
+function playedRounds(room, n) {
+  room.roundLiveSpans ||= {};
+  for (let r = 1; r <= n; r++) room.roundLiveSpans[r] = { first: 0, last: 60_000 };
+}
+
 test('leaderboard HTTP API creates identity, scores facts, deduplicates, and reads rankings', async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'tiny-strike-api-'));
   let tokenCounter = 0;
@@ -223,6 +230,7 @@ test('leaderboard HTTP API creates identity, scores facts, deduplicates, and rea
 
   // Make this fast integration test represent an eligible two-minute match.
   rooms.get('RANK01').startedAt -= 120_000;
+  playedRounds(rooms.get('RANK01'), 8);
   ws.send(JSON.stringify({
     type: 'event',
     authorityEpoch: started.authorityEpoch,
@@ -300,6 +308,7 @@ test('leaderboard HTTP API creates identity, scores facts, deduplicates, and rea
   duplicateSocket.send(JSON.stringify({ type: 'start_match' }));
   const failureStart = await failureStartPromise;
   rooms.get('FAIL01').startedAt -= 120_000;
+  playedRounds(rooms.get('FAIL01'), 8);
 
   store.submitMatchForPlayer = (playerId, candidate) => {
     if (candidate?.matchId === failureStart.matchId) {
@@ -373,6 +382,7 @@ test('leaderboard HTTP API creates identity, scores facts, deduplicates, and rea
   reconnectHostSocket.send(JSON.stringify({ type: 'start_match' }));
   const reconnectMatchStart = await reconnectMatchStartPromise;
   rooms.get('LATER1').startedAt -= 120_000;
+  playedRounds(rooms.get('LATER1'), 8);
   const guestClosed = once(reconnectGuestSocket, 'close');
   reconnectGuestSocket.terminate();
   await guestClosed;

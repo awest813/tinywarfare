@@ -14,7 +14,7 @@ import {
   fetchRoomDirectory,
   roomPresentation,
 } from './room-directory.js';
-import { GAME_MODES, isRespawnMode, normalizeModeId } from '../game/tdm.js';
+import { GAME_MODES, TDM, isRespawnMode, normalizeModeId } from '../game/tdm.js';
 import { DEFAULT_BOT_SKILL, botSkill, normalizeBotSkill } from '../ai/skill.js';
 import { armorDamageScale } from '../weapons/data.js';
 
@@ -1130,6 +1130,7 @@ export default class Multiplayer {
     // Numbered so the target's own state packets can say which hits they have
     // already seen (see _applyPlayerState).
     target.damageSeq = (target.damageSeq || 0) + 1;
+    target._hostHit = true;
     const result = {
       health: target.health,
       armor: target.armor,
@@ -2095,6 +2096,17 @@ export default class Multiplayer {
     return group;
   }
 
+  /** HP a live remote may have gained since its last state (host side). */
+  _healAllowance(remote) {
+    const phase = this.game.state?.phase;
+    if (phase === 'freeze' || phase === 'menu' || phase === 'warmup') return Infinity; // round reset
+    if (!isRespawnMode(this.game.state?.mode)) return 0;
+    const now = performance.now();
+    const dt = Number.isFinite(remote._stateAt) ? Math.max(0, now - remote._stateAt) / 1000 : 0.25;
+    // A little headroom over the 40 HP/s regeneration for jittered packets.
+    return Math.min(100, dt * TDM.REGEN_RATE * 1.5 + 2);
+  }
+
   _applyRemoteAppearance(remote, characterId, force = false) {
     if (!remote) return;
     const nextId = normalizeCharacterId(characterId);
@@ -2121,13 +2133,33 @@ export default class Multiplayer {
     // about every other hit inside ~2x one-way latency was erased. The host
     // only takes a client's health/armor once the client has seen every hit
     // dealt so far (round resets and armor purchases still come through).
-    const stale = this.isAuthority() &&
-      (Number(state.damageSeq) || 0) < (remote.damageSeq || 0);
+    // Exactly the host's count: a client claiming a count from the future
+    // (damageSeq 1e15) passed the old "not behind" test with every packet
+    // and healed itself to full after each hit.
+    const authority = this.isAuthority();
+    const seen = Number(state.damageSeq) || 0;
+    // A host that has not hit this soldier yet (it just took over, or the
+    // match is new) has no count of its own: it numbers on from the client's.
+    if (authority && seen > (remote.damageSeq || 0) && !remote._hostHit) remote.damageSeq = seen;
+    const stale = authority && seen !== (remote.damageSeq || 0);
     if (Number.isFinite(state.health) && !stale) {
-      if (state.health < remote.health && remote.alive !== false) remote.hitFlinch = 1;
-      remote.health = state.health;
+      let health = state.health;
+      // Nor may a live soldier's health rise faster than regeneration
+      // allows, or its armour outside buy time: those are the host's to give
+      // (a respawn arrives with the soldier dead on the host, so it passes).
+      if (authority && remote.alive !== false && health > remote.health) {
+        health = Math.min(health, remote.health + this._healAllowance(remote));
+      }
+      if (health < remote.health && remote.alive !== false) remote.hitFlinch = 1;
+      remote.health = health;
     }
-    if (Number.isFinite(state.armor) && !stale) remote.armor = state.armor;
+    remote._stateAt = performance.now();
+    if (Number.isFinite(state.armor) && !stale) {
+      const buyTime = this.game.state?.phase === 'freeze' || this.game.state?.buyOpen;
+      if (!(authority && remote.alive !== false && state.armor > (remote.armor || 0) && !buyTime)) {
+        remote.armor = state.armor;
+      }
+    }
     remote.hasKit = !!state.hasKit;
     const wasAlive = remote.alive;
     // Nor its alive flag: a packet sent before the client learned of the
