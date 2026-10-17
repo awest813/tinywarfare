@@ -2706,7 +2706,7 @@ export default class Multiplayer {
       '<button id="mp-sync-leave" type="button" hidden>LEAVE MATCH</button></div>';
     const style = document.createElement('style');
     style.textContent = `
-      #hud #mp-panel { width:min(920px,94vw); padding:14px 18px; margin-top:4px; border:1px solid rgba(154,178,107,.35); background:linear-gradient(160deg,rgba(17,23,11,.94),rgba(4,7,4,.92)); pointer-events:auto; }
+      #hud #mp-panel { width:min(880px,94vw); padding:14px 18px; margin-top:4px; border:1px solid rgba(154,178,107,.35); background:linear-gradient(160deg,rgba(17,23,11,.94),rgba(4,7,4,.92)); pointer-events:auto; }
       #hud #mp-panel .mp-connect-grid { display:grid; grid-template-columns:minmax(280px,.82fr) minmax(420px,1.18fr); gap:18px; align-items:stretch; }
       #hud #mp-panel .mp-create-side { min-width:0; display:flex; flex-direction:column; justify-content:center; padding-right:18px; border-right:1px solid rgba(154,178,107,.18); }
       #hud #mp-panel .mp-title { display:flex; align-items:baseline; justify-content:space-between; gap:12px; color:#cfe0b8; font-size:13px; font-weight:900; letter-spacing:2px; margin-bottom:8px; }
@@ -2727,8 +2727,7 @@ export default class Multiplayer {
       .mp-player { gap:8px; min-width:0; }
       .mp-player span:first-child { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
       .mp-player span:last-child { flex:none; }
-      .mp-player.ct span:last-child { color:#72a7e8; }.mp-player.t span:last-child { color:#e29c55; }
-      #mp-start { display:none; color:#fff!important; background:#526b2e!important; }
+      #mp-start { display:none; } /* colours: hud.js (team colours there too) */
       #hud #mp-panel .mp-directory { min-width:0; display:flex; flex-direction:column; }
       #hud #mp-panel .mp-directory-head { display:flex; align-items:center; justify-content:space-between; min-height:30px; margin-bottom:6px; }
       #hud #mp-panel .mp-directory-head > div { display:flex; align-items:baseline; gap:10px; }

@@ -6371,7 +6371,6 @@ html.touch-device .mn-id { min-height:52px; }
 /* ---------- multiplayer panel harmonization (styles only) ---------- */
 /* Triple-id selector so the width tracks the menu column even though the
    network module appends its own stylesheet after this one. */
-#hud #hud-menu #mp-panel { width: min(880px, 94vw); }
 #hud #mp-panel {
   position: relative; width: min(880px, 94vw); margin-top: 4px; padding: 14px 20px 12px;
   background: linear-gradient(180deg, rgba(14, 18, 8, 0.6), rgba(4, 6, 2, 0.75));
