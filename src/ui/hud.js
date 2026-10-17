@@ -1490,7 +1490,11 @@ export default class HUD {
     this._el.profile.style.display = open ? 'flex' : 'none';
     this._el.profile.setAttribute('aria-hidden', open ? 'false' : 'true');
     if (open) {
-      requestAnimationFrame(() => this._el.profileName?.focus());
+      // Now, not a frame later (a slow menu frame left focus behind the
+      // panel). On touch the close button, not the callsign: focusing the
+      // field would pop the on-screen keyboard over the operatives.
+      const target = this.game?.input?.touchMode ? this._el.profileClose : this._el.profileName;
+      (target || this._el.profileName)?.focus?.();
     } else if (this._profileReturnFocus && typeof this._profileReturnFocus.focus === 'function') {
       this._profileReturnFocus.focus();
       this._profileReturnFocus = null;
@@ -1879,7 +1883,9 @@ export default class HUD {
     if (open) {
       this._syncProfileUi();
       this._loadLeaderboard(this._leaderboardCategory);
-      requestAnimationFrame(() => this._el.leaderboardClose?.focus());
+      // Now, like the other dialogs: a frame later left keyboard focus on the
+      // opener behind the panel.
+      this._el.leaderboardClose?.focus?.();
     } else if (this._leaderboardReturnFocus && typeof this._leaderboardReturnFocus.focus === 'function') {
       this._leaderboardReturnFocus.focus();
       this._leaderboardReturnFocus = null;
@@ -2204,7 +2210,10 @@ export default class HUD {
         )] : [];
         const first = focusable[0];
         const last = focusable[focusable.length - 1];
-        if (first && last && (e.shiftKey ? document.activeElement === first : document.activeElement === last)) {
+        // Focus that is not in the dialog at all (still on the opener, or on a
+        // control that went away) is brought in rather than walking the page.
+        const outside = !modal.contains(document.activeElement);
+        if (first && last && (outside || (e.shiftKey ? document.activeElement === first : document.activeElement === last))) {
           e.preventDefault();
           (e.shiftKey ? last : first).focus();
           return;
