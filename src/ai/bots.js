@@ -2013,7 +2013,8 @@ export default class Bots {
     if (bot.armor > 0) {
       // Headshots mostly punch through helmets (0.85 of the damage lands).
       dmg = amount * armorDamageScale(info, this.game.config.ARMOR_DAMAGE_SCALE || 0.5);
-      bot.armor = Math.max(0, bot.armor - amount * 0.5);
+      // A leg hit never touches the vest (armorDamageScale lets it all through).
+      if (info.part !== 'legs') bot.armor = Math.max(0, bot.armor - amount * 0.5);
     }
     bot.health -= dmg;
     bot.damageTime = this.time;

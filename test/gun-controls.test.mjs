@@ -20,7 +20,8 @@ test('armor lets a sniper body shot kill, leaves legs bare, and stops little at 
   assert.ok(body('ak47') > body('glock'), 'rifles punch through more than pistols');
   assert.equal(armorDamageScale({ weapon: 'ak47', part: 'legs' }), 1);
   assert.equal(armorDamageScale({ weapon: 'ak47', headshot: true }), 0.85);
-  assert.equal(armorDamageScale({ weapon: 'hegrenade' }, 0.5), 0.5, 'no armorPen falls back');
+  assert.equal(armorDamageScale({ weapon: 'flashbang' }, 0.5), 0.5, 'no armorPen falls back');
+  assert.ok(WEAPONS.hegrenade.damage * 0.85 * armorDamageScale({ weapon: 'hegrenade' }) >= 100, 'a grenade at the feet kills through a vest');
 });
 
 test('every automatic primary has spray pattern for an extended magazine', () => {
@@ -222,4 +223,71 @@ test('a bone-dry gun clicks once, then goes to the other gun (or the knife)', ()
   w._onMouseDown({ button: 0 });
   run(game, 1 / 60);
   assert.equal(w.currentId, 'knife', 'both guns dry: the knife');
+});
+
+test('Q after the real respawn order (team pistol equipped, then the class sidearm given)', () => {
+  const game = makeGame();
+  const w = game.weapons;
+  w.give('usp');
+  w.equip('usp');
+  run(game, 1);
+  // tdm.js: resetForRound has the team pistol in hand, then the class gives.
+  w.lastWeaponId = null;
+  w.give('deagle');
+  w.give('ak47');
+  w.equip('ak47');
+  assert.equal(w.lastWeaponId, 'deagle', 'Q goes to the sidearm now in the slot');
+});
+
+test('a click queued for one weapon does not fire the next one', () => {
+  const game = makeGame();
+  const w = game.weapons;
+  const throws = [];
+  game.events.on('grenade:throw', () => throws.push(1));
+  w.give('ak47');
+  w.give('hegrenade');
+  w.equip('ak47');
+  run(game, 1);
+  w._semiQueued = true;            // a click still waiting (sprint-out, reload)
+  w._semiQueuedAt = w._now;
+  w._onKey({ key: '4' });
+  run(game, 1.2);
+  assert.equal(throws.length, 0, 'no grenade thrown without a click on it');
+});
+
+test('Q after throwing the last grenade from the pistol goes back to the rifle', () => {
+  const game = makeGame();
+  const w = game.weapons;
+  w.give('ak47');
+  w.give('usp');
+  w.give('hegrenade');
+  w.equip('ak47');
+  run(game, 1);
+  w.equip('usp');
+  run(game, 1);
+  w._onKey({ key: '4' });
+  run(game, 0.6);
+  w._onMouseDown({ button: 0 });
+  run(game, 0.1);
+  w._onMouseUp({ button: 0 });
+  run(game, 1.2);
+  assert.equal(w.currentId, 'usp');
+  w._onKey({ key: 'q' });
+  assert.equal(w.currentId, 'ak47');
+});
+
+test('toggle aim does not latch on weapons without sights', (t) => {
+  installInputGlobals(t);
+  let canAim = false;
+  const game = { debug: false, canvas: {}, events: eventBus(), weapons: { canAim: () => canAim } };
+  game.settings = new GameSettings(game, null);
+  game.settings.setAimToggle(true);
+  const input = new Input(game);
+  input.locked = true;
+  const click = () => { input._onMouseDown({ button: 2, target: null, preventDefault() {} }); input._onMouseUp({ button: 2 }); };
+  click();
+  assert.equal(input.aiming, false, 'knife / grenade / AWP scope: no latch');
+  canAim = true;
+  click();
+  assert.equal(input.aiming, true);
 });

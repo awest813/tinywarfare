@@ -387,6 +387,7 @@ export const WEAPONS = {
     damage: 150,             // max, (1 - d/9)^1.6 from chest centre: kills inside ~2 m
     radius: 9,
     headshotMult: 1,
+    armorPen: 0.8,           // a vest blunts a blast less than a bullet: still lethal at the feet
     rpm: 0,
     magSize: 1,
     maxCarry: 1,
@@ -564,6 +565,7 @@ export const WEAPONS = {
     price: 300,
     damage: 150,
     headshotMult: 1,
+    armorPen: 0.8,           // a vest blunts a blast less than a bullet: still lethal at the feet
     rpm: 0,
     magSize: 1,
     maxCarry: 1,

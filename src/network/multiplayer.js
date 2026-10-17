@@ -1118,7 +1118,8 @@ export default class Multiplayer {
     let healthDamage = amount;
     if (target.armor > 0) {
       healthDamage = amount * armorDamageScale(info, this.game.config.ARMOR_DAMAGE_SCALE);
-      target.armor = Math.max(0, target.armor - amount * 0.5);
+      // A leg hit never touches the vest (armorDamageScale lets it all through).
+      if (info.part !== 'legs') target.armor = Math.max(0, target.armor - amount * 0.5);
     }
     target.health = Math.max(0, target.health - healthDamage);
     target.hitFlinch = 1; // torso hit reaction on the operative visual

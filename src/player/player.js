@@ -225,7 +225,8 @@ export default class Player {
       // stay lethal through armor.
       const scale = armorDamageScale(info, game.config.ARMOR_DAMAGE_SCALE);
       healthDmg = amount * scale;
-      this.armor = Math.max(0, this.armor - amount * 0.5);
+      // A leg hit never touches the vest (armorDamageScale lets it all through).
+      if (info.part !== 'legs') this.armor = Math.max(0, this.armor - amount * 0.5);
     } else {
       healthDmg = amount;
     }

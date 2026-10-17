@@ -588,7 +588,13 @@ export default class Input {
     const button = e.button | 0;
     const alreadyDown = this._buttonIsDown(button);
     // Toggle aim (a setting): each right click flips the sight in or out.
-    if (button === 2 && this.game.settings?.aimToggle) this._aimLatched = !this._aimLatched;
+    // Only a gun with sights latches: the AWP's right click cycles its scope,
+    // and a knife or grenade has nothing to aim (a latch there blocked sprint).
+    if (button === 2 && this.game.settings?.aimToggle) {
+      const w = this.game.weapons;
+      const canAim = !w || typeof w.canAim !== 'function' || w.canAim();
+      this._aimLatched = canAim ? !this._aimLatched : false;
+    }
     this._buttonsDown.add(button);
     this._syncButtonFlags();
     if (!alreadyDown) this.game.events.emit('input:mousedown', { button });

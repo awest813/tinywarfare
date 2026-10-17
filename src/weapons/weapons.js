@@ -232,6 +232,11 @@ export default class Weapons {
     return clamp(half(this._fovCurrent) / half(this._baseFov()), 0.05, 1);
   }
 
+  /** True when the held weapon has sights to aim down (not knife, grenade, scope). */
+  canAim() {
+    return this._canAds(this.current());
+  }
+
   /** Grenade hand for the viewmodel: 'winding', 'throwing' or null. */
   grenadeHand() {
     return this._state === 'winding' || this._state === 'throwing' ? this._state : null;
@@ -241,7 +246,7 @@ export default class Weapons {
   blocksSprint() {
     const input = this.game.input;
     return !!(
-      (input && (input.firing || input.aiming)) ||
+      (input && (input.firing || (input.aiming && this._canAds(this.current())))) ||
       this._semiQueued ||
       this.scopeLevel > 0 ||
       this._state === 'winding' ||
@@ -634,6 +639,13 @@ export default class Weapons {
         const next = this.owns(def.id)
           ? def.id
           : (lastDef && lastDef.slot !== 4 && this.owns(last) ? last : this.slots[1] || this.slots[2] || 'knife');
+        if (next !== def.id) {
+          // Back on the gun the grenade came from: Q goes where it went before.
+          const before = this._lastBeforeThrow;
+          this.lastWeaponId = before && before !== next && this.owns(before)
+            ? before
+            : (next === this.slots[1] ? this.slots[2] : this.slots[1]) || null;
+        }
         this._forceEquip(next, FAST_SWITCH_TIME, false);
       }
     }
@@ -1081,7 +1093,22 @@ export default class Weapons {
       this._nextFireAt = Number.isFinite(own) ? own : 0;
     }
     this.game.input?.clearAimLatch?.(); // toggle aim drops on a switch
-    if (trackLast && id !== this.currentId) this.lastWeaponId = this.currentId;
+    if (id !== this.currentId) {
+      // A click or right-click queued for the outgoing weapon must not fire
+      // the incoming one (a grenade thrown, an AWP raised scoped); clicks made
+      // during the new raise arrive after this and are still buffered.
+      this._semiQueued = false;
+      this._rmbQueued = false;
+    }
+    if (trackLast && id !== this.currentId) {
+      // A respawn loadout may already have replaced the held weapon (the team
+      // pistol swapped for the class sidearm): Q goes to what is in its slot.
+      const cur = this.currentId;
+      const inSlot = cur && WEAPONS[cur] ? this.slots[WEAPONS[cur].slot] : null;
+      const last = this.owns(cur) ? cur : (typeof inSlot === 'string' ? inSlot : null);
+      if (WEAPONS[id] && WEAPONS[id].slot === 4) this._lastBeforeThrow = this.lastWeaponId;
+      if (last && last !== id) this.lastWeaponId = last;
+    }
     this.currentId = id;
     this._state = 'equipping';
     this._stateT = 0;
