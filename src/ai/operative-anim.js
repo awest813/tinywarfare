@@ -188,6 +188,8 @@ export class OperativeAnimator {
     this.lastZ = NaN;
     this.airTime = 0;
     this.sprintBlend = 0;
+    this.moving = false;
+    this.sprintHeld = false;
     this.reloading = false;
     this.ikWeight = 1;
     this._play('lower', 'Idle', 0);
@@ -286,7 +288,13 @@ export class OperativeAnimator {
     const yaw = actor.yaw || 0;
     const fwd = this.velX * -Math.sin(yaw) + this.velZ * -Math.cos(yaw);
     const lat = this.velX * Math.cos(yaw) + this.velZ * -Math.sin(yaw);
-    const moving = speed > 0.35 && (fwd * fwd + lat * lat) > 0.04;
+    // Hysteresis: a soldier easing to a stop (or nudging off one) used to
+    // flick Idle/Walk/Idle on the threshold frame after frame.
+    const v2 = fwd * fwd + lat * lat;
+    this.moving = this.moving
+      ? speed > 0.2 && v2 > 0.015
+      : speed > 0.35 && v2 > 0.04;
+    const moving = this.moving;
     let moveAngle = moving ? Math.atan2(lat, fwd) : 0; // + = to the right
     if (moving) {
       const abs = Math.abs(moveAngle);
@@ -299,8 +307,11 @@ export class OperativeAnimator {
 
     // ---- legs --------------------------------------------------------------
     this.airTime = actor.onGround === false ? this.airTime + step : 0;
-    const sprinting = !actor.crouching && (actor.sprinting === true ||
-      (speed > 4 && (actor.aimBlend ?? 1) < 0.2 && !(actor.burstLeft > 0)) || speed > 6);
+    const inferred = this.sprintHeld
+      ? speed > 3.4 && (actor.aimBlend ?? 1) < 0.35 && !(actor.burstLeft > 0)
+      : (speed > 4 && (actor.aimBlend ?? 1) < 0.2 && !(actor.burstLeft > 0));
+    this.sprintHeld = inferred;
+    const sprinting = !actor.crouching && (actor.sprinting === true || inferred || speed > 6);
     let lower;
     if (this.airTime > 0.18) lower = 'JumpLoop';
     else if (actor.crouching) lower = moving ? 'CrouchWalk' : 'CrouchIdle';

@@ -234,6 +234,17 @@ function esc(s) {
 
 // ============================================================================
 
+/**
+ * A validator message is fine to show when it reads as a sentence ("Duration
+ * must be between 60 and 900 seconds"); one that names payload fields
+ * ("roundsPlayed must equal scores.ct + scores.t") is not for players.
+ */
+function readableRejection(error) {
+  const text = String(error || '').trim();
+  if (!text || /\w\.\w|[a-z][A-Z]/.test(text)) return 'THE SERVER COULD NOT VERIFY THIS RESULT';
+  return text.replace(/\.$/, '').toUpperCase();
+}
+
 export default class HUD {
   constructor(game) {
     this.game = game;
@@ -2011,7 +2022,7 @@ export default class HUD {
     });
     ev.on('leaderboard:submit-error', (d) => {
       this._setEndRank(d?.permanent
-        ? 'MATCH COULD NOT BE RANKED · ' + String(d.error || 'RESULT REJECTED').toUpperCase()
+        ? 'MATCH COULD NOT BE RANKED · ' + readableRejection(d.error)
         : 'SCORE SAVED — IT WILL SYNC WHEN THE LEADERBOARD IS ONLINE', d?.permanent ? 'error' : 'queued');
       // A rejected result never syncs: settle the rewards panel (device XP
       // only) instead of leaving it on SYNCING / VERIFYING for good.

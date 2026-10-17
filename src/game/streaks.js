@@ -24,7 +24,7 @@ import { PERK_TUNING, hasPerk } from './loadouts.js';
 export const STREAKS = Object.freeze({
   uav: Object.freeze({ id: 'uav', label: 'UAV', cost: 500, duration: 30, detail: 'Enemies on the radar for 30 s' }),
   counteruav: Object.freeze({ id: 'counteruav', label: 'COUNTER-UAV', cost: 600, duration: 25, detail: 'Jams the enemy UAV and their hunt for 25 s' }),
-  carepackage: Object.freeze({ id: 'carepackage', label: 'CARE PACKAGE', cost: 750, detail: 'Supply drop: a random streak or full resupply' }),
+  carepackage: Object.freeze({ id: 'carepackage', label: 'CARE PACKAGE', cost: 750, detail: 'Supply drop: a random scorestreak or full resupply' }),
   airstrike: Object.freeze({ id: 'airstrike', label: 'PRECISION AIRSTRIKE', cost: 900, detail: 'Three bombs walk out from your aim point' }),
 });
 export const STREAK_IDS = Object.freeze(Object.keys(STREAKS));
