@@ -44,3 +44,20 @@ test('the announcer voices streaks, flags, and results, and respects the toggle'
   assert.equal(announcer.say('Hello', true), false);
   assert.equal(new Announcer(game, null).say('x', true), false, 'no speech synthesis: silent');
 });
+
+test('a waiting line is said after the current one, unless an urgent line supersedes it', (t) => {
+  globalThis.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
+  t.after(() => { delete globalThis.SpeechSynthesisUtterance; });
+  const synth = fakeSynth();
+  const game = { events: new EventBus(), state: { mode: 'dom' }, player: { team: 'ct' }, settings: { announcer: true } };
+  const announcer = new Announcer(game, synth);
+  synth.speaking = true;
+  announcer._last = 0;
+  announcer.say('We have taken flag B.');
+  assert.ok(announcer._pending, 'queued, not dropped');
+  announcer.say('We have lost flag B.', true);
+  assert.equal(announcer._pending, null, 'the urgent line supersedes it');
+  synth.speaking = false;
+  announcer._drain();
+  assert.deepEqual(synth.spoken, ['We have lost flag B.']);
+});

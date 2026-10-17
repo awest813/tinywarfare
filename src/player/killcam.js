@@ -551,9 +551,14 @@ export default class Killcam {
     }
     near.sort((a, b) => a.d - b.d);
     const out = [];
+    // Pool slots per side: a slot keyed by distance rank flipped team from one
+    // death to the next, and every flip rebuilt its soldier (a start hitch).
+    const perTeam = {};
     for (let i = 0; i < near.length && i < KILLCAM.EXTRA_MAX; i++) {
       const { actor, track } = near[i];
-      const ghost = this._ghost('extra' + i, actor.team,
+      const side = actor.team === 't' ? 't' : 'ct';
+      perTeam[side] = (perTeam[side] || 0) + 1;
+      const ghost = this._ghost('extra-' + side + '-' + (perTeam[side] - 1), actor.team,
         actor.visualPalette || getCharacterPalette('vanguard', actor.team));
       if (!ghost) continue;
       ghost.track = track;

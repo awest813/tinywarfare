@@ -126,6 +126,9 @@ export default class Announcer {
     const voice = this._pickVoice();
     if (voice) line.voice = voice;
     line.onend = () => { if (this._pending) setTimeout(() => this._drain(), MIN_GAP_MS); };
+    // An urgent line supersedes whatever was waiting ("taken B" must not
+    // follow "lost B", nor play over the end screen).
+    if (urgent) this._pending = null;
     try {
       if (urgent) this.synth.cancel();
       this.synth.speak(line);

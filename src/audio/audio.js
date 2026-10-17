@@ -517,7 +517,11 @@ export default class AudioSys {
       cutoff = Math.min(cutoff, 3400);
       g *= 0.92;
     }
-    if (o.occlude && d > 2 && d < 70 && this._occluded(cp, dx, dy, dz, d)) {
+    // Footsteps are reported at the feet: test the line to the chest, or any
+    // knee-high crate or kerb along the way muffles a soldier in plain view.
+    const ody = dy + (o.occludeLift || 0);
+    const od = o.occludeLift ? Math.sqrt(dx * dx + ody * ody + dz * dz) : d;
+    if (o.occlude && d > 2 && d < 70 && this._occluded(cp, dx, ody, dz, od)) {
       cutoff = Math.min(cutoff, 900);
       g *= 0.55;
     }
@@ -1071,7 +1075,7 @@ export default class AudioSys {
 
   _onBotStep(p) {
     if (!this._ready() || !p || !p.pos) return;
-    this.play3D((g, t) => this._footstep(g, t, p.surface || 'concrete'), p.pos, { refDist: 6, maxDist: 30, vol: 0.38, occlude: true });
+    this.play3D((g, t) => this._footstep(g, t, p.surface || 'concrete'), p.pos, { refDist: 6, maxDist: 30, vol: 0.38, occlude: true, occludeLift: 1.1 });
   }
 
   _onLand(p) {
