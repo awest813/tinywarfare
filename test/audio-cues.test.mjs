@@ -386,3 +386,26 @@ test('snow crunches, other surfaces walk like their neighbour, teammates step qu
   audio._onBotStep({ pos: { x: 0, y: 0, z: 5 }, team: 't' });
   assert.ok(steps[0].vol < steps[1].vol * 0.7, 'a teammate sits under an enemy');
 });
+
+test('each map gets its own ambient bed, eased in', () => {
+  const param = () => ({ target: null, cancelScheduledValues() {}, setTargetAtTime(v) { this.target = v; } });
+  const node = (key) => ({ [key]: param() });
+  const audio = Object.create(AudioSys.prototype);
+  audio.ctx = { currentTime: 3 };
+  audio._wind = {
+    g: node('gain'), lp: node('frequency'), lfoG: node('gain'), lfo2G: node('gain'), sG: node('gain'), hG: node('gain'),
+  };
+  const bed = (mapId) => {
+    audio.game = { world: { mapId } };
+    audio._applyAmbience();
+    return { wind: audio._wind.g.gain.target, bright: audio._wind.lp.frequency.target, surf: audio._wind.sG.gain.target, hum: audio._wind.hG.gain.target };
+  };
+  const desert = bed('dustyard');
+  assert.equal(desert.surf, 0);
+  assert.equal(desert.hum, 0);
+  assert.ok(bed('harbor').surf > 0, 'the harbour has a swell');
+  const foundry = bed('neon_foundry');
+  assert.ok(foundry.hum > 0 && foundry.wind < desert.wind, 'indoors: machinery over a faint wind');
+  assert.ok(bed('frostline').bright > desert.bright, 'a colder, brighter wind on the ice');
+  assert.deepEqual(bed('nowhere'), desert, 'an unknown map keeps the desert bed');
+});

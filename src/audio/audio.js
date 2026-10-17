@@ -64,6 +64,17 @@ const FOOT_ALIAS = { dirt: 'sand', foliage: 'sand', fabric: 'sand', rubber: 'san
 // Near-miss crack: rounds from these are subsonic and only whizz.
 const SUBSONIC = { glock: 1, usp: 1, mp5: 1 };
 
+// Ambient bed per map. wind: gain, lowpass, gust depth, colour sweep (Hz);
+// surf: harbour swell gain; hum: indoor machinery gain. Unknown maps get the
+// desert wind the bed was first made for.
+const AMBIENCE = {
+  dustyard:     { wind: [0.050, 380, 0.024, 95],  surf: 0,     hum: 0 },
+  frostline:    { wind: [0.062, 640, 0.034, 170], surf: 0,     hum: 0 },
+  harbor:       { wind: [0.040, 430, 0.020, 110], surf: 0.060, hum: 0 },
+  neon_foundry: { wind: [0.016, 300, 0.008, 60],  surf: 0,     hum: 0.020 },
+  citadel:      { wind: [0.046, 340, 0.022, 90],  surf: 0,     hum: 0 },
+};
+
 const GRENADE_IDS = { hegrenade: 1, flashbang: 1, smokegrenade: 1, semtex: 1, stun: 1 };
 
 const REWARD_HAPTICS = Object.freeze({
@@ -210,6 +221,7 @@ export default class AudioSys {
     // Leaving a match for the menu silences anything still scheduled.
     ev.on('ui:menu', () => this._onMenu());
     ev.on('settings:changed', () => this._applyVolume());
+    ev.on('map:changed', () => this._applyAmbience());
   }
 
   /** Master gain follows the VOLUME setting (0 mutes; 0.8 is the old level). */
@@ -388,9 +400,89 @@ export default class AudioSys {
     lfo.start(0);
     lfo2.start(0);
 
+    // Harbour swell: slow brown-noise surges under the wind.
+    const sSrc = ctx.createBufferSource();
+    sSrc.buffer = this._brownBuf;
+    sSrc.loop = true;
+    sSrc.playbackRate.value = 0.8;
+    const sLp = ctx.createBiquadFilter();
+    sLp.type = 'lowpass';
+    sLp.frequency.value = 520;
+    sLp.Q.value = 0.5;
+    const sG = ctx.createGain();
+    sG.gain.value = 0;
+    const sAmp = ctx.createGain();      // swell envelope, 0.45..1.55 x
+    sAmp.gain.value = 1;
+    const sLfo = ctx.createOscillator();
+    sLfo.frequency.value = 0.11;
+    const sLfoG = ctx.createGain();
+    sLfoG.gain.value = 0.55;
+    sLfo.connect(sLfoG);
+    sLfoG.connect(sAmp.gain);
+    sSrc.connect(sLp);
+    sLp.connect(sAmp);
+    sAmp.connect(sG);
+    sG.connect(this.music);
+
+    // Indoor machinery: mains hum and its harmonic, plus a vent's air.
+    const hG = ctx.createGain();
+    hG.gain.value = 0;
+    const h1 = ctx.createOscillator();
+    h1.frequency.value = 58;
+    const h2 = ctx.createOscillator();
+    h2.frequency.value = 116;
+    const h2G = ctx.createGain();
+    h2G.gain.value = 0.45;
+    const vent = ctx.createBufferSource();
+    vent.buffer = this._brownBuf;
+    vent.loop = true;
+    vent.playbackRate.value = 1.6;
+    const vBp = ctx.createBiquadFilter();
+    vBp.type = 'bandpass';
+    vBp.frequency.value = 900;
+    vBp.Q.value = 0.7;
+    const vG = ctx.createGain();
+    vG.gain.value = 0.9;
+    h1.connect(hG);
+    h2.connect(h2G);
+    h2G.connect(hG);
+    vent.connect(vBp);
+    vBp.connect(vG);
+    vG.connect(hG);
+    hG.connect(this.music);
+
+    sSrc.start(0, Math.random() * 2);
+    sLfo.start(0);
+    h1.start(0);
+    h2.start(0);
+    vent.start(0, Math.random() * 2);
+
     // Persistent — intentionally never stopped (ambient bed for the whole
     // session); kept referenced so it is never GC'd mid-play.
-    this._wind = { src, rSrc, lfo, lfo2, lp, g, lfoG, lfo2G, rLp, rG };
+    this._wind = {
+      src, rSrc, lfo, lfo2, lp, g, lfoG, lfo2G, rLp, rG,
+      sSrc, sLp, sG, sAmp, sLfo, sLfoG, hG, h1, h2, h2G, vent, vBp, vG,
+    };
+    this._applyAmbience();
+  }
+
+  /** Set the ambient bed for the loaded map (eased, never cut). */
+  _applyAmbience() {
+    const w = this._wind;
+    if (!w || !this.ctx) return;
+    const a = AMBIENCE[this.game.world?.mapId] || AMBIENCE.dustyard;
+    const t = this.ctx.currentTime;
+    const ease = (param, value) => {
+      param.cancelScheduledValues(t);
+      param.setTargetAtTime(value, t, 0.6);
+    };
+    // The LFOs add to these, so the base sits above the gust depth.
+    ease(w.g.gain, a.wind[0]);
+    ease(w.lp.frequency, a.wind[1]);
+    ease(w.lfoG.gain, a.wind[2]);
+    ease(w.lfo2G.gain, a.wind[3]);
+    ease(w.sG.gain, a.surf);
+    ease(w.hG.gain, a.hum);
   }
 
   // ==========================================================================
