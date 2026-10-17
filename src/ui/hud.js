@@ -3345,7 +3345,8 @@ export default class HUD {
         const dx = rp.position.x - px;
         const dz = rp.position.z - pz;
         const friendly = !hostileTeams(g, rp.team, (p && p.team) || 'ct');
-        if (!friendly && dx * dx + dz * dz > ENEMY_SPOT_DIST * ENEMY_SPOT_DIST) continue;
+        // A UAV shows enemy humans too: it only ever showed the bots.
+        if (!friendly && !uavUp && dx * dx + dz * dz > ENEMY_SPOT_DIST * ENEMY_SPOT_DIST) continue;
         const bl = this._clampBlip(dx * RADAR_SCALE, dz * RADAR_SCALE);
         c.beginPath();
         c.arc(bl.x, bl.y, bl.cl ? 2.5 : 3.2, 0, Math.PI * 2);
@@ -3402,8 +3403,11 @@ export default class HUD {
     if (protectEl && protectEl.style.opacity !== protOp) protectEl.style.opacity = protOp;
     // stun vignette: fades over the stun with a slow pulse
     const stunEl = this._stunEl || (this._stunEl = document.getElementById('hud-stun'));
+    // Frozen with the match while it is paused: a flashbang or stun used to
+    // wear off on the pause screen, the bots frozen meanwhile.
+    const live = this.game.paused ? 0 : dt;
     if (this._stun) {
-      this._stun.t += dt;
+      this._stun.t += live;
       const left = 1 - this._stun.t / this._stun.dur;
       if (left <= 0 || this.game.player?.alive === false) this._stun = null;
       if (stunEl) stunEl.style.opacity = this._stun ? (Math.min(1, left * 1.6) * (0.75 + 0.25 * Math.sin(this._time * 9))).toFixed(3) : '0';
@@ -3459,7 +3463,7 @@ export default class HUD {
     // flash whiteout
     if (this._flash) {
       const f = this._flash;
-      f.t += dt;
+      f.t += live;
       const rem = f.dur - f.t;
       let op2 = 0;
       if (rem > 0) {

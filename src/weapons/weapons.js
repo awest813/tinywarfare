@@ -767,7 +767,8 @@ export default class Weapons {
   // Input event handlers (queue only; consumed in update)
   // ==========================================================================
   _onMouseDown(e) {
-    if (!e) return;
+    // A paused solo match (the click that resumes it included) takes no input.
+    if (!e || this.game.paused) return;
     if (e.button === 0) {
       this._semiQueued = true;
       this._semiQueuedAt = this._now;
@@ -783,7 +784,7 @@ export default class Weapons {
 
   _onWheel(e) {
     const dir = e && e.dir ? e.dir : 0;
-    if (!dir) return;
+    if (!dir || this.game.paused) return;
     if (this.game.player && this.game.player.alive === false) return;
     const list = this._equipList();
     if (list.length < 2) return;
@@ -795,7 +796,8 @@ export default class Weapons {
 
   _onKey(e) {
     const key = e && e.key;
-    if (!key) return;
+    // Keys on the pause screen used to switch and reload weapons.
+    if (!key || this.game.paused) return;
     // Dead, 1-4 pick the next class (HUD); here they would only replay the
     // equip sound and raise on a body.
     if (key !== 'b' && this.game.player && this.game.player.alive === false) return;

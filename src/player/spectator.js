@@ -4,6 +4,7 @@
 // be covered without constructing Three.js cameras or browser input objects.
 
 import { resolveHumanPlayerName } from './profile.js';
+import { isFfa } from '../game/hostility.js';
 
 const MATCH_PHASES = new Set(['freeze', 'live', 'planted', 'roundEnd']);
 const CAMERA_FORWARD_OFFSET = 0.07;
@@ -36,7 +37,9 @@ export function collectSpectatorCandidates(game, localPlayer) {
   const result = [];
   const seen = new Set();
   const team = localPlayer && localPlayer.team;
-  if (!game || !localPlayer || !team) return result;
+  // Free-for-all has no teammates: everyone carries a ct/t tag for uniforms
+  // only, and following "your team" followed an opponent.
+  if (!game || !localPlayer || !team || isFfa(game)) return result;
 
   const mp = game.multiplayer;
   if (mp && mp.active && Array.isArray(mp.remotePlayers)) {

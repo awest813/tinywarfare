@@ -131,3 +131,15 @@ test('a care package drops at the aim point and pays out on pickup', () => {
     assert.equal(streaks.status().at(-1).bonus, true);
   }
 });
+
+test('a streak key on the pause screen spends nothing', () => {
+  const { game, events } = makeGame();
+  const streaks = new Scorestreaks(game);
+  events.emit('score:award', { points: STREAKS.uav.cost });
+  assert.ok(streaks.ready.has('uav'));
+  game.paused = true;
+  assert.equal(streaks.activate('uav'), false);
+  assert.ok(streaks.ready.has('uav'), 'still ready after the paused key');
+  game.paused = false;
+  assert.equal(streaks.activate('uav'), true);
+});

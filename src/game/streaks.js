@@ -188,7 +188,9 @@ export default class Scorestreaks {
   }
 
   activate(id, fromBonus = false) {
-    if (!this.enabled()) return false;
+    // A streak key on the pause screen spent the streak (and an airstrike
+    // fell the moment play resumed).
+    if (!this.enabled() || this.game.paused) return false;
     if (fromBonus ? this.bonus !== id : !this.ready.has(id)) return false;
     const g = this.game;
     if (g.state.phase !== 'live' || !(g.player && g.player.alive)) return false;

@@ -55,13 +55,12 @@ export function prewarmShaders(renderer, scene, camera, targets = [null], passes
   try {
     for (const target of targets) {
       if (typeof renderer.setRenderTarget === 'function') renderer.setRenderTarget(target);
-      if (typeof renderer.compileAsync === 'function') {
-        // The programs are created synchronously inside; the promise only
-        // waits for the driver, so visibility can be restored right away.
-        renderer.compileAsync(scene, camera).catch(() => {});
-      } else {
-        renderer.compile(scene, camera);
-      }
+      // Not compileAsync: nothing here waits for it, and its promise polls
+      // every material every 10 ms from a timer, where a material disposed
+      // by a map change in the meantime threw an uncaught TypeError (three
+      // reads the gone program's isReady). The driver still compiles in
+      // parallel where it can; the programs are created here either way.
+      renderer.compile(scene, camera);
     }
     const shadowMap = renderer.shadowMap;
     let casters = false;

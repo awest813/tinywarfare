@@ -244,3 +244,12 @@ test('spectator leaves body visibility unchanged when the local player respawns'
   assert.equal(spectator.update(), false);
   assert.equal(actor.mesh.visible, true);
 });
+
+test('free-for-all has no one to spectate: every ct/t tag there is an opponent', () => {
+  const local = { team: 'ct' };
+  const sameTag = { slot: 1, name: 'Sarge', team: 'ct', alive: true, pos: pos(4, 0, 2) };
+  const game = { state: { mode: 'ffa' }, bots: { all: [sameTag] } };
+  assert.deepEqual(collectSpectatorCandidates(game, local), []);
+  game.state.mode = 'tdm';
+  assert.equal(collectSpectatorCandidates(game, local).length, 1);
+});

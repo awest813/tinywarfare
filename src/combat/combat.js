@@ -175,6 +175,9 @@ export default class Combat {
     // Grenades still in flight when a player quits to the menu went off
     // there, scoring kills into a finished match.
     ev.on('ui:menu', () => this._onRoundStart());
+    // ...and so did ones in the air when the match ended: kills, score and
+    // a killcam on the end screen, after the result was already paid.
+    ev.on('game:end', () => this._onRoundStart());
   }
 
   // =========================================================================

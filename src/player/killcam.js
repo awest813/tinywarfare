@@ -365,6 +365,10 @@ export default class Killcam {
     const named = death.killer && typeof death.killer === 'object' ? death.killer : null;
     const killer = named || (player && player.lastKiller);
     this.cancel();
+    // Nothing to replay once the match is over (the killer's model stayed
+    // hidden on the end screen until a restart).
+    const phase = g.state && g.state.phase;
+    if (phase === 'gameEnd' || phase === 'menu') return;
     if (!this.enabled() || !killer || typeof killer !== 'object' || killer === player) return;
     const kt = this._tracks.get(killer);
     const vt = this._tracks.get(player);

@@ -191,3 +191,33 @@ test('an explosion on a spawn-protected bot shows no hitmarker', () => {
   combat._detonateHE({ type: 'hegrenade', pos: new THREE.Vector3(0, 0.2, -3), thrower: game.player, team: 'ct' });
   assert.equal(markers, 1, 'an unprotected bot still marks');
 });
+
+test('weapon keys and clicks on the pause screen do nothing', () => {
+  const { game } = makeGame();
+  const w = game.weapons;
+  w.give('m4a1');
+  w.equip('m4a1');
+  run(game, 1);
+  game.paused = true;
+  w._onKey({ key: '3' });
+  w._onMouseDown({ button: 0 });
+  assert.equal(w._semiQueued, false, 'no shot queued');
+  game.paused = false;
+  run(game, 1);
+  assert.equal(w.currentId, 'm4a1', 'no switch to the knife');
+});
+
+test('a grenade in flight when the match ends never goes off', () => {
+  const floor = { raycast: () => null };
+  const events = new EventBus();
+  const game = { events, config: CONFIG, world: floor, player: { team: 'ct', alive: false, velocity: new THREE.Vector3() }, bots: { all: [] }, multiplayer: null, state: { phase: 'live' } };
+  const combat = new Combat(game);
+  let booms = 0;
+  events.on('fx:explosion', () => booms++);
+  events.emit('grenade:throw', { type: 'hegrenade', origin: new THREE.Vector3(0, 1.6, 0), dir: new THREE.Vector3(0, 0.3, -1).normalize(), strength: 12 });
+  combat.update(0.5);
+  game.state.phase = 'gameEnd';
+  events.emit('game:end', { winner: 'ct' });
+  for (let i = 0; i < 300; i++) combat.update(1 / 60);
+  assert.equal(booms, 0);
+});
