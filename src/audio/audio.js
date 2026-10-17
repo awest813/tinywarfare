@@ -23,6 +23,7 @@ import * as THREE from 'three';
 
 // --- module scratch (no allocation in per-frame / per-event code) -----------
 const _vFwd = new THREE.Vector3();
+const _vOcc = new THREE.Vector3();
 const _vA = new THREE.Vector3();
 const _vB = new THREE.Vector3();
 
@@ -508,9 +509,21 @@ export default class AudioSys {
       panner.connect(dest);
       dest = panner;
     }
+    // One lowpass carries three cues: air absorption with distance, a darker
+    // tone for sounds behind you (stereo pan alone cannot tell front from
+    // back), and a muffle when a wall stands between you and the source.
+    let cutoff = d > refDist * 1.7 ? Math.max(1100, 16000 * Math.min(1, (refDist * 2.4) / d)) : Infinity;
+    if (hl > 0.4 && fl > 0.001 && (dx * _vFwd.x + dz * _vFwd.z) / (hl * fl) < -0.35) {
+      cutoff = Math.min(cutoff, 3400);
+      g *= 0.92;
+    }
+    if (o.occlude && d > 2 && d < 70 && this._occluded(cp, dx, dy, dz, d)) {
+      cutoff = Math.min(cutoff, 900);
+      g *= 0.55;
+    }
     let air = null;
-    if (d > refDist * 1.7) {
-      air = this._filter('lowpass', Math.max(1100, 16000 * Math.min(1, (refDist * 2.4) / d)), 0.5);
+    if (cutoff < 15000) {
+      air = this._filter('lowpass', cutoff, 0.5);
       air.connect(dest);
       dest = air;
     }
@@ -520,6 +533,15 @@ export default class AudioSys {
     if (air) grp.nodes.push(air);
     buildFn(grp, this._t(), d);
     return grp;
+  }
+
+  /** True when map geometry blocks the straight line from the listener. */
+  _occluded(from, dx, dy, dz, d) {
+    const world = this.game.world;
+    if (!world || typeof world.raycast !== 'function') return false;
+    _vOcc.set(dx / d, dy / d, dz / d);
+    const hit = world.raycast(from, _vOcc, d - 0.4);
+    return !!(hit && hit.distance < d - 0.4);
   }
 
   // ==========================================================================
@@ -936,6 +958,7 @@ export default class AudioSys {
     // louder than the rifle in your hands.
     this.play3D((g, t, d) => this._gunshot(g, t, prof, d), p.origin, {
       refDist: 11, maxDist: 95, vol: prof.vol * 0.42,
+      occlude: !p.replay,
       bus: p.replay ? this.replayBus : undefined,
       priority: !!p.replay,
     });
@@ -1048,7 +1071,7 @@ export default class AudioSys {
 
   _onBotStep(p) {
     if (!this._ready() || !p || !p.pos) return;
-    this.play3D((g, t) => this._footstep(g, t, p.surface || 'concrete'), p.pos, { refDist: 6, maxDist: 30, vol: 0.38 });
+    this.play3D((g, t) => this._footstep(g, t, p.surface || 'concrete'), p.pos, { refDist: 6, maxDist: 30, vol: 0.38, occlude: true });
   }
 
   _onLand(p) {

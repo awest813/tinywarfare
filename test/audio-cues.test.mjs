@@ -296,3 +296,14 @@ test('a suppressed shot uses a quieter, crack-free profile; the built-in USP-S i
   const usp = { vol: 0.3, crack: 0.1, lp: 1150, mech: true };
   assert.equal(sys._shotProfile(usp, true), usp);
 });
+
+test('a wall between the listener and a sound counts as occlusion; open air does not', () => {
+  const sys = Object.create(AudioSys.prototype);
+  const from = { x: 0, y: 1.6, z: 0 };
+  sys.game = { world: { raycast: (o, dir, max) => (max > 5 ? { distance: 5 } : null) } };
+  assert.equal(sys._occluded(from, 0, 0, -20, 20), true, 'wall at 5 m on a 20 m line');
+  sys.game = { world: { raycast: () => null } };
+  assert.equal(sys._occluded(from, 0, 0, -20, 20), false);
+  sys.game = {};
+  assert.equal(sys._occluded(from, 0, 0, -20, 20), false, 'no world: never occluded');
+});
