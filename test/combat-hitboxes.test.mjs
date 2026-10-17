@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 
-import Combat from '../src/combat/combat.js';
+import Combat, { HEAD_RADIUS, headCentreHeight } from '../src/combat/combat.js';
 import Weapons from '../src/weapons/weapons.js';
 import { WEAPONS } from '../src/weapons/data.js';
 import { EventBus } from '../src/shared/events.js';
@@ -45,9 +45,11 @@ function castAt(combat, x, y) {
 test('headshots use the visible head sphere instead of the body radius', () => {
   const { combat } = combatWithBot();
 
-  assert.ok(castAt(combat, 0.16, 1.65) >= 0, 'visible helmet should be hittable');
+  // The helmet is 0.218 m wide; the sphere is 1.2x that (0.131 m radius).
+  assert.ok(castAt(combat, 0.10, 1.70) >= 0, 'the edge of the visible helmet is a headshot');
   assert.equal(combat._hitPartBest, 'head');
 
+  assert.equal(castAt(combat, 0.16, 1.65), -1, 'air just beside the helmet is a miss');
   assert.equal(
     castAt(combat, 0.24, 1.65),
     -1,
@@ -195,6 +197,11 @@ test('a ray that enters the chest first is a body hit, even if it would carry on
   const dir = target.clone().sub(origin).normalize();
   assert.ok(combat._testCharacters(origin, dir, 100, null) >= 0);
   assert.equal(combat._hitPartBest, 'body');
+});
+
+test('the head sphere is 1.2x the helmet width, centred on the helmet', () => {
+  assert.ok(Math.abs(HEAD_RADIUS * 2 - 0.218 * 1.2) < 1e-9);
+  assert.ok(Math.abs(headCentreHeight(1.83) - 1.704) < 0.01, 'centre at the helmet centre');
 });
 
 test('a level shot at the helmet (1.70 m on the 1.83 m operative) is a headshot', () => {

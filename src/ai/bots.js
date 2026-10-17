@@ -19,6 +19,7 @@ import { hostile, isFfa } from '../game/hostility.js';
 import { BOT_SKILLS, botSkill } from './skill.js';
 import TeamCommander from './commander.js';
 import { armorDamageScale } from '../weapons/data.js';
+import { BOT_CROUCH_VISUAL_SCALE, headCentreHeight } from '../combat/combat.js';
 import { buildSightlines, findCover, laneYaw } from './sightlines.js';
 import { getCharacterPalette } from '../player/profile.js';
 import { buildAnimationSet, OperativeAnimator, IK_FAR_SQ } from './operative-anim.js';
@@ -2963,7 +2964,16 @@ export default class Bots {
       const o = bot.targetBot;
       eye = o && o.crouching ? this._cfg.EYE * 0.68 : this._cfg.EYE;
     }
-    return bot.aimHead ? eye - 0.04 : eye - 0.28;
+    if (bot.aimHead) {
+      // At the head hitbox's centre (combat.js), standing or crouched, not at
+      // eye level: eye - 0.04 grazed the bottom of the sphere, and a crouched
+      // player's eye (1.08) sits well below the visible crouched head.
+      const target = bot.targetIsPlayer ? (bot.targetHuman || this.game.player) : bot.targetBot;
+      const stand = this._cfg.HEIGHT || 1.83;
+      const crouched = !!(target && target.crouching);
+      return headCentreHeight(crouched ? stand * BOT_CROUCH_VISUAL_SCALE : stand);
+    }
+    return eye - 0.28;
   }
 
   _fireShot(bot, dist, blind) {

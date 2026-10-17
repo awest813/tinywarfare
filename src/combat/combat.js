@@ -33,14 +33,23 @@ const LEG_MULT = 0.75;             // leg damage multiplier
 const MELEE_RANGE = 1.8;           // knife reach (m)
 const BACKSTAB_MULT = 1.9;         // 34 -> ~65 per spec table
 
-// A character is a broad body capsule plus a separate head sphere. The old
-// hitbox used the full 0.35 m body radius around the skull and classified its
-// top 0.30 m as a headshot, making the hittable head almost twice as wide as
-// the rendered soldiers. These bounds track the ~0.32-0.36 m wide helmets.
-const HEAD_RADIUS_RATIO = 0.52;
-const HEAD_RADIUS_MIN = 0.15;
-const HEAD_RADIUS_MAX = 0.19;
-const BOT_CROUCH_VISUAL_SCALE = 0.78;
+// A character is a broad body capsule plus a separate head sphere. The sphere
+// is sized from the soldier actually drawn: the Marine's helmet is 0.218 m
+// wide at game scale (operative_*.glb 'Helmet', 0.234 m x 1.83/1.965), and the
+// sphere is HEAD_HITBOX_SCALE times that across. It was 0.364 m (1.7x), so a
+// shot through the air beside the helmet still counted as a headshot.
+const HELMET_WIDTH = 0.218;
+const HEAD_HITBOX_SCALE = 1.2;
+export const HEAD_RADIUS = (HELMET_WIDTH * HEAD_HITBOX_SCALE) / 2; // 0.131 m
+// The body capsule's top stays where it was with the old 0.18 m head, so the
+// smaller head does not turn into a body hit beside the helmet.
+const BODY_TOP_DROP = 0.18;
+export const BOT_CROUCH_VISUAL_SCALE = 0.78;
+
+/** Height above the feet of the head sphere's centre, for a hitbox `height` tall. */
+export function headCentreHeight(height) {
+  return height - HEAD_RADIUS;
+}
 
 // --- Penetration -----------------------------------------------------------
 const PEN_PROBE = 0.4;             // max wall thickness probe (m)
@@ -828,18 +837,13 @@ export default class Combat {
    * and stores its part/height in the scratch registers.
    */
   _rayCharacter(ox, oy, oz, dx, dy, dz, maxDist, fx, fy, fz, radius, height) {
-    const headRadius = Math.max(
-      HEAD_RADIUS_MIN,
-      Math.min(HEAD_RADIUS_MAX, radius * HEAD_RADIUS_RATIO)
-    );
-    // The sphere's centre sits a quarter-radius below the top of the capsule:
-    // on the 1.83 m operative that is the helmet's centre (~1.69 m). At a full
-    // radius down it sat at 1.65 and its lower half reached the shoulder line.
-    const headY = fy + height - headRadius * 0.75;
-    // Let the body's rounded shoulder volume rise to the center of the head.
-    // The dedicated sphere still exclusively decides headshot classification;
-    // this overlap preserves forgiving shoulder/upper-torso hits.
-    const bodyHeight = Math.max(radius * 2, height - headRadius);
+    const headRadius = HEAD_RADIUS;
+    // The sphere's top meets the top of the head: on the 1.83 m operative its
+    // centre is at 1.70 m, the helmet's own centre (1.704 m).
+    const headY = fy + headCentreHeight(height);
+    // The body's rounded shoulder volume rises toward the head; the sphere
+    // still exclusively decides headshot classification.
+    const bodyHeight = Math.max(radius * 2, height - BODY_TOP_DROP);
 
     const bodyT = this._rayCapsule(
       ox, oy, oz, dx, dy, dz, maxDist,
