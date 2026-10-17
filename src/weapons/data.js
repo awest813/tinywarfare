@@ -366,7 +366,10 @@ export const WEAPONS = {
     killReward: 100,
     auto: false,
     spreadBase: 0,           // scoped + stationary: exactly on the reticle
-    spreadUnscoped: 0.05,    // unscoped: a prayer
+    // Unscoped: a prayer. Twice a rifle's hip cone now that rifles have one
+    // (at 0.05 a no-scope was barely worse than an M4 from the hip, and it
+    // kills in one body shot): still lethal at arm's length, luck past that.
+    spreadUnscoped: 0.08,
     spreadMove: 0.06,
     spreadJump: 0.16,
     recoil: {
