@@ -4410,9 +4410,9 @@ export default class HUD {
     const name = (id) => String(this._names[id] || PERKS[id]?.label || STREAKS[id]?.label || id).toUpperCase();
     const chips = [];
     if (local.after > local.before) {
-      chips.push({ type: 'achievement', text: '▲ RANK ' + local.after + ' · ' + String(local.summary?.title || '').toUpperCase() });
+      chips.push({ type: 'achievement', text: '▲ UNLOCK RANK ' + local.after + ' · ' + String(local.summary?.title || '').toUpperCase() });
     } else if (local.earned > 0) {
-      chips.push({ type: 'record', text: '+' + Number(local.earned).toLocaleString('en-US') + ' RANK XP' });
+      chips.push({ type: 'record', text: '+' + Number(local.earned).toLocaleString('en-US') + ' UNLOCK XP' });
     }
     for (const id of local.unlocks || []) chips.push({ type: 'achievement', text: 'UNLOCKED ' + name(id) });
     for (const up of local.weaponUps || []) {
