@@ -91,26 +91,28 @@ export default class Progression {
     this.xp = 0;
     this.weaponXp = {};
     this._load();
-    this._matchKills = {};
-    this._awarded = false;   // one award per match, whatever fires game:end twice
-    this._inMatch = false;
+    this._matchKills = {};   // primary kills not yet paid as weapon XP
+    this._paidScore = 0;     // match score already paid as XP (a pagehide pays early)
+    this._inMatch = false;   // one result per match, whatever fires game:end twice
 
     const ev = game && game.events;
     if (ev) {
       ev.on('kill', (e) => this._onKill(e));
       ev.on('game:end', (r) => this._onGameEnd(r || {}));
-      const fresh = () => { this._matchKills = {}; this._awarded = false; this._inMatch = true; };
+      const fresh = () => { this._matchKills = {}; this._paidScore = 0; this._inMatch = true; };
       ev.on('ui:start', fresh);
       ev.on('ui:restart', fresh);
       // Quitting mid-match keeps what was earned (score and weapon kills, no
       // result bonus) instead of losing all of it.
-      ev.on('ui:menu', () => this._onAbandon());
+      ev.on('ui:menu', () => this._onAbandon(true));
       // The server career follows a progress key across devices; this save
       // does not. See syncCareer().
       ev.on('progress:updated', (d) => this.syncCareer(d && d.progression));
     }
     try {
-      globalThis.addEventListener?.('pagehide', () => this._onAbandon());
+      // Not the end of the match: a page put in the back/forward cache comes
+      // back mid-match, and its game:end must still pay the rest and the result.
+      globalThis.addEventListener?.('pagehide', () => this._onAbandon(false));
     } catch { /* no window */ }
   }
 
@@ -244,26 +246,35 @@ export default class Progression {
   }
 
   _onGameEnd(r) {
-    if (this._awarded) return;
-    this._awarded = true;
+    if (!this._inMatch) return;
     this._inMatch = false;
     const team = (this.game.player && this.game.player.team) || 'ct';
     const result = r.draw ? 'draw' : r.winner === team ? 'win' : 'loss';
-    const score = this.game.score ? this.game.score.total : 0;
-    this.awardMatch({ score, result, kills: this._matchKills });
+    this.awardMatch({ score: this._unpaidScore(), result, kills: this._matchKills });
     this._matchKills = {};
   }
 
-  _onAbandon() {
+  /**
+   * Pay what the match has earned so far, without a result bonus. `ends` is
+   * false for a pagehide, which may be the page going into the back/forward
+   * cache rather than away for good.
+   */
+  _onAbandon(ends) {
     // The phase is already 'menu' when ui:menu fires, so track the match here.
-    if (this._awarded || !this._inMatch) return;
-    this._inMatch = false;
-    const score = this.game.score ? this.game.score.total : 0;
+    if (!this._inMatch) return;
+    if (ends) this._inMatch = false;
+    const score = this._unpaidScore();
     const kills = this._matchKills;
     if (!(score > 0) && !Object.keys(kills).length) return;
-    this._awarded = true;
     this.awardMatch({ score, result: 'abandon', kills });
     this._matchKills = {};
+  }
+
+  _unpaidScore() {
+    const total = Math.max(0, Math.round(Number(this.game.score ? this.game.score.total : 0) || 0));
+    const unpaid = Math.max(0, total - this._paidScore);
+    this._paidScore = Math.max(this._paidScore, total);
+    return unpaid;
   }
 
   _load() {

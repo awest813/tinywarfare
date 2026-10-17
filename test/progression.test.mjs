@@ -63,6 +63,7 @@ test('game:end awards the match from the live score and local kills', () => {
   const events = new EventBus();
   const game = { events, player: { team: 'ct' }, score: { total: 900 } };
   const p = new Progression(game, memoryStorage());
+  events.emit('ui:start');
   events.emit('kill', { killerIsLocal: true, weaponId: 'ak47', killerTeam: 'ct', victimTeam: 't' });
   events.emit('kill', { killerIsLocal: false, weaponId: 'ak47' });
   // Only primaries level up (attachments): no "KNIFE LEVEL 2 · LASER".
@@ -130,4 +131,26 @@ test('a synced career restores unlocks on a new device, and never lowers them', 
   assert.equal(p.syncCareer({ xp: 'lots' }), false);
   assert.equal(p.rank(), 12);
   assert.equal(synced.length, 1);
+});
+
+test('a page that went into the back/forward cache still pays the rest and the result', () => {
+  const events = new EventBus();
+  const game = { events, player: { team: 'ct' }, score: { total: 400 } };
+  const p = new Progression(game, memoryStorage());
+  events.emit('ui:start');
+  events.emit('kill', { killerIsLocal: true, weaponId: 'm4a1', killerTeam: 'ct', victimTeam: 't' });
+  p._onAbandon(false);                       // pagehide: paid so far, match goes on
+  assert.equal(p.xp, 400);
+  assert.equal(p.weaponXp.m4a1, WEAPON_XP_PER_KILL);
+
+  game.score.total = 1000;                   // back from the cache, played on
+  events.emit('kill', { killerIsLocal: true, weaponId: 'm4a1', killerTeam: 'ct', victimTeam: 't' });
+  events.emit('game:end', { winner: 'ct' });
+  assert.equal(p.xp, 1000 + MATCH_XP.WIN, 'the rest of the score and the win, nothing twice');
+  assert.equal(p.weaponXp.m4a1, 2 * WEAPON_XP_PER_KILL);
+
+  events.emit('game:end', { winner: 'ct' });
+  events.emit('ui:menu');
+  p._onAbandon(false);
+  assert.equal(p.xp, 1000 + MATCH_XP.WIN, 'a finished match pays nothing more');
 });
