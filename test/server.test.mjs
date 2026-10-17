@@ -580,13 +580,18 @@ test('an old authority epoch stays fenced after the same player regains the leas
   await waitFor(() => room.snapshotSeq === 1);
 
   room.lastAuthoritySnapshotAt = Date.now() - 2_000;
+  // Both seats get this broadcast. Alpha's copy has to be consumed here, or
+  // under load it is still in flight when backToAlpha starts listening and
+  // gets read as the hand-back (hostId Bravo instead of Alpha).
   const toBravo = nextMessage(bravo, 'host_changed');
+  const alphaSeesBravo = nextMessage(alpha, 'host_changed');
   bravo.send(JSON.stringify({
     type: 'player_state',
     state: { round: 2, pos: { x: 2, y: 0, z: 2 }, alive: true, characterId: 'ranger' },
   }));
-  const bravoLease = await toBravo;
+  const [bravoLease, seenByAlpha] = await Promise.all([toBravo, alphaSeesBravo]);
   assert.equal(bravoLease.hostId, bravoInfo.id);
+  assert.equal(seenByAlpha.hostId, bravoInfo.id);
 
   const backToAlpha = nextMessage(alpha, 'host_changed');
   bravo.send(JSON.stringify({
