@@ -24,7 +24,7 @@
 import * as THREE from 'three';
 
 export const KC = Object.freeze({
-  TAG_LIFETIME: 30,   // s before an uncollected tag vanishes
+  TAG_LIFETIME: 60,   // s before an uncollected tag vanishes
   PICKUP_RADIUS: 1.5, // m (horizontal)
   BOT_SEEK_RANGE: 45, // m: bots detour for enemy tags (confirms) this close
   BOT_DENY_RANGE: 20, // m: ...and for their own side's tags (denies) this close

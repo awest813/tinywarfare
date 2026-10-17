@@ -21,13 +21,14 @@
 import { isRespawnMode } from '../game/tdm.js';
 
 const REFRESH = 0.5;              // s between assignment passes
-const KC_CONFIRM_RANGE = 40;      // m: a bot is sent to an enemy tag this close
+const KC_CONFIRM_RANGE = 55;      // m: a bot is sent to an enemy tag this close
 const KC_DENY_RANGE = 12;         // m: ...and to its own side's tag only this close,
 const KC_DENY_THREAT = 15;        // m: ...and only with an enemy this near the tag
 const DOM_CAPTURE_SLOTS = 2;
 const DOM_DEFEND_SLOTS = 1;
 const DOM_SPREAD = 3;             // m: arrivals spread inside the 4.5 m flag
 const ENGAGED_RELEASE = 4;        // s in a fight before a job goes to someone else
+const CONFIRM_RELEASE = 10;       // ...for a confirm, which a bot fights its way to
 const REJECT_TIME = 12;           // s a bot is not resent to a job it could not reach
 const LOSING_MEMORY = 8;          // s a flag stays "under attack" after the last sign of it
 const SETTLE_TIME = 10;           // s before a bot's job can be taken for an urgent one
@@ -116,6 +117,7 @@ export default class TeamCommander {
           range: own ? KC_DENY_RANGE : KC_CONFIRM_RANGE,
           radius: 0,
           spread: 0, // picked up within 1.5 m: walk onto it, not a nearby waypoint
+          confirm: !own,
         });
       }
     } else if (Array.isArray(objective.flags)) {
@@ -181,7 +183,8 @@ export default class TeamCommander {
       } else if (order) {
         order.engagedSince = null;
       }
-      const stale = order && order.engagedSince != null && now - order.engagedSince > ENGAGED_RELEASE;
+      const release = order && order.confirm ? CONFIRM_RELEASE : ENGAGED_RELEASE;
+      const stale = order && order.engagedSince != null && now - order.engagedSince > release;
       if (task && !stale && (used.get(task.key) || 0) < task.slots) {
         used.set(task.key, (used.get(task.key) || 0) + 1);
         order.pos = task.pos;
@@ -251,6 +254,7 @@ export default class TeamCommander {
       radius: task.radius,
       spread: task.spread,
       weight: task.weight,
+      confirm: !!task.confirm,
       since: this.bots.time,
       engagedSince: null,
     });

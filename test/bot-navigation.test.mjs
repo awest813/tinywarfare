@@ -724,3 +724,33 @@ test('spare Domination slots do not poach bots off their jobs over and over', ()
   }
   for (const [bot, c] of changes) assert.equal(c.n, 1, `bot at ${bot.pos.x} changed job ${c.n} times in a minute`);
 });
+
+test('a bot sent to confirm a tag fights its way to it, and keeps the job through a fight', async () => {
+  const { KillConfirmed } = await import('../src/game/objectives.js');
+  const { brain } = makeBrain({ findPath: (from, to) => [new THREE.Vector3(10, 0, 0), to.clone()] });
+  brain.game.state.mode = 'kc';
+  brain.game.player = { team: 'ct', alive: false, position: new THREE.Vector3(0, 0, 500) };
+  const kc = new KillConfirmed({ scene: null, player: { team: 'ct' } });
+  kc.onDeath('t', new THREE.Vector3(20, 0, 0));
+  brain.game.rounds = { tdm: { objective: kc } };
+  const bot = makeBot({ pos: new THREE.Vector3(0, 0, 0), plan: 'hunt', hasGoal: false, path: null, state: 'hold', holdTimer: 0 });
+  brain.all = [bot];
+  brain._thinkHunt(bot);
+  const order = brain._commander().orderFor(bot);
+  assert.ok(order && order.confirm, 'an enemy tag is a confirm job');
+
+  // Mid-fight the push points along the route, past the node already reached.
+  const dir = new THREE.Vector3();
+  assert.ok(brain._confirmPushDir(bot, dir));
+  assert.ok(dir.x > 0.99, 'toward the first route node');
+  bot.pos.set(9.6, 0, 0);
+  assert.ok(brain._confirmPushDir(bot, dir));
+  assert.equal(bot.pathIndex, 1, 'a node reached while fighting is passed');
+
+  // Engaged: a confirm job outlasts the ordinary 4 s release.
+  bot.state = 'engage';
+  for (let t = 0; t < 7; t += 0.5) { brain.time += 0.5; brain._commander().orderFor(bot); }
+  assert.equal(brain._commander().orderFor(bot)?.id, order.id, 'still its job after 7 s of fighting');
+  for (let t = 0; t < 5; t += 0.5) { brain.time += 0.5; brain._commander().orderFor(bot); }
+  assert.notEqual(brain._commander().orderFor(bot)?.id, order.id, 'but not forever');
+});

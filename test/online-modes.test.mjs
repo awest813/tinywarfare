@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 
-import { KillConfirmed, Domination, Hardpoint } from '../src/game/objectives.js';
+import { KillConfirmed, KC, Domination, Hardpoint } from '../src/game/objectives.js';
 import TeamDeathmatch, { TDM } from '../src/game/tdm.js';
 import { EventBus } from '../src/shared/events.js';
 
@@ -181,7 +181,7 @@ test('Kill Confirmed tags copied by a replica keep their remaining lifetime', ()
   const a = new KillConfirmed(host);
   const b = new KillConfirmed(replica);
   a.onDeath('t', v(1, 1));
-  a.update(20);
+  a.update(KC.TAG_LIFETIME - 10);
   b.applyNetworkSnapshot(a.networkSnapshot());
   b.update(11); // promoted: the tag had ~10 s left
   assert.equal(b.tags.length, 0);

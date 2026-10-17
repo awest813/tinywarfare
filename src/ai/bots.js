@@ -2513,6 +2513,11 @@ export default class Bots {
           : dist > stats.prefer ? 0.75 : (dist < stats.prefer * 0.4 ? -0.4 : 0);
         if (covering && bot.strafeDir === 0) _v2.set(-_v1.z, 0, _v1.x).multiplyScalar(bot.formationSide || 1);
         _v2.addScaledVector(_v1, advance);
+        // Sent to confirm a kill: fight its way along the route to the tag
+        // instead of trading shots in place. A tag lies where its owner fell,
+        // among their teammates, so a bot that only strafed never got there:
+        // on Neon Foundry's gunline one tag in a hundred was confirmed.
+        if (!covering && this._confirmPushDir(bot, _v4)) _v2.addScaledVector(_v4, 1.1);
         if (_v2.lengthSq() > 0.001) {
           _v2.normalize();
           wantSpeed = this._cfg.RUN_SPEED * (bot.weaponId === 'awp' ? 0.35 : sk.strafe);
@@ -2792,6 +2797,27 @@ export default class Bots {
     // useful tactical order. Drop it and hold instead of running at geometry
     // forever; the team brain will select the next authored post afterwards.
     this._abandonNavigationGoal(bot);
+  }
+
+  /**
+   * Direction along a bot's route to the enemy tag it has been sent to
+   * confirm (Kill Confirmed), or false. Advances past route nodes reached
+   * while fighting, which the path follower skips during a fight.
+   */
+  _confirmPushDir(bot, out) {
+    const order = this.commander && this.commander.orders.get(bot);
+    if (!order || !order.confirm || !bot.path || bot.pathIndex >= bot.path.length) return false;
+    let node = bot.path[bot.pathIndex];
+    while (bot.pathIndex < bot.path.length - 1 &&
+           Math.hypot(node.x - bot.pos.x, node.z - bot.pos.z) < NODE_REACH && Math.abs(node.y - bot.pos.y) < 0.9) {
+      bot.pathIndex++;
+      node = bot.path[bot.pathIndex];
+    }
+    out.set(node.x - bot.pos.x, 0, node.z - bot.pos.z);
+    const d = out.length();
+    if (d < 0.05) return false;
+    out.multiplyScalar(1 / d);
+    return true;
   }
 
   _abandonNavigationGoal(bot) {
