@@ -799,6 +799,9 @@ html.touch-device #hud-end { overflow:auto; padding:max(10px,env(safe-area-inset
 @media (orientation:landscape) and (max-height:500px) {
   html.touch-device { --touch-stick-size:112px; --touch-fire-size:74px; }
   .tc-utilities { top:calc(var(--safe-t) + 7px); right:calc(var(--safe-r) + 8px); gap:5px; }
+  /* The utility row (pause, SCORE, BUY) sat over the score panel at phone widths. */
+  html.touch-device #hud-top { top:calc(max(8px, env(safe-area-inset-top)) + 50px); }
+  html.touch-device #hud-msg { top:calc(max(8px, env(safe-area-inset-top)) + 134px); }
   .tc-utilities .tc-button { min-width:49px; min-height:44px; padding-inline:5px; font-size:9.5px; letter-spacing:.035em; }
   .tc-weapons { bottom:calc(var(--safe-b) + 7px); }
   .tc-slot { width:47px; min-height:44px; }

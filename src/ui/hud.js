@@ -2052,7 +2052,7 @@ export default class HUD {
     ev.on('hud:radio', (d) => this._addRadio(d || {}));
     ev.on('score:award', (d) => this._onScoreAward(d || {}));
     ev.on('streak:ready', (d) => this._showMsg(String(d?.label || '') + ' READY',
-      'PRESS ' + this._bindingLabel('streak' + ((d?.slot ?? 0) + 1)), 2));
+      this.game.input?.touchMode ? 'TAP STREAK' : 'PRESS ' + this._bindingLabel('streak' + ((d?.slot ?? 0) + 1)), 2));
     ev.on('streak:activate', (d) => {
       const copy = {
         uav: ['UAV ONLINE', 'ENEMIES MARKED ON RADAR'],
@@ -2066,7 +2066,7 @@ export default class HUD {
       d?.jammed ? 'COUNTER-UAV HOLDING' : 'KEEP MOVING', 2.2));
     ev.on('streak:package-landed', () => this._showMsg('', 'CARE PACKAGE ON THE GROUND', 1.4));
     ev.on('streak:package', (d) => this._showMsg(String(d?.label || 'SUPPLIES'),
-      d?.reward === 'resupply' ? 'AMMO AND GRENADES REFILLED' : 'CARE PACKAGE BONUS · PRESS ' + this._bindingLabel('streak3'), 2));
+      d?.reward === 'resupply' ? 'AMMO AND GRENADES REFILLED' : 'CARE PACKAGE BONUS · ' + (this.game.input?.touchMode ? 'TAP STREAK' : 'PRESS ' + this._bindingLabel('streak3')), 2));
     ev.on('objective:hardpoint', () => this._showMsg('HARDPOINT MOVED', 'NEW ZONE ON THE RADAR', 1.6));
     ev.on('objective:flag', (d) => {
       const mine = (this.game.player && this.game.player.team) || 'ct';
@@ -2179,11 +2179,6 @@ export default class HUD {
         this._setHowToOpen(false);
         return;
       }
-      if (this._settingsOpen && (e.key || '').toLowerCase() === 'escape') {
-        e.preventDefault();
-        this._setSettingsOpen(false);
-        return;
-      }
       if (this._profileOpen && (e.key || '').toLowerCase() === 'escape') {
         e.preventDefault();
         this._setProfileOpen(false);
@@ -2192,6 +2187,12 @@ export default class HUD {
       if (this._leaderboardOpen && (e.key || '').toLowerCase() === 'escape') {
         e.preventDefault();
         this._setLeaderboardOpen(false);
+        return;
+      }
+      // After the dialogs, which sit above the settings panel.
+      if (this._settingsOpen && (e.key || '').toLowerCase() === 'escape') {
+        e.preventDefault();
+        this._setSettingsOpen(false);
         return;
       }
       // PLAY ONLINE collapses like the other panels close, but not from inside
@@ -2299,6 +2300,8 @@ export default class HUD {
 
   _onPhaseChange(phase) {
     this._cache.phase = phase;
+    // The settings copy depends on the phase (RELOAD NOW only from the menu).
+    this._syncSettingsUi();
     const el = this._el;
     const inGame = phase !== 'menu' && phase !== 'gameEnd';
     // A replay cut short by the match ending (or a quit) must not leave the
@@ -2415,7 +2418,8 @@ export default class HUD {
     };
     let sub = reasons[d.reason] || '';
     const sc = st.scores || {};
-    if (sc.ct === winRounds - 1 || sc.t === winRounds - 1) {
+    // Scores already include this round: past the limit it is the match, not match point.
+    if ((sc.ct === winRounds - 1 || sc.t === winRounds - 1) && Math.max(sc.ct | 0, sc.t | 0) < winRounds) {
       sub += (sub ? '  ·  ' : '') + 'MATCH POINT';
     }
     this._showMsg(main, sub, 3.6);
@@ -3717,7 +3721,9 @@ export default class HUD {
     if (show !== this._sbVisible) {
       this._sbVisible = show;
       if (this._el.scoreboard) this._el.scoreboard.style.display = show ? 'flex' : 'none';
-      if (show && this._sbDirty) this._rebuildScoreboard();
+      // Rebuilt every time it opens: a bot's respawn sends no event, so a
+      // reopened board said RESPAWNING for bots long since back.
+      if (show) this._rebuildScoreboard();
     } else if (show && this._sbDirty) {
       this._rebuildScoreboard();
     }
@@ -3747,6 +3753,10 @@ export default class HUD {
 
   _rebuildScoreboard() {
     this._sbDirty = false;
+    // The header too: only a score change rewrote it, so a 0:0 FFA after a
+    // 0:0 team match kept "US 0 : 0 RU".
+    const sc = this.game.state?.scores || {};
+    if (this._el.sbScore) this._el.sbScore.textContent = this._sbScoreText(sc.ct | 0, sc.t | 0);
     if (!this._el.sbBody) return;
     const p = this.game.player;
     const mp = this.game.multiplayer;
@@ -3958,6 +3968,10 @@ export default class HUD {
     if (this.game && this.game.state) this.game.state.buyOpen = open;
     if (this._el.buy) this._el.buy.style.display = open ? 'flex' : 'none';
     if (open) {
+      // Opened by hand before the round-1 auto-open fired: closing it must
+      // not have the pending auto-open reopen it on the next frame.
+      this._buyAutoPending = false;
+      this._buyAutoOpened = true;
       // release the pointer so rows can be clicked
       if (!this.game.debug && document.pointerLockElement && document.exitPointerLock) {
         document.exitPointerLock();
@@ -5734,9 +5748,14 @@ html.touch-device .kc-row { padding-right: 104px; }
   .buy-head { padding: 13px 18px 12px; margin-bottom: 12px; }
   .buy-head-l { display: block; }
   .buy-title { font-size: 16px; }
-  .buy-hint { margin-top: 3px; font-size: 10px; }
+  .buy-hint { display: block; margin-top: 3px; font-size: 10px; }
   .buy-funds { font-size: 22px; }
   .buy-foot { margin-inline: 14px; font-size: 10px; letter-spacing: .14em; }
+}
+/* A very narrow window: mode and bot-skill buttons keep their names only (the
+   descriptions shrank to stray glyphs). */
+@media (max-width: 480px) {
+  [data-mode-id] span, [data-bot-skill] span { display: none; }
 }
 @media (max-width: 480px) {
   #hud-buy-cats { grid-template-columns: 1fr; }
