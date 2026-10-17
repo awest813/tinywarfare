@@ -182,3 +182,28 @@ test('the live killer stays hidden for systems that redraw it every frame', () =
   run(kc.remaining() + 0.1);
   assert.equal(kc.hides(killer), false);
 });
+
+test('soldiers near the kill are replayed too, and their live bodies hide meanwhile', () => {
+  const { game, kc, run, die, killer } = rig();
+  const mate = {
+    name: 'Mate', team: 'ct', pos: new THREE.Vector3(3, 0, -2), yaw: 0, aimPitch: 0,
+    alive: true, weaponId: 'm4a1', moveSpeed2D: 0, mesh: { visible: true },
+  };
+  const far = { ...mate, name: 'Far', pos: new THREE.Vector3(200, 0, 200), mesh: { visible: true } };
+  game.bots.all.push(mate, far);
+  run(2);
+  mate.pos.set(30, 0, 30); // moved away after the window opened
+  die();
+  run(KILLCAM.START_AFTER + 0.05);
+  assert.equal(kc.active, true);
+  assert.equal(kc.clip.extras.length, 1, 'only the soldier near the kill');
+  const ghost = kc.clip.extras[0];
+  assert.equal(ghost.liveActor, mate);
+  assert.ok(ghost.position.x < 10, 'replayed where it was, not where it is now');
+  assert.equal(mate.mesh.visible, false);
+  assert.equal(kc.hides(mate), true);
+  assert.equal(far.mesh.visible, true);
+  run(kc.remaining() + 0.1);
+  assert.equal(mate.mesh.visible, true, 'restored after the replay');
+  assert.equal(killer.mesh.visible, true);
+});

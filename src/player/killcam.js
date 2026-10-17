@@ -29,6 +29,8 @@ export const KILLCAM = Object.freeze({
   HISTORY: 4,         // s of poses and tracers kept
   BEFORE: 1.7,        // s of replay before the kill
   MIN_BEFORE: 0.4,    // ...at least this much, even right after a respawn
+  EXTRA_MAX: 6,       // other soldiers replayed alongside the killer and you
+  EXTRA_RADIUS: 45,   // m from the killer at the kill to be one of them
   AFTER: 0.75,        // s after it (the fall lands)
   SLOW_FROM: 0.25,    // s before the kill where slow motion starts
   SLOW_TO: 0.1,       // s after it where normal speed resumes
@@ -192,7 +194,10 @@ export default class Killcam {
 
   /** True for the live killer while its ghost replays (callers keep it hidden). */
   hides(actor) {
-    return !!(this.active && this.clip && actor && this.clip.killer === actor);
+    const c = this.clip;
+    if (!this.active || !c || !actor) return false;
+    if (c.killer === actor) return true;
+    return !!(c.extras && c.extras.some((ghost) => ghost.liveActor === actor));
   }
 
   /** True while a solo respawn should wait for the replay. */
@@ -421,6 +426,8 @@ export default class Killcam {
     if (!victim || !killer) { this._end(); return; }
     victim.track = this._tracks.get(player);
     killer.track = this._tracks.get(c.killer);
+    killer.poseBuf = this._pose;
+    victim.poseBuf = this._pose2;
     // Never replay across a respawn or a hole in the record: start no earlier
     // than both lives began (but always show the last moments).
     const since = Math.max(victim.track.continuousSince(c.tDeath), killer.track.continuousSince(c.tDeath));
@@ -430,11 +437,17 @@ export default class Killcam {
     // The live killer is hidden while its ghost plays; put back at the end.
     c.killerMesh = c.killer.mesh || null;
     c.killerMeshVisible = c.killerMesh ? c.killerMesh.visible : false;
-    for (const ghost of [victim, killer]) {
+    // Everyone else near the kill is replayed too, so a teammate who stood
+    // beside you is where they were, not wherever they are now.
+    c.extras = this._pickExtras(c, player);
+    for (const ghost of [victim, killer, ...c.extras]) {
       bots.setOperativeAlive?.(ghost, true);
       // A clean pose: no twist, reload or fall carried over from last time.
       bots._resetOperativePose?.(ghost);
       ghost.mesh.visible = true;
+    }
+    for (const ghost of c.extras) {
+      ghost.liveVisible = ghost.liveActor.mesh ? ghost.liveActor.mesh.visible : false;
     }
     this.active = true;
     this._advance(0);
@@ -449,6 +462,7 @@ export default class Killcam {
     c.playhead += step;
     c.lastDt = dt;
     if (c.killerMesh) c.killerMesh.visible = false;
+    for (const ghost of c.extras) if (ghost.liveActor.mesh) ghost.liveActor.mesh.visible = false;
 
     // Tracers whose time has come.
     const fx = g.effects;
@@ -461,13 +475,16 @@ export default class Killcam {
       // On the replay bus (the live match is ducked under it); suppressed
       // shots play suppressed rather than not at all.
       if (!tr.pellet) g.audio?._onBotFire?.({ origin: tr.from, weaponId: tr.weaponId, suppressed: tr.suppressed, replay: true });
-      const kp = this._ghosts.killer.pose;
-      if (kp && Math.hypot(tr.from.x - kp.x, tr.from.z - kp.z) < 1.6) this._ghosts.killer.fireAnim = 1;
+      // The shooter's ghost (killer or anyone replayed) gets the recoil.
+      for (const ghost of [this._ghosts.killer, ...c.extras]) {
+        const gp = ghost.pose;
+        if (gp && Math.hypot(tr.from.x - gp.x, tr.from.z - gp.z) < 1.6) { ghost.fireAnim = 1; break; }
+      }
     }
 
-    for (const role of ['killer', 'victim']) {
-      const ghost = this._ghosts[role];
-      const pose = ghost.track.sample(c.playhead, role === 'killer' ? this._pose : this._pose2);
+    const ghosts = [this._ghosts.killer, this._ghosts.victim, ...c.extras];
+    for (const ghost of ghosts) {
+      const pose = ghost.track.sample(c.playhead, ghost.poseBuf);
       if (!pose) continue;
       ghost.pose = pose;
       ghost.position.set(pose.x, pose.y, pose.z);
@@ -492,6 +509,13 @@ export default class Killcam {
     // within the replay; everything else follows the replay clock.
     g.bots?.updateOperativeVisual?.(this._ghosts.killer, step);
     g.bots?.updateOperativeVisual?.(this._ghosts.victim, c.fell ? dt : step);
+    for (const ghost of c.extras) {
+      // Someone else who dies in the window falls where they fell.
+      if (ghost.pose && ghost.pose.alive === 0 && ghost.alive !== false) {
+        g.bots?.setOperativeAlive?.(ghost, false, { fallAxis: 'z', fallSign: 1 });
+      }
+      g.bots?.updateOperativeVisual?.(ghost, ghost.alive === false ? dt : step);
+    }
 
     if (c.playhead >= c.tDeath + KILLCAM.AFTER) this._end();
   }
@@ -501,9 +525,44 @@ export default class Killcam {
     const wasActive = this.active;
     this.active = false;
     if (c && c.killerMesh) c.killerMesh.visible = c.killerMeshVisible;
+    if (c && c.extras) {
+      for (const ghost of c.extras) if (ghost.liveActor.mesh) ghost.liveActor.mesh.visible = ghost.liveVisible;
+    }
     for (const ghost of Object.values(this._ghosts)) if (ghost && ghost.mesh) ghost.mesh.visible = false;
     this.clip = null;
     if (wasActive) this.game.events?.emit?.('killcam:end', { skipped: this.skipped });
+  }
+
+  /**
+   * Up to EXTRA_MAX other soldiers with a continuous record through the
+   * replay window, alive at its start, nearest the killer at the kill first.
+   */
+  _pickExtras(c, player) {
+    const at = c.killer && this._tracks.get(c.killer)?.sample(c.tDeath, this._scratchA || (this._scratchA = {}));
+    if (!at) return [];
+    const near = [];
+    for (const [actor, track] of this._tracks) {
+      if (actor === player || actor === c.killer || !track.count) continue;
+      if (track.oldest() > c.playhead || track.continuousSince(c.tDeath) > c.playhead) continue;
+      const start = track.sample(c.playhead, this._scratchB || (this._scratchB = {}));
+      if (!start || start.alive === 0) continue;
+      const d = Math.hypot(start.x - at.x, start.z - at.z);
+      if (d <= KILLCAM.EXTRA_RADIUS) near.push({ actor, track, d });
+    }
+    near.sort((a, b) => a.d - b.d);
+    const out = [];
+    for (let i = 0; i < near.length && i < KILLCAM.EXTRA_MAX; i++) {
+      const { actor, track } = near[i];
+      const ghost = this._ghost('extra' + i, actor.team,
+        actor.visualPalette || getCharacterPalette('vanguard', actor.team));
+      if (!ghost) continue;
+      ghost.track = track;
+      ghost.liveActor = actor;
+      ghost.poseBuf = ghost.poseBuf || {};
+      ghost.pose = null;
+      out.push(ghost);
+    }
+    return out;
   }
 
   /** A reusable stand-in soldier, rebuilt when its side or look changes. */
