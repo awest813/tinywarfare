@@ -2172,7 +2172,8 @@ export default class Multiplayer {
       if (visuals && typeof visuals.updateOperativeVisual === 'function') {
         visuals.updateOperativeVisual(remote, dt);
       }
-      remote.mesh.visible = this.active && remote.hasNetworkPose && !remote.spectating;
+      remote.mesh.visible = this.active && remote.hasNetworkPose && !remote.spectating &&
+        !this.game.killcam?.hides?.(remote); // a replayed killer stays behind its ghost
     }
   }
 

@@ -876,7 +876,7 @@ html.touch-device #hud-end { overflow:auto; padding:max(10px,env(safe-area-inset
   html.touch-device .end-xp { padding-top:4px; }
   html.touch-device .end-unlocks { min-height:20px; padding-top:4px; }
   html.touch-device .end-unlocks span { padding:2px 5px; font-size:8px; }
-  html.touch-device #hud-progression-toasts { top:124px; left:max(8px,env(safe-area-inset-left)); width:min(285px,45vw); gap:5px; }
+  html.touch-device #hud-progression-toasts { top:124px; left:max(8px,env(safe-area-inset-left)); transform:none; width:min(285px,45vw); gap:5px; }
   html.touch-device .progress-toast { min-height:54px; gap:8px; padding:7px 9px; }
   html.touch-device .progress-toast-mark { flex-basis:32px; width:32px; height:32px; font-size:17px; }
   html.touch-device .progress-toast-copy strong { font-size:14px; }

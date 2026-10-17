@@ -28,6 +28,7 @@ export const KILLCAM = Object.freeze({
   SAMPLE: 1 / 30,     // s between recorded poses
   HISTORY: 4,         // s of poses and tracers kept
   BEFORE: 1.7,        // s of replay before the kill
+  MIN_BEFORE: 0.4,    // ...at least this much, even right after a respawn
   AFTER: 0.75,        // s after it (the fall lands)
   SLOW_FROM: 0.25,    // s before the kill where slow motion starts
   SLOW_TO: 0.1,       // s after it where normal speed resumes
@@ -43,6 +44,10 @@ const MATCH_PHASES = new Set(['freeze', 'live', 'planted', 'roundEnd']);
 // Per sample: t, x, y, z, yaw, pitch, crouch, alive, speed
 const STRIDE = 9;
 const RING = Math.ceil(KILLCAM.HISTORY / KILLCAM.SAMPLE) + 2;
+// A hole in a track longer than a frame hitch, and a move too far for one
+// sample: either marks a new life (respawn) or a pause, not motion.
+const GAP = 0.35;
+const TELEPORT = 4;
 const EYE_STAND = 1.62;
 const EYE_CROUCH = 1.08;
 
@@ -90,6 +95,30 @@ class PoseTrack {
     this.count = Math.min(RING, this.count + 1);
   }
 
+  /**
+   * The time this actor's current life began within the record, at or
+   * before `t`: just after the latest respawn (dead -> alive), recording
+   * gap or teleport. -Infinity when the whole record is one continuous life.
+   */
+  continuousSince(t) {
+    const d = this.data;
+    let later = -1;
+    for (let k = this.count - 1; k >= 0; k--) {
+      const i = (this.head - this.count + k + RING) % RING;
+      const o = i * STRIDE;
+      if (d[o] > t) continue;
+      if (later >= 0) {
+        const n = later * STRIDE;
+        const respawn = d[o + 7] === 0 && d[n + 7] === 1;
+        const gap = d[n] - d[o] > GAP;
+        const jump = Math.hypot(d[n + 1] - d[o + 1], d[n + 3] - d[o + 3]) > TELEPORT;
+        if (respawn || gap || jump) return d[n];
+      }
+      later = i;
+    }
+    return -Infinity;
+  }
+
   /** Oldest recorded time, or Infinity when empty. */
   oldest() {
     if (!this.count) return Infinity;
@@ -113,7 +142,10 @@ class PoseTrack {
     const a = prev * STRIDE;
     const b = next * STRIDE;
     const span = d[b] - d[a];
-    const f = span > 1e-6 ? Math.min(1, Math.max(0, (t - d[a]) / span)) : 0;
+    let f = span > 1e-6 ? Math.min(1, Math.max(0, (t - d[a]) / span)) : 0;
+    // Across a gap in the recording (a pause, a respawn) there is nothing to
+    // interpolate: holding the nearer sample beats sliding through walls.
+    if (span > GAP) f = f < 0.5 ? 0 : 1;
     out.x = d[a + 1] + (d[b + 1] - d[a + 1]) * f;
     out.y = d[a + 2] + (d[b + 2] - d[a + 2]) * f;
     out.z = d[a + 3] + (d[b + 3] - d[a + 3]) * f;
@@ -137,6 +169,7 @@ export default class Killcam {
     this._tracks = new Map();   // actor -> PoseTrack
     this._tracers = [];         // { t, from, to, weaponId, pellet, suppressed }
     this._sampleAge = 0;
+    this._recordCount = 0;
     this._ghosts = { victim: null, killer: null };
     this._pose = {};
     this._pose2 = {};
@@ -155,6 +188,11 @@ export default class Killcam {
 
   enabled() {
     return this.game.settings?.killcam !== false;
+  }
+
+  /** True for the live killer while its ghost replays (callers keep it hidden). */
+  hides(actor) {
+    return !!(this.active && this.clip && actor && this.clip.killer === actor);
   }
 
   /** True while a solo respawn should wait for the replay. */
@@ -210,10 +248,9 @@ export default class Killcam {
       if (input && typeof input.wasActionPressed === 'function' && input.wasActionPressed('jump')) this.skip();
     }
     if (this.clip && !this.active && this.time >= this.clip.startAt) this._begin();
-    if (this.active) {
-      this._advance(dt);
-      return;
-    }
+    if (this.active) this._advance(dt);
+    // Recording carries on through a replay: stopping left a ~3 s hole in
+    // every track, which the next replay then interpolated straight across.
     if (!MATCH_PHASES.has(phase)) return;
     this._sampleAge += dt;
     if (this._sampleAge >= KILLCAM.SAMPLE) {
@@ -286,6 +323,14 @@ export default class Killcam {
       const weaponId = isPlayer ? g.weapons?.currentId : actor.weaponId;
       track.push(t, actor, pitch, speed, weaponId);
     }
+    // Forget actors that left (a remote player, a bot replaced by a roster
+    // change): their tracks would otherwise live until the next round.
+    if (++this._recordCount % 30 === 0 && this._tracks.size > 0) {
+      const present = new Set(this._actors());
+      for (const actor of this._tracks.keys()) {
+        if (!present.has(actor) && actor !== this.clip?.killer) this._tracks.delete(actor);
+      }
+    }
     // Forget tracers that have aged out.
     const cutoff = t - KILLCAM.HISTORY;
     let drop = 0;
@@ -310,7 +355,10 @@ export default class Killcam {
   _onPlayerDeath(death) {
     const g = this.game;
     const player = g.player;
-    const killer = player && player.lastKiller;
+    // The death event names the killer; lastKiller is only set by local
+    // damage, so an online client (applyNetworkDamage) never had one.
+    const named = death.killer && typeof death.killer === 'object' ? death.killer : null;
+    const killer = named || (player && player.lastKiller);
     this.cancel();
     if (!this.enabled() || !killer || typeof killer !== 'object' || killer === player) return;
     const kt = this._tracks.get(killer);
@@ -373,7 +421,10 @@ export default class Killcam {
     if (!victim || !killer) { this._end(); return; }
     victim.track = this._tracks.get(player);
     killer.track = this._tracks.get(c.killer);
-    c.playhead = c.tDeath - KILLCAM.BEFORE;
+    // Never replay across a respawn or a hole in the record: start no earlier
+    // than both lives began (but always show the last moments).
+    const since = Math.max(victim.track.continuousSince(c.tDeath), killer.track.continuousSince(c.tDeath));
+    c.playhead = Math.min(c.tDeath - KILLCAM.MIN_BEFORE, Math.max(c.tDeath - KILLCAM.BEFORE, since));
     c.tracerCursor = this._tracers.findIndex((tr) => tr.t >= c.playhead);
     if (c.tracerCursor < 0) c.tracerCursor = this._tracers.length;
     // The live killer is hidden while its ghost plays; put back at the end.
@@ -407,7 +458,7 @@ export default class Killcam {
       // Straight to the effects and the audio: re-emitting would be relayed
       // to the room (and counted by everything listening for real shots).
       fx?._onTracer?.(tr);
-      if (!tr.pellet) g.audio?._onBotFire?.({ origin: tr.from, weaponId: tr.weaponId });
+      if (!tr.pellet && !tr.suppressed) g.audio?._onBotFire?.({ origin: tr.from, weaponId: tr.weaponId });
       const kp = this._ghosts.killer.pose;
       if (kp && Math.hypot(tr.from.x - kp.x, tr.from.z - kp.z) < 1.6) this._ghosts.killer.fireAnim = 1;
     }
@@ -484,7 +535,9 @@ export default class Killcam {
       this._ghosts[role] = ghost;
       return ghost;
     }
-    if (ghost.team !== team || ghost.visualPalette !== palette) {
+    // By side and character, not object identity: getCharacterPalette returns
+    // a fresh object each call, which rebuilt both ghosts on every death.
+    if (ghost.team !== team || (ghost.visualPalette && ghost.visualPalette.id) !== (palette && palette.id)) {
       ghost.team = team;
       bots.rebuildOperativeVisual(ghost, palette);
     }

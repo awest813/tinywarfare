@@ -697,18 +697,18 @@ export default class HUD {
   _bindMenuControls() {
     if (this._el.mapPicker) {
       for (const button of this._el.mapPicker.querySelectorAll('[data-map-id]')) {
-        button.addEventListener('click', () => this._selectMap(button.dataset.mapId));
+        button.addEventListener('click', () => { if (!this._cache.roomGuest) this._selectMap(button.dataset.mapId); });
       }
     }
     this._selectMap(this._selectedMapId, false);
     if (this._el.modePicker) {
       for (const button of this._el.modePicker.querySelectorAll('[data-mode-id]')) {
-        button.addEventListener('click', () => this._selectMode(button.dataset.modeId));
+        button.addEventListener('click', () => { if (!this._cache.roomGuest) this._selectMode(button.dataset.modeId); });
       }
     }
     if (this._el.botSkillRow) {
       for (const button of this._el.botSkillRow.querySelectorAll('[data-bot-skill]')) {
-        button.addEventListener('click', () => this._selectBotSkill(button.dataset.botSkill));
+        button.addEventListener('click', () => { if (!this._cache.roomGuest) this._selectBotSkill(button.dataset.botSkill); });
       }
     }
     let savedSkill = null;
@@ -807,6 +807,8 @@ export default class HUD {
 
   _setOnlineOpen(open) {
     if (open && this._settingsOpen) this._setSettingsOpen(false);
+    // The list only polls while open, so opening it fetches a fresh one.
+    if (open && !this._onlineOpen) this.game?.multiplayer?.refreshRooms?.();
     this._onlineOpen = !!open;
     if (this._el.menu) this._el.menu.classList.toggle('mn-online-open', this._onlineOpen);
     if (this._el.onlineOpen) {
@@ -904,6 +906,9 @@ export default class HUD {
       btn.textContent = 'RESET DEFAULTS';
       this._cancelBindingCapture('reset');
       settings.reset();
+      // A pinned preset back to AUTO is a graphics change like any other: the
+      // note and RELOAD NOW have to say so.
+      this._graphicsChanged = true;
       this._setSettingsStatus('DEFAULT SETTINGS RESTORED');
       this._syncSettingsUi();
     });
@@ -2227,6 +2232,12 @@ export default class HUD {
     this._cache.phase = phase;
     const el = this._el;
     const inGame = phase !== 'menu' && phase !== 'gameEnd';
+    // A replay cut short by the match ending (or a quit) must not leave the
+    // HUD in killcam mode: it hides the end-screen progression toasts.
+    if (!inGame && this._killcamShown) {
+      this._killcamShown = false;
+      this._root?.classList.remove('killcam-on');
+    }
 
     if (el.game) el.game.style.display = inGame ? 'block' : 'none';
     if (el.menu) el.menu.style.display = phase === 'menu' ? 'flex' : 'none';
@@ -3592,6 +3603,7 @@ export default class HUD {
         }
       } else if (dead) {
         if (this._el.deathClass) this._el.deathClass.hidden = true;
+        if (this._el.deathHint) this._el.deathHint.hidden = true; // no classes to pick here
         if (this._el.deathMain) {
           this._el.deathMain.textContent = waiting
             ? `SPAWNING ROUND ${joinRound || 'NEXT'}`

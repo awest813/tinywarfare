@@ -371,12 +371,17 @@ export default class Bots {
     actor.burstLeft = Number(actor.burstLeft) || 0;
     actor.aimPitch = Number(actor.aimPitch) || 0;
     actor.aimBlend = 1;
+    // The primitive-body path reads these; a remote actor never had them,
+    // so a block body animated to NaN and never drew.
+    actor.crouchLerp = Number(actor.crouchLerp) || 0;
+    actor.walkPhase = Number(actor.walkPhase) || 0;
     actor.mesh = new THREE.Group();
     actor.mesh.name = 'remote-operative';
     actor.mesh.visible = false;
     if (!this._externalActors) this._externalActors = new Set();
     this._externalActors.add(actor);
     this._attachGLB(actor);
+    this._blockBodyIfNoModels(actor);
     return actor.mesh;
   }
 
@@ -391,7 +396,21 @@ export default class Bots {
       actor.mesh.name = 'remote-operative';
     }
     this._attachGLB(actor);
+    this._blockBodyIfNoModels(actor);
     return actor.mesh;
+  }
+
+  /**
+   * Both soldier models failed for good (offline, blocked host): a remote
+   * player's root would stay empty, invisible but still shootable. Give it
+   * the block body the bots already fall back to.
+   */
+  _blockBodyIfNoModels(actor) {
+    const noModels = !!(this._charFailed && this._charFailed.ct && this._charFailed.t);
+    if (!noModels || !actor || !actor.mesh || actor.rig || actor.parts || actor.mesh.children.length) return;
+    actor.crouchLerp = Number(actor.crouchLerp) || 0;
+    actor.walkPhase = Number(actor.walkPhase) || 0;
+    actor.mesh.add(this._buildBotMesh(actor.team, actor));
   }
 
   updateOperativeAppearance(actor, palette) {
@@ -505,7 +524,8 @@ export default class Bots {
         b.blindSpray = !!s.blindSpray;
       }
       if (s.isBombCarrier) carrier = b;
-      if (b.mesh) b.mesh.visible = true;
+      // A killer being replayed by the killcam stays hidden behind its ghost.
+      if (b.mesh) b.mesh.visible = !this.game.killcam?.hides?.(b);
       this._applyGunLook(b);
     }
     this.bombCarrier = carrier;
@@ -1412,16 +1432,10 @@ export default class Bots {
 
   _refreshCharacterVisuals() {
     const actors = [...(this.all || []), ...(this._externalActors || [])];
-    // Both soldier models failed for good (offline, blocked host): a remote
-    // player's root would stay empty, invisible but still shootable. Give it
-    // the block body the bots already fall back to.
-    const noModels = !!(this._charFailed && this._charFailed.ct && this._charFailed.t);
     for (const actor of actors) {
       const source = this._characterAssetFor(actor.team);
       if (!source) {
-        if (noModels && actor.mesh && !actor.rig && !actor.parts && actor.mesh.children.length === 0) {
-          actor.mesh.add(this._buildBotMesh(actor.team, actor));
-        }
+        this._blockBodyIfNoModels(actor);
         continue;
       }
       if (actor.rig && actor.visualAssetTeam !== source.team) this._disposeOperativeRig(actor);

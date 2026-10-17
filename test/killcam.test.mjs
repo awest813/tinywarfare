@@ -146,3 +146,39 @@ test('a respawn or the end of the round cancels the replay', () => {
   assert.equal(kc.active, false);
   assert.equal(killer.mesh.visible, true);
 });
+
+test('an online death names its killer in the event; the replay works without lastKiller', () => {
+  const { game, kc, run, player, killer } = rig();
+  run(2);
+  player.alive = false;
+  player.lastKiller = null;            // applyNetworkDamage never sets it
+  game.events.emit('player:death', { killer, weapon: 'awp' });
+  assert.ok(kc.clip, 'a replay is queued');
+  assert.equal(kc.clip.killer, killer);
+});
+
+test('the replay never reaches back across a respawn', () => {
+  const { kc, run, die, player } = rig();
+  run(2);
+  // Died once, respawned 40 m away 0.8 s before this death.
+  player.alive = false;
+  run(0.6);
+  player.position.set(40, 0, 40);
+  player.alive = true;
+  run(0.8);
+  die();
+  run(KILLCAM.START_AFTER + 0.02);
+  assert.equal(kc.active, true);
+  const victim = kc._ghosts.victim;
+  assert.ok(victim.position.x > 30, `the ghost starts at the new spawn, not the old corpse (x=${victim.position.x.toFixed(1)})`);
+});
+
+test('the live killer stays hidden for systems that redraw it every frame', () => {
+  const { kc, run, die, killer } = rig();
+  run(2);
+  die();
+  run(KILLCAM.START_AFTER + 0.05);
+  assert.equal(kc.hides(killer), true);
+  run(kc.remaining() + 0.1);
+  assert.equal(kc.hides(killer), false);
+});

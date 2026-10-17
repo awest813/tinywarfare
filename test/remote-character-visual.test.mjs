@@ -284,3 +284,18 @@ test('if both soldier models fail to load, a remote falls back to the block body
   assert.ok(actor.mesh.getObjectByProperty('isMesh', true), 'both failed: a visible body');
   assert.ok(actor.parts, 'animated through the primitive-body path');
 });
+
+test('the block-body fallback animates to finite poses and reaches actors created after the failure', () => {
+  const visuals = makeVisuals();
+  visuals._charFailed = { ct: true, t: true };
+  const actor = makeActor({ moveSpeed2D: 3 });
+  visuals.createOperativeVisual(actor, null);
+  assert.ok(actor.mesh.getObjectByProperty('isMesh', true), 'a remote that joins later still gets a body');
+  for (let i = 0; i < 10; i++) visuals.updateOperativeVisual(actor, 1 / 60);
+  actor.mesh.updateMatrixWorld(true);
+  actor.mesh.traverse((o) => {
+    for (const v of [o.position.x, o.position.y, o.position.z, o.rotation.x, o.rotation.y, o.rotation.z]) {
+      assert.ok(Number.isFinite(v), `${o.name || o.type} pose is finite`);
+    }
+  });
+});
