@@ -5429,12 +5429,15 @@ export default class HUD {
   font-weight: 800; letter-spacing: .16em; white-space: nowrap; overflow: hidden;
 }
 .kc-label { font-size: 12px; color: #0a0806; background: #d4562c; padding: 4px 9px; letter-spacing: .22em; }
-.kc-killer { font-size: 18px; font-weight: 900; letter-spacing: .12em; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* The killer's name is the point of the bar: it keeps its width (to 45%) and
+   the detail gives way first. On a 667 px phone "Viper" was cut to "VIP…". */
+.kc-killer { flex: 0 0 auto; max-width: 45%; font-size: 18px; font-weight: 900; letter-spacing: .12em; overflow: hidden; text-overflow: ellipsis; }
 .kc-killer.ffa { color: #e8eedc; }
 .kc-killer.ct { color: var(--ct); }
 .kc-killer.t { color: var(--t); }
-.kc-detail { font-size: 12px; color: #c7cfbb; overflow: hidden; text-overflow: ellipsis; }
-.kc-skip { margin-left: auto; font-size: 11px; color: rgba(214,229,184,.75); }
+.kc-detail { flex: 1 1 auto; min-width: 0; font-size: 12px; color: #c7cfbb; overflow: hidden; text-overflow: ellipsis; }
+.kc-skip { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; margin-left: auto; font-size: 11px; color: rgba(214,229,184,.75); }
+@media (max-width: 760px) { .kc-row { gap: 9px; letter-spacing: .1em; } .kc-killer { font-size: 16px; } }
 /* The replay is the whole screen: the live HUD steps aside. */
 #hud.killcam-on #hud-radar, #hud.killcam-on #hud-top, #hud.killcam-on #hud-killfeed,
 #hud.killcam-on #hud-health, #hud.killcam-on #hud-armor, #hud.killcam-on #hud-ammo,
