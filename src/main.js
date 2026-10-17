@@ -9,6 +9,7 @@ import { MaterialSystem } from './gfx/materials/index.js';
 import { PostChain } from './gfx/post/index.js';
 import { createAutoGraphics } from './gfx/auto-graphics.js';
 import { graphicsProfile, isChromeOS, probeGpuName } from './gfx/profiles.js';
+import { prewarmShaders } from './gfx/prewarm.js';
 import { installBilinearShadows } from './gfx/shadow-bilinear.js';
 import Player from './player/player.js';
 import Killcam from './player/killcam.js';
@@ -265,6 +266,20 @@ game.touchControls = new TouchControls(game);
 game.multiplayer = new Multiplayer(game);
 game.killcam = new Killcam(game);
 loadingScreen?.setStage?.('Calibrating combat systems', 92);
+
+// Compile every shader up front (see src/gfx/prewarm.js): at boot behind the
+// loading screen, after a map change (the light count, and so every program,
+// differs per map) and at match start for anything that streamed in since
+// (soldier GLBs). Without it the first live frame and the first tracer and
+// explosion each froze a low-end GPU mid-fight.
+const prewarm = () => {
+  // The post chain draws the scene off-screen first (a different program key).
+  const targets = game.post?.sceneRt ? [game.post.sceneRt, null] : [null];
+  try { prewarmShaders(renderer, scene, camera, targets); } catch (error) { console.warn('[prewarm]', error); }
+};
+prewarm();
+game.events.on('map:changed', () => setTimeout(prewarm, 0));
+game.events.on('ui:start', prewarm);
 
 /**
  * The one place a frame gets drawn. Anything that drives its own loop should

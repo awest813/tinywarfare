@@ -552,11 +552,15 @@ export default class Player {
     //    aim, or throw input breaks it (weapons owns that veto) --
     const weapons = game.weapons;
     const analogSprint = analogMagnitude > 0.96 && (Number(analog.y) || 0) > 0.85;
-    // With toggle aim, a fresh sprint press drops the sights and runs.
-    if (sprintKey && !this._sprintKeyPrev && fmove > 0.5 && game.settings?.aimToggle) {
+    // With toggle aim, wanting to sprint drops the sights and runs. Keyed on
+    // the WANT (Shift held and moving forward) turning on, not on the Shift
+    // press alone: Shift then W never cleared the latch, and the latched aim
+    // then vetoed the sprint for good.
+    const wantSprint = sprintKey && fmove > 0.5;
+    if (wantSprint && !this._sprintKeyPrev && game.settings?.aimToggle) {
       game.input?.clearAimLatch?.();
     }
-    this._sprintKeyPrev = sprintKey;
+    this._sprintKeyPrev = wantSprint;
     const sprintVeto = !!(weapons && typeof weapons.blocksSprint === 'function' && weapons.blocksSprint());
     this.sprinting = !moveLocked && (sprintKey || analogSprint) && fmove > 0.5 &&
       !this.crouching && !walkKey && !sprintVeto && !this.sliding;
@@ -605,7 +609,11 @@ export default class Player {
         const cur = v.x * _wish.x + v.z * _wish.z;
         const add = wishSpeed - cur;
         if (add > 0) {
-          const accel = Math.min(P.ACCEL_GROUND * dt, add);
+          // Scaled with the target speed: a fixed 60 m/s^2 against the 9/s
+          // friction settles near 6.67 m/s, so a sprint above that (6.7, or
+          // 7.2 with Lightweight) was only reached at a low frame rate: 7.24
+          // m/s at 30 fps but 6.79 at 240. Unchanged at run speed (5.2).
+          const accel = Math.min(P.ACCEL_GROUND * Math.max(1, wishSpeed / (P.RUN_SPEED || 5.2)) * dt, add);
           v.x += _wish.x * accel;
           v.z += _wish.z * accel;
         }

@@ -307,8 +307,12 @@ export default class Weapons {
       spread += movePen;
     }
     // Jump inaccuracy ramps in over AIR_RAMP and leaves a short landing tail.
-    if (p && p.onGround === false) spread += def.spreadJump * Math.min(1, this._airT / AIR_RAMP);
-    else if (this._landT < LAND_RECOVER) spread += def.spreadJump * LAND_PENALTY * (1 - this._landT / LAND_RECOVER);
+    // Airborne takes the larger of the ramp and any landing tail still owed:
+    // the ramp alone restarts near zero, so hopping again on landing was more
+    // accurate than standing there (and more so at a high frame rate).
+    const landing = this._landT < LAND_RECOVER ? LAND_PENALTY * (1 - this._landT / LAND_RECOVER) : 0;
+    if (p && p.onGround === false) spread += def.spreadJump * Math.max(Math.min(1, this._airT / AIR_RAMP), landing);
+    else if (landing > 0) spread += def.spreadJump * landing;
 
     spread += this._bloom;
 
@@ -407,6 +411,13 @@ export default class Weapons {
   equip(id) {
     if (!id || !WEAPONS[id] || !this.owns(id)) return false;
     if (id === this.currentId && this._state !== 'throwing') return false;
+    // Once the grenade has left the hand the throw plays out; a key pressed
+    // now is honoured when it ends. Switching here skipped ~0.4 s of throw
+    // and the raise (two flashbangs 0.43 s apart instead of 0.90).
+    if (this._state === 'throwing' && this._thrown) {
+      this._equipAfterThrow = id;
+      return true;
+    }
     const swap = hasPerk(this.game.player, 'quickhands') ? PERK_TUNING.QUICKHANDS_SWAP : 1;
     this._forceEquip(id, this._switchTime(id) * swap, true);
     return true;
@@ -659,6 +670,9 @@ export default class Weapons {
             : (next === this.slots[1] ? this.slots[2] : this.slots[1]) || null;
         }
         this._forceEquip(next, FAST_SWITCH_TIME, false);
+        const queued = this._equipAfterThrow;
+        this._equipAfterThrow = null;
+        if (queued && queued !== next && this.owns(queued)) this.equip(queued);
       }
     }
 
@@ -666,7 +680,9 @@ export default class Weapons {
     if (this._rescopeAt > 0 && this._now >= this._rescopeAt) {
       this._rescopeAt = -1;
       const d = this.current();
-      if (d.zoomFov && this._state === 'idle') {
+      // Not into a sprint the player started after the shot: scoped blocks
+      // sprint, so the re-scope dragged them to a walk at 26 deg FOV mid-run.
+      if (d.zoomFov && this._state === 'idle' && !(g.player && g.player.sprinting)) {
         this.scopeLevel = this._rescopeLevel;
         const fov = d.zoomFov[this.scopeLevel - 1];
         this._fovTarget = fov;

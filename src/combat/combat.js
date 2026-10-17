@@ -631,6 +631,12 @@ export default class Combat {
       if (remaining <= 0.25) return;
       dmgScale *= Math.min(0.75, PEN_DMG_SCALE * (0.5 + 0.5 * pen));
       this._sOrigin.copy(this._exitPoint).addScaledVector(this._sDir, 0.01);
+      // A thin slab laid against a thicker one (Dustyard's open door leaves on
+      // the 0.6 m mid wall) "exits" straight into the next solid. Raycasts
+      // from inside a solid hit nothing (front faces only), so the bullet then
+      // crossed the whole wall: rifles killed through concrete at mid. The
+      // probe only measured the slab; the wall is thicker, so the round stops.
+      if (Array.isArray(world.colliders) && world.colliders.some((box) => box.containsPoint(this._sOrigin))) return;
     }
   }
 
@@ -1130,8 +1136,12 @@ export default class Combat {
 
       if (!p.grounded) p.vel.y -= GRENADE_GRAVITY * dt;
 
-      // integrate along motion with a ray to prevent tunneling
+      // integrate along motion with a ray to prevent tunneling. Displaced by
+      // the average of the old and new velocity (exact under constant
+      // gravity, as the player's jump is): moving by the new one alone made
+      // a throw land ~0.9 m shorter at 30 fps than at 144.
       this._v1.copy(p.vel).multiplyScalar(dt);
+      if (!p.grounded) this._v1.y += 0.5 * GRENADE_GRAVITY * dt * dt;
       const dist = this._v1.length();
       if (dist > 1e-7) {
         this._v2.copy(this._v1).multiplyScalar(1 / dist);
@@ -1181,7 +1191,7 @@ export default class Combat {
 
       // rolling: hug the floor, drag to a stop, fall off ledges
       if (p.grounded && !p.resting) {
-        const drag = Math.max(0, 1 - GRENADE_ROLL_DRAG * dt);
+        const drag = Math.exp(-GRENADE_ROLL_DRAG * dt); // frame-rate independent
         p.vel.x *= drag;
         p.vel.z *= drag;
         let onFloor = false;
@@ -1241,9 +1251,10 @@ export default class Combat {
     // A semtex stuck to someone is lethal to its host.
     const host = p.type === 'semtex' ? p.stuckTo : null;
     if (host && host.alive !== false && typeof host.takeDamage === 'function') {
+      const shielded = host.spawnProtection > 0;
       this._noteWound(host, p.thrower);
       host.takeDamage(250, { from: p.thrower, weapon: weaponId, headshot: false, part: 'body' });
-      if (this._isPlayer(p.thrower)) this.game.events.emit('hud:hitmarker', { headshot: false, kill: host.alive === false });
+      if (this._isPlayer(p.thrower) && !shielded) this.game.events.emit('hud:hitmarker', { headshot: false, kill: host.alive === false });
     }
     // Peak damage comes from the weapon data (150: a kill inside ~2 m); the
     // old flat 98 meant a grenade at someone's feet could never kill.
@@ -1381,9 +1392,12 @@ export default class Combat {
         if (friendly && !hurtTeammates) continue;
         if (requireLOS && !this._losClear(center, this._v6)) continue;
         const dmg = Math.max(1, Math.round(maxDmg * Math.pow(1 - d / radius, HE_FALLOFF_EXP)));
+        // A spawn-protected bot takes nothing, so it earns no hitmarker
+        // (bullets already check this in _applyDamage).
+        const shielded = b.spawnProtection > 0;
         this._noteWound(b, attacker);
         b.takeDamage(dmg, { from: attacker, weapon: weaponId, headshot: false, part: 'body' });
-        if (byPlayer) ev.emit('hud:hitmarker', { headshot: false, kill: !b.alive });
+        if (byPlayer && !shielded) ev.emit('hud:hitmarker', { headshot: false, kill: !b.alive });
       }
     }
 
