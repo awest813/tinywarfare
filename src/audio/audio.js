@@ -26,6 +26,7 @@ const _vFwd = new THREE.Vector3();
 const _vOcc = new THREE.Vector3();
 const _vA = new THREE.Vector3();
 const _vB = new THREE.Vector3();
+const _vDown = new THREE.Vector3(0, -1, 0);
 
 // --- gunshot character per weapon id ----------------------------------------
 // vol    : overall loudness scaler
@@ -50,10 +51,18 @@ const GUN_PROFILES = {
 
 const FOOT_PROFILES = {
   concrete: { f: 760,  q: 1.1, dur: 0.070, vol: 1.00 },
+  stone:    { f: 680,  q: 1.2, dur: 0.075, vol: 1.00 },
   sand:     { f: 400,  q: 0.6, dur: 0.110, vol: 0.80 },
   wood:     { f: 520,  q: 1.5, dur: 0.080, vol: 1.00, knock: 175 },
   metal:    { f: 1400, q: 3.0, dur: 0.090, vol: 0.90, ring: 1750 },
+  // Packed snow: a soft low body and a dry crunch of grains on top.
+  snow:     { f: 300,  q: 0.5, dur: 0.130, vol: 0.75, crunch: 2300 },
 };
+// Surfaces with no footstep of their own walk like their nearest neighbour.
+const FOOT_ALIAS = { dirt: 'sand', foliage: 'sand', fabric: 'sand', rubber: 'sand', ice: 'stone', plaster: 'concrete', glass: 'concrete', tile: 'stone' };
+
+// Near-miss crack: rounds from these are subsonic and only whizz.
+const SUBSONIC = { glock: 1, usp: 1, mp5: 1 };
 
 const GRENADE_IDS = { hegrenade: 1, flashbang: 1, smokegrenade: 1, semtex: 1, stun: 1 };
 
@@ -103,6 +112,8 @@ export default class AudioSys {
     this._lastEliminationCueAt = -100;
     this._pendingEliminationAt = -1;
     this._nextRewardCueAt = -1;
+    this._lastWhizAt = -100;      // near-miss cracks are rate limited
+    this._pauseDucked = false;
 
     this._bind();
   }
@@ -129,6 +140,9 @@ export default class AudioSys {
     ev.on('bot:fire', (p) => this._onBotFire(p));
     ev.on('weapon:dryfire', () => this._onDryFire());
     ev.on('weapon:reload:start', (p) => this._onReloadStart(p));
+    ev.on('weapon:reload:cancel', () => this._cancelReload());
+    // An enemy round passing your head: the crack that says you are under fire.
+    ev.on('fx:tracer', (p) => this._onTracer(p));
     ev.on('weapon:equip', (p) => this._onEquip(p));
     ev.on('weapon:scope', (p) => this._onScope(p));
     ev.on('grenade:throw', (p) => this._onThrow(p));
@@ -146,6 +160,7 @@ export default class AudioSys {
     ev.on('player:slide', () => this._onSlide());
     ev.on('player:mantle', () => this._onMantle());
     ev.on('player:respawn', () => this._onRespawn());
+    ev.on('player:respawn', () => this._cancelReload());
 
     // Damage / deaths
     ev.on('player:damage', (p) => this._onPlayerDamage(p));
@@ -263,7 +278,11 @@ export default class AudioSys {
     this.comp.ratio.value = 5;
     this.comp.attack.value = 0.003;
     this.comp.release.value = 0.22;
-    this.comp.connect(this.duck);
+    // Pulled down while a solo match is paused (see update()).
+    this.pauseGain = ctx.createGain();
+    this.pauseGain.gain.value = 1;
+    this.comp.connect(this.pauseGain);
+    this.pauseGain.connect(this.duck);
 
     this.sfx = ctx.createGain();
     this.sfx.gain.value = 1;
@@ -539,6 +558,15 @@ export default class AudioSys {
     return grp;
   }
 
+  /** The surface under a soldier's feet (what the player's own steps use). */
+  _surfaceBelow(pos) {
+    const world = this.game.world;
+    if (!world || typeof world.raycast !== 'function') return 'concrete';
+    _vB.set(pos.x, pos.y + 0.3, pos.z);
+    const hit = world.raycast(_vB, _vDown, 1.2);
+    return (hit && hit.surface) || 'concrete';
+  }
+
   /** True when map geometry blocks the straight line from the listener. */
   _occluded(from, dx, dy, dz, d) {
     const world = this.game.world;
@@ -744,13 +772,17 @@ export default class AudioSys {
   }
 
   _footstep(grp, t, surface) {
-    const p = FOOT_PROFILES[surface] || FOOT_PROFILES.concrete;
+    const p = FOOT_PROFILES[surface] || FOOT_PROFILES[FOOT_ALIAS[surface]] || FOOT_PROFILES.concrete;
     this._noiseHit(grp, t, {
       type: 'bandpass', f: p.f * this._rnd(0.88, 1.14), q: p.q,
       dur: p.dur, vol: p.vol, a: 0.004, rate: this._rnd(0.9, 1.15),
     });
     if (p.knock) this._tone(grp, t, { f: p.knock * this._rnd(0.92, 1.08), vol: 0.35, a: 0.003, dur: 0.05, end: p.knock * 0.7 });
     if (p.ring) this._tone(grp, t, { f: p.ring * this._rnd(0.95, 1.06), type: 'triangle', vol: 0.10, a: 0.002, dur: 0.14 });
+    if (p.crunch) {
+      this._noiseHit(grp, t + 0.012, { type: 'bandpass', f: p.crunch * this._rnd(0.85, 1.15), q: 1.8, dur: 0.05, vol: 0.32, a: 0.002, rate: this._rnd(0.8, 1.2) });
+      this._noiseHit(grp, t + 0.045, { type: 'bandpass', f: p.crunch * this._rnd(0.6, 0.8), q: 1.6, dur: 0.04, vol: 0.2, a: 0.002 });
+    }
   }
 
   _impactSound(grp, t, surface) {
@@ -762,8 +794,20 @@ export default class AudioSys {
     } else if (surface === 'wood') {
       this._noiseHit(grp, t, { type: 'bandpass', f: this._rnd(420, 560), q: 1.2, dur: 0.055, vol: 0.7, a: 0.002, rate: 0.85 });
       this._tone(grp, t, { f: 190, vol: 0.4, a: 0.002, dur: 0.06, end: 120 });
-    } else if (surface === 'sand') {
+    } else if (surface === 'sand' || surface === 'dirt') {
       this._noiseHit(grp, t, { type: 'lowpass', f: 600, dur: 0.08, vol: 0.6, a: 0.006, rate: 0.8 });
+    } else if (surface === 'snow') {
+      // A soft puff into packed snow, no crack.
+      this._noiseHit(grp, t, { type: 'lowpass', f: 900, fEnd: 300, slideDur: 0.08, dur: 0.09, vol: 0.5, a: 0.004, rate: 0.75 });
+      this._noiseHit(grp, t + 0.006, { type: 'bandpass', f: 2200, q: 1.4, dur: 0.03, vol: 0.12, a: 0.002 });
+    } else if (surface === 'glass') {
+      // A bright tick and a short tinkle of fragments.
+      this._noiseHit(grp, t, { type: 'highpass', f: 5200, dur: 0.03, vol: 0.55, a: 0.001 });
+      for (let i = 0; i < 3; i++) {
+        this._tone(grp, t + 0.02 + i * this._rnd(0.025, 0.05), { f: this._rnd(3800, 6200), type: 'sine', vol: 0.09, a: 0.001, dur: 0.06 });
+      }
+    } else if (surface === 'fabric' || surface === 'foliage' || surface === 'rubber') {
+      this._noiseHit(grp, t, { type: 'lowpass', f: 700, dur: 0.05, vol: 0.45, a: 0.003, rate: 0.8 });
     } else {
       // concrete
       this._noiseHit(grp, t, { type: 'highpass', f: 2400, dur: 0.04, vol: 0.6, a: 0.001 });
@@ -1075,7 +1119,65 @@ export default class AudioSys {
 
   _onBotStep(p) {
     if (!this._ready() || !p || !p.pos) return;
-    this.play3D((g, t) => this._footstep(g, t, p.surface || 'concrete'), p.pos, { refDist: 6, maxDist: 30, vol: 0.38, occlude: true, occludeLift: 1.1 });
+    // A teammate's steps sit under an enemy's, so the ones that matter read
+    // through a busy room (every team shooter mixes friendlies down).
+    const mine = this.game.player && this.game.player.team;
+    const friendly = !!(mine && p.team === mine && this.game.state?.mode !== 'ffa');
+    // Surface looked up only for steps loud enough to be built.
+    this.play3D((g, t) => this._footstep(g, t, p.surface || this._surfaceBelow(p.pos)), p.pos, {
+      refDist: 6, maxDist: friendly ? 22 : 30, vol: friendly ? 0.2 : 0.38, occlude: true, occludeLift: 1.1,
+    });
+  }
+
+  /**
+   * Near miss: an enemy round passing within a couple of metres of your head
+   * cracks past (a supersonic rifle round) or whizzes (pistol, SMG), panned to
+   * the side it went by. Without it, the misses bots fire on purpose to warn
+   * you were silent and the first sign of a fight was taking damage.
+   */
+  _onTracer(p) {
+    if (!this._ready() || !p || !p.from || !p.to || p.pellet) return;
+    const player = this.game.player;
+    if (!player || player.alive === false || this.game.paused) return;
+    const mp = this.game.multiplayer;
+    const replica = !!(mp && mp.active && typeof mp.isAuthority === 'function' && !mp.isAuthority());
+    // A replica receives the authority's own shots flagged byPlayer: only the
+    // shooter id says whether a round was ours there.
+    const own = replica ? !!(p.shooterId && p.shooterId === mp.localId) : !!p.byPlayer;
+    if (own) return;
+    if (p.team && p.team === player.team && this.game.state?.mode !== 'ffa') return;
+
+    const cp = this.game.camera.position;
+    const fx = p.from.x, fy = p.from.y, fz = p.from.z;
+    const sx = p.to.x - fx, sy = p.to.y - fy, sz = p.to.z - fz;
+    const len2 = sx * sx + sy * sy + sz * sz;
+    if (len2 < 16) return;
+    const k = ((cp.x - fx) * sx + (cp.y - fy) * sy + (cp.z - fz) * sz) / len2;
+    // Behind the muzzle, or stopped short of you (a wall, or your own body:
+    // a hit has its own cue).
+    if (k <= 0.02 || k >= 0.985) return;
+    const px = fx + sx * k, py = fy + sy * k, pz = fz + sz * k;
+    const d = Math.hypot(px - cp.x, py - cp.y, pz - cp.z);
+    if (d > 2.4 || k * Math.sqrt(len2) < 4) return;
+    const now = this.ctx.currentTime;
+    if (now - this._lastWhizAt < 0.07) return;
+    this._lastWhizAt = now;
+
+    const subsonic = !!SUBSONIC[p.weaponId] || !!p.suppressed;
+    _vA.set(px, py, pz);
+    this.play3D((g, t) => {
+      if (!subsonic) {
+        // The sonic crack: a hard, very short broadband snap.
+        this._noiseHit(g, t, { type: 'highpass', f: 2400, dur: 0.014, vol: 0.9, a: 0.0005 });
+        this._noiseHit(g, t, { type: 'bandpass', f: 1300, q: 0.8, dur: 0.02, vol: 0.35, a: 0.0005 });
+      }
+      // The round's own whizz, falling in pitch as it passes.
+      this._noiseHit(g, t + (subsonic ? 0 : 0.008), {
+        type: 'bandpass', f: subsonic ? 2600 : 4200, fEnd: subsonic ? 700 : 1200,
+        slideDur: subsonic ? 0.16 : 0.09, q: 2.6, dur: subsonic ? 0.18 : 0.1,
+        vol: subsonic ? 0.55 : 0.4, a: 0.01, rate: this._rnd(0.9, 1.1),
+      });
+    }, _vA, { refDist: 0.9, maxDist: 3.2, vol: subsonic ? 0.5 : 0.62, priority: true });
   }
 
   _onLand(p) {
@@ -1816,7 +1918,16 @@ export default class AudioSys {
     const now = this.ctx.currentTime;
     // Paused: the bomb timer and defuse progress are frozen, so their beeps
     // and ticks would repeat forever at the frozen rate.
-    if (this.game.paused) {
+    // The paused world sits far under the menu, and comes back with play.
+    const paused = !!this.game.paused;
+    if (paused !== this._pauseDucked && this.pauseGain) {
+      this._pauseDucked = paused;
+      const g = this.pauseGain.gain;
+      g.cancelScheduledValues(now);
+      g.setValueAtTime(g.value, now);
+      g.linearRampToValueAtTime(paused ? 0.25 : 1, now + (paused ? 0.15 : 0.3));
+    }
+    if (paused) {
       this._nextBeep = now + 0.2;
       this._nextDefTick = now + 0.2;
       return;

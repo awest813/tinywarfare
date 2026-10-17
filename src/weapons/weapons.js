@@ -1152,6 +1152,8 @@ export default class Weapons {
   _cancelActivity() {
     // Cancels reload / wind-up / throw-in-progress silently. A grenade whose
     // pin was pulled but not yet released is kept (no consume happened).
+    // The reload foley is already scheduled to its end: stop it with the reload.
+    if (this._state === 'reloading') this.game.events.emit('weapon:reload:cancel');
     this._state = 'idle';
     this._stateT = 0;
     this._stateDur = 0;

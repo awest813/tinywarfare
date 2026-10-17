@@ -307,3 +307,82 @@ test('a wall between the listener and a sound counts as occlusion; open air does
   sys.game = {};
   assert.equal(sys._occluded(from, 0, 0, -20, 20), false, 'no world: never occluded');
 });
+
+function whizHarness({ mode = 'tdm', mp = null } = {}) {
+  const { audio, calls } = cueHarness();
+  const played = [];
+  audio._lastWhizAt = -100;
+  audio.game = {
+    camera: { position: { x: 0, y: 1.6, z: 0 } },
+    player: { alive: true, team: 'ct' },
+    state: { mode },
+    multiplayer: mp,
+  };
+  audio.play3D = (build, pos, opts) => {
+    const before = calls.noise.length;
+    build({}, 10, 1);
+    played.push({ pos: { ...pos }, opts, layers: calls.noise.slice(before) });
+    audio.ctx.currentTime += 0.2;
+    return {};
+  };
+  return { audio, played };
+}
+// A round from 40 m out along -z that passes 1 m to the side of the head.
+const past = (extra = {}) => ({ from: { x: 1, y: 1.6, z: -40 }, to: { x: 1, y: 1.6, z: 40 }, weaponId: 'ak47', team: 't', ...extra });
+
+test('an enemy round passing your head cracks past, at the point it went by', () => {
+  const { audio, played } = whizHarness();
+  audio._onTracer(past());
+  assert.equal(played.length, 1);
+  assert.equal(played[0].pos.x, 1);
+  assert.ok(Math.abs(played[0].pos.z) < 1e-9, 'voiced where it passed, so it pans to that side');
+  assert.ok(played[0].layers.some((l) => l.opts.type === 'highpass'), 'a rifle round has a sonic crack');
+
+  audio._onTracer(past({ weaponId: 'mp5' }));
+  assert.equal(played.length, 2);
+  assert.ok(!played[1].layers.some((l) => l.opts.type === 'highpass'), 'an SMG round only whizzes');
+});
+
+test('no near-miss for your own rounds, a teammate\'s, far misses, or rounds stopped short', () => {
+  const { audio, played } = whizHarness();
+  audio._onTracer(past({ byPlayer: true, team: 'ct' }));
+  audio._onTracer(past({ team: 'ct' }));
+  audio._onTracer(past({ from: { x: 4, y: 1.6, z: -40 }, to: { x: 4, y: 1.6, z: 40 } }));
+  audio._onTracer(past({ to: { x: 1, y: 1.6, z: -3 } }));            // hit a wall in front of you
+  audio._onTracer(past({ pellet: true }));
+  audio.game.player.alive = false;
+  audio._onTracer(past());
+  assert.equal(played.length, 0);
+
+  const ffa = whizHarness({ mode: 'ffa' });
+  ffa.audio._onTracer(past({ team: 'ct' }));
+  assert.equal(ffa.played.length, 1, 'everyone is an enemy in free-for-all');
+});
+
+test('a replica tells its own rounds by shooter id, not the authority\'s byPlayer flag', () => {
+  const mp = { active: true, localId: 'me', isAuthority: () => false };
+  const { audio, played } = whizHarness({ mp });
+  audio._onTracer(past({ byPlayer: true, shooterId: 'host' }));    // the host's shot, flagged by the host
+  assert.equal(played.length, 1);
+  audio._onTracer(past({ shooterId: 'me' }));
+  assert.equal(played.length, 1);
+});
+
+test('snow crunches, other surfaces walk like their neighbour, teammates step quieter', () => {
+  const { audio, calls } = cueHarness();
+  audio._footstep({}, 10, 'snow');
+  assert.ok(calls.noise.length >= 3, 'snow has a grain crunch over its body');
+  clearLayers(calls);
+  audio._footstep({}, 10, 'dirt');
+  const dirt = calls.noise[0].opts.f;
+  clearLayers(calls);
+  audio._footstep({}, 10, 'sand');
+  assert.ok(Math.abs(calls.noise[0].opts.f - dirt) < 200, 'dirt walks like sand, not concrete');
+
+  const steps = [];
+  audio.game = { player: { team: 'ct' }, state: { mode: 'tdm' }, world: null };
+  audio.play3D = (build, pos, opts) => steps.push(opts);
+  audio._onBotStep({ pos: { x: 0, y: 0, z: 5 }, team: 'ct' });
+  audio._onBotStep({ pos: { x: 0, y: 0, z: 5 }, team: 't' });
+  assert.ok(steps[0].vol < steps[1].vol * 0.7, 'a teammate sits under an enemy');
+});

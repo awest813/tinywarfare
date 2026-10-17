@@ -501,6 +501,10 @@ export default class Combat {
           : (shooter === this.game.player ? this.game.player.networkId : null),
         pellet: this._pelletTracer || undefined,
         suppressed: this._suppressedShot || undefined,
+        // Who fired, for the near-miss crack (audio): never your own rounds,
+        // nor a teammate's outside free-for-all.
+        team: shooterTeam || undefined,
+        byPlayer: byPlayer || undefined,
       });
     }
   }
