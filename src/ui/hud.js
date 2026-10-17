@@ -4534,11 +4534,26 @@ export default class HUD {
       if (p && mp.localId) teams.set(humanCallsign(this.game, mp.localName, mp.localId), p.team);
       for (const r of mp.remotePlayers || []) teams.set(humanCallsign(this.game, r.name, r.networkId), r.team);
     }
+    const ffa = isFfa(this.game);
+    // In free-for-all the order is the match's own standings (which named the
+    // WINNER line): breaking a kill tie by deaths here put a different
+    // soldier in 1ST than the winner shown above it.
+    const standings = ffa && typeof this.game.rounds?.tdm?.ffaStandings === 'function'
+      ? this.game.rounds.tdm.ffaStandings() : null;
+    const rankOf = new Map();
+    if (standings) {
+      standings.forEach((row, i) => {
+        const key = row.isLocal && mp && mp.active && mp.localId ? humanCallsign(this.game, mp.localName, mp.localId)
+          : row.id && mp && mp.active && !String(row.id).startsWith('bot:') ? humanCallsign(this.game, row.name, row.id)
+            : row.name;
+        if (!rankOf.has(key)) rankOf.set(key, i);
+      });
+    }
+    const rank = (name) => (rankOf.has(name) ? rankOf.get(name) : Infinity);
     const rows = [...this._stats.entries()]
       .filter(([name]) => teams.has(name))
-      .sort((a, b) => b[1].k - a[1].k || a[1].d - b[1].d)
+      .sort((a, b) => (standings ? rank(a[0]) - rank(b[0]) : 0) || b[1].k - a[1].k || a[1].d - b[1].d)
       .slice(0, 3);
-    const ffa = isFfa(this.game);
     root.innerHTML = rows.map(([name, s], i) =>
       '<div class="pod' + (ffa ? '' : ' ' + (teams.get(name) || '')) + '"><b>' + ['1ST', '2ND', '3RD'][i] + '</b>' +
       '<strong>' + esc(String(name).toUpperCase()) + '</strong><small>' + s.k + ' K · ' + s.d + ' D</small></div>').join('');
@@ -5752,6 +5767,14 @@ html.touch-device .kc-row { padding-right: 104px; }
   .buy-funds { font-size: 22px; }
   .buy-foot { margin-inline: 14px; font-size: 10px; letter-spacing: .14em; }
 }
+/* A narrow desktop window (phones get the rotate prompt instead): the radar
+   sat on the score panel and the bottom boxes on each other. */
+@media (max-width: 520px) {
+  html:not(.touch-device) #hud-radar { transform: scale(.62); transform-origin: top left; }
+  html:not(.touch-device) #hud-radio { top: 112px; }
+  html:not(.touch-device) #hud-top { left: auto; right: 8px; transform: none; }
+  html:not(.touch-device) #hud-money { left: 18px; bottom: 80px; }
+}
 /* A very narrow window: mode and bot-skill buttons keep their names only (the
    descriptions shrank to stray glyphs). */
 @media (max-width: 480px) {
@@ -6480,6 +6503,18 @@ html.touch-device .mn-id { min-height:52px; }
   #hud-end-kd { margin-bottom: 0; }
   #hud-end-podium { margin: 0; }
   .end-rewards { padding: 6px 10px; }
+}
+/* A 360 px phone: the buttons and MAIN MENU were below the fold. Prefixed
+   with #hud-end to outrank the touch layout's own sizes. */
+@media (max-height: 400px) {
+  #hud-end .end-inner { gap: 4px; padding: 6px 22px 8px; }
+  #hud-end #hud-end-title { font-size: 24px; line-height: 1.05; }
+  #hud-end #hud-end-score { font-size: 19px; }
+  #hud-end .pod { padding: 1px 8px; }
+  #hud-end .end-rewards { padding: 4px 10px; }
+  #hud-end .end-actions .btn-sub { display: none; }
+  #hud-end .end-actions button { min-height: 36px; padding-block: 4px; }
+  #hud-end .end-menu-link { margin-top: 0; padding-block: 2px; }
 }
 @media (orientation:landscape) and (max-height:500px) {
   html.touch-device .mn-op,
