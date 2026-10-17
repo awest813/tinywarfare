@@ -368,7 +368,22 @@ function base(theme) {
           : tintOf(0xbcd08a, 0.40, 1.0),
       },
     ],
-    rubber: ['rubber', { scale: 0.45 }],
+    /**
+     * Tyres. The library's weathering is the generic set, sized for walls: a
+     * worn tyre was pulled halfway to the concrete-grey wear colour, the splash
+     * band's dust wedge swallowed the whole bottom tyre of a stack, and on a
+     * 0.03 albedo even a fifth of a pale map dust (Harbor's is 0x9aa39a) more
+     * than doubles the value — a stack in full sun read as beige. Abraded
+     * rubber goes chalky dark grey; the splash band (weather.z) is off. Set
+     * here, not in the library: the weapons build their alloy and polymer on
+     * the same `rubber` surface and keep its default wear.
+     */
+    rubber: ['rubber', {
+      scale: 0.45,
+      weather: [0.12, 0.18, 0, 0.45],
+      wearColor: 0x3b3a37,
+      wearMaterial: [0.97, 0, 0, 0.5],
+    }],
 
     // ---- weather-specific -------------------------------------------------
     // No scale override: the library's 4 m tile is the size the drift field,
