@@ -109,3 +109,25 @@ test('unlocks are spread across the ladder, awards happen once, quitting keeps w
   const loaded = new Progression({ events: new EventBus() }, storage);
   assert.ok(Number.isFinite(loaded.xp) && Number.isFinite(loaded.weaponXp.m4a1 ?? 0));
 });
+
+test('a synced career restores unlocks on a new device, and never lowers them', () => {
+  const events = new EventBus();
+  const synced = [];
+  events.on('progress:sync', (d) => synced.push(d));
+  const storage = memoryStorage();
+  const p = new Progression({ events }, storage);
+  assert.equal(p.rank(), 1);
+
+  events.emit('progress:updated', { progression: { xp: xpForRank(12) + 10 }, source: 'resume' });
+  assert.equal(p.rank(), 12, 'the AWP is back without replaying');
+  assert.ok(p.isUnlocked('awp'));
+  assert.deepEqual(synced.map((d) => [d.before, d.after]), [[1, 12]]);
+  assert.equal(JSON.parse(storage.getItem(LOCAL_PROGRESS_KEY)).xp, xpForRank(12) + 10, 'saved');
+
+  assert.equal(p.syncCareer({ xp: 100 }), false, 'a lower career (another key) changes nothing');
+  assert.equal(p.syncCareer({ xp: Infinity }), false);
+  assert.equal(p.syncCareer(null), false);
+  assert.equal(p.syncCareer({ xp: 'lots' }), false);
+  assert.equal(p.rank(), 12);
+  assert.equal(synced.length, 1);
+});

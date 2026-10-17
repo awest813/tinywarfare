@@ -258,6 +258,8 @@ game.streaks = new Scorestreaks(game);
 game.loadouts = new Loadouts(game);
 game.announcer = new Announcer(game);
 game.leaderboard = new LeaderboardClient(game);
+// A cached career from an earlier session restores unlocks before the menu draws.
+game.progression.syncCareer(game.leaderboard.getProgression?.());
 game.hud = new HUD(game);
 game.touchControls = new TouchControls(game);
 game.multiplayer = new Multiplayer(game);

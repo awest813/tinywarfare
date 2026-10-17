@@ -51,7 +51,7 @@ test('class cards name what an attachment lock needs; the chip names the next un
   const notes = [...el('row').innerHTML.matchAll(/mn-class-lock">([^<]*)/g)].map((m) => m[1]);
   assert.ok(notes.some((n) => /GRIP AT M4-A1 LV 3 \(4\/9 KILLS\)/.test(n)), notes.join(' | '));
   assert.ok(!notes.some((n) => /^🔒 1 PICK UNLOCKS WITH RANK$/.test(n) && /GRIP/.test(n)));
-  assert.match(el('hud-rank-chip').textContent, /^RANK 1 · .* · NEXT: M1014 AT RANK 2$/);
+  assert.match(el('hud-rank-chip').textContent, /^UNLOCK RANK 1 · .* · NEXT: M1014 AT RANK 2$/);
   game.progression.xp = 1e8;
   hud._renderClasses();
   assert.match(el('hud-rank-chip').textContent, /ALL GEAR UNLOCKED$/);

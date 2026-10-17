@@ -105,6 +105,9 @@ export default class Progression {
       // Quitting mid-match keeps what was earned (score and weapon kills, no
       // result bonus) instead of losing all of it.
       ev.on('ui:menu', () => this._onAbandon());
+      // The server career follows a progress key across devices; this save
+      // does not. See syncCareer().
+      ev.on('progress:updated', (d) => this.syncCareer(d && d.progression));
     }
     try {
       globalThis.addEventListener?.('pagehide', () => this._onAbandon());
@@ -205,6 +208,27 @@ export default class Progression {
     const breakdown = { score: Math.round(Number(score) || 0), bonus, result, earned, before, after, unlocks, weaponUps, summary: this.summary() };
     this.game?.events?.emit('progress:local', breakdown);
     return breakdown;
+  }
+
+  /**
+   * Raise the unlock XP to at least the synced career XP.
+   *
+   * Unlocks live in this browser's storage, so a new device or a recovered
+   * progress key started back at rank 1 with a high career beside it. Career
+   * XP only comes from finished matches, which paid this track too, and the
+   * server tapers and caps it, so as a floor it never grants more than was
+   * earned. It only ever raises: a lower career (another key) changes nothing.
+   * Returns true when the rank went up.
+   */
+  syncCareer(career) {
+    const xp = Number(career && career.xp);
+    if (!Number.isFinite(xp) || xp <= this.xp) return false;
+    const before = this.rank();
+    this.xp = Math.min(MAX_STORED_XP, Math.floor(xp));
+    this._save();
+    const after = this.rank();
+    this.game?.events?.emit('progress:sync', { before, after, summary: this.summary() });
+    return after > before;
   }
 
   // --------------------------------------------------------------------------

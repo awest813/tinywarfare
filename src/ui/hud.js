@@ -1655,6 +1655,11 @@ export default class HUD {
       this._renderClasses();
     });
     this.game.events.on('loadout:select', () => this._renderClasses());
+    // Unlocks restored from the synced career (a new device, a recovered key).
+    this.game.events.on('progress:sync', () => {
+      this._renderClasses();
+      this._renderStreakPicker?.();
+    });
     this.game.events.on('progress:local', (d) => {
       this._localProgress = d || null;
       this._renderClasses();
@@ -1795,7 +1800,7 @@ export default class HUD {
       const r = progression.summary();
       // The next unlock is the reason to keep going: name it.
       const nextUnlock = this._nextUnlock(r.rank);
-      chip.textContent = 'RANK ' + r.rank + ' · ' + r.title + ' · ' + r.xp.toLocaleString('en-US') +
+      chip.textContent = 'UNLOCK RANK ' + r.rank + ' · ' + r.title + ' · ' + r.xp.toLocaleString('en-US') +
         (r.next > r.floor ? ' / ' + r.next.toLocaleString('en-US') + ' XP' : ' XP') +
         (nextUnlock ? ' · NEXT: ' + nextUnlock.name + ' AT RANK ' + nextUnlock.rank : ' · ALL GEAR UNLOCKED');
     }
@@ -3855,6 +3860,8 @@ export default class HUD {
         this._buyRows.push({
           id,
           price: Number.isFinite(price) ? price : 0,
+          priceText: Number.isFinite(price) ? '$' + price.toLocaleString('en-US') : '—',
+          locked: null,
           el: row,
           afford: null,
           owned: null,
@@ -3888,7 +3895,9 @@ export default class HUD {
         row.el.classList.add('purchased');
       }
     } else {
-      this._setBuyFeedback('PURCHASE UNAVAILABLE', false);
+      const progression = this.game.progression;
+      const locked = typeof progression?.isUnlocked === 'function' && !progression.isUnlocked(id);
+      this._setBuyFeedback(locked ? label + ' UNLOCKS AT RANK ' + progression.unlockRank(id) : 'PURCHASE UNAVAILABLE', false);
     }
     return bought;
   }
@@ -3985,6 +3994,7 @@ export default class HUD {
     const p = this.game.player;
     const maxArmor = (this.game.config && this.game.config.PLAYER &&
       this.game.config.PLAYER.MAX_ARMOR) || 100;
+    const progression = typeof this.game.progression?.isUnlocked === 'function' ? this.game.progression : null;
     for (const r of this._buyRows) {
       let owned = false;
       if (r.id === 'armor') owned = !!(p && p.armor >= maxArmor);
@@ -4001,7 +4011,15 @@ export default class HUD {
         r.owned = owned;
         r.el.classList.toggle('owned', owned);
       }
-      const afford = owned || r.price <= money;
+      // A rank-locked item says what unlocks it in place of its price.
+      const locked = !owned && !!progression && !progression.isUnlocked(r.id);
+      if (locked !== r.locked) {
+        r.locked = locked;
+        r.el.classList.toggle('locked', locked);
+        const priceEl = r.el.querySelector?.('.bi-price');
+        if (priceEl) priceEl.textContent = locked ? '🔒 RANK ' + progression.unlockRank(r.id) : r.priceText;
+      }
+      const afford = owned || (!locked && r.price <= money);
       if (afford !== r.afford) {
         r.afford = afford;
         r.el.classList.toggle('na', !afford);
@@ -4916,8 +4934,8 @@ export default class HUD {
       '<div id="hud-end-podium" aria-label="Top players"></div>' +
       '<div id="hud-end-rank"></div>' +
       '<section id="hud-end-rewards" class="end-rewards pending"><div class="end-reward-grid">' +
-      '<span><small data-local="RANK XP">MATCH POINTS</small><strong id="hud-end-reward-points">SYNCING</strong></span>' +
-      '<span><small data-local="RANK">OVERALL RANK</small><strong id="hud-end-reward-rank">—</strong></span>' +
+      '<span><small data-local="UNLOCK XP">MATCH POINTS</small><strong id="hud-end-reward-points">SYNCING</strong></span>' +
+      '<span><small data-local="UNLOCK RANK">OVERALL RANK</small><strong id="hud-end-reward-rank">—</strong></span>' +
       '<span><small data-local="TITLE">CAREER</small><strong id="hud-end-reward-level">LEVEL 1 · ROOKIE</strong></span></div>' +
       '<div class="end-xp"><div><span id="hud-end-xp-fill"></span></div><small id="hud-end-xp-label">VERIFYING MATCH REWARDS…</small></div>' +
       '<div id="hud-end-unlocks" class="end-unlocks"><span class="steady">REWARDS WILL APPEAR HERE</span></div></section>' +
@@ -5623,7 +5641,9 @@ html.touch-device .kc-row { padding-right: 104px; }
 }
 .bi-icon svg { display: block; width: 100%; height: 100%; }
 .bi-info { min-width: 0; flex: 1; }
-.bi-top { min-width: 0; display: flex; justify-content: space-between; align-items: baseline; gap: 7px; }
+/* Five columns at 1366 px leave ~110 px beside the icon: the price wraps under
+   the name rather than cutting "AK-47" to "AK…". */
+.bi-top { min-width: 0; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 1px 7px; }
 .buy-item .bi-name {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 15.5px; font-weight: 700; color: var(--olive-bright); letter-spacing: .025em;
@@ -5642,6 +5662,7 @@ html.touch-device .kc-row { padding-right: 104px; }
   background: rgba(0, 0, 0, 0.22); border-color: rgba(154, 178, 107, 0.08);
 }
 .buy-item.na .bi-price { color: #dd6450; }
+.buy-item.locked .bi-price { color: var(--olive-dim); font-size: 11px; letter-spacing: .1em; }
 .bi-bars { margin-top: 7px; display: grid; gap: 4px; }
 .bi-bar { display: flex; align-items: center; gap: 6px; }
 .bi-bar em {

@@ -471,6 +471,10 @@ export default class Weapons {
     // ---- real weapons -----------------------------------------------------
     const def = WEAPONS[id];
     if (!def || !def.price) return false;
+    // Rank unlocks hold here too: an AWP a class can't take until rank 12
+    // was $4,750 away in the first Search & Destroy round.
+    const progression = g.progression;
+    if (progression && typeof progression.isUnlocked === 'function' && !progression.isUnlocked(id)) return false;
     if (state.money < def.price) return false;
 
     if (def.slot === 4) {
