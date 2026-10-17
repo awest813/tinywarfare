@@ -2618,6 +2618,10 @@ export default class Multiplayer {
     const wasPending = !!remote.spectating || (remote.joinRound && remote.joinRound > currentRound);
     this._destroyRemoteVisual(remote);
     this._remoteById.delete(id);
+    // A bot engaging this player holds the object, not the list: left alive,
+    // a Recruit stood firing bursts at the empty spot until something killed
+    // it. Bots drop a target that is no longer alive.
+    remote.alive = false;
     const index = this.remotePlayers.indexOf(remote);
     if (index >= 0) this.remotePlayers.splice(index, 1);
     this.roster = this.roster.filter((p) => p.id !== id);

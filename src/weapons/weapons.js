@@ -136,10 +136,14 @@ export default class Weapons {
     ev.on('input:wheel', this._onWheel);
     ev.on('input:keydown', this._onKey);
     ev.on('kill', (e) => this._onKillScavenge(e));
-    ev.on('ui:restart', () => {
-      // Full match reset: next resetForRound() deals a fresh loadout.
-      this._everReset = false;
-    });
+    // Full match reset: next resetForRound() deals a fresh loadout. PLAY from
+    // the menu is ui:start, not ui:restart: without it a new S&D match opened
+    // on $8000 with the last match's guns (a TDM class, a bought AWP) in hand.
+    // Weapons is built before Rounds, so this runs before the match starts.
+    const freshMatch = () => { this._everReset = false; };
+    ev.on('ui:restart', freshMatch);
+    ev.on('ui:start', freshMatch);
+    ev.on('ui:menu', freshMatch);
   }
 
   // ==========================================================================

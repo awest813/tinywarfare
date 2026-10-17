@@ -172,6 +172,11 @@ export default class TouchControls {
     if (!inGame) {
       this._setScore(false);
       this._setCrouch(false);
+      // The automatic gameplay lock ends with play. Left on, Input kept
+      // swallowing bound keys (WASD, digits, Space, Tab) in the callsign and
+      // room-code fields, blocked key remapping and cancelled menu scrolling.
+      const input = this.game.input;
+      if (input?.locked && input._virtualLock && !this.game.debug) input.releaseLock();
       return;
     }
 
@@ -303,6 +308,12 @@ export default class TouchControls {
     });
     // Resuming from the pause overlay re-locks; follow it.
     this.game.events?.on?.('input:lock', () => { this._paused = false; });
+    // Any unlock during play is a pause, not just the pause button: Escape
+    // from a real lock (an iPad trackpad click upgrades to one) was re-locked
+    // by the next frame, so the pause overlay never showed. And the crouch /
+    // aim latches are dropped with the inputs Input just released, so they
+    // no longer show latched on resume while the player stands unaimed.
+    this.game.events?.on?.('input:unlock', () => this._onUnlock());
     for (const button of this._el.slots) {
       this._bindTap(button, () => this.game.input?.pulseVirtualAction?.('weapon' + button.dataset.slot));
     }
@@ -595,6 +606,11 @@ export default class TouchControls {
       setGameplayGestureGuard(false);
       this._releaseGameplayInputs();
     }
+  }
+
+  _onUnlock() {
+    if (PLAY_PHASES.has(this.game.state?.phase)) this._paused = true;
+    this._releaseGameplayInputs();
   }
 
   _releaseGameplayInputs() {

@@ -40,3 +40,19 @@ test('a rank-locked weapon cannot be bought; it can once the rank is reached', (
   assert.equal(w.buy('awp'), true);
   assert.ok(w.owns('awp'));
 });
+
+test('a match started from the menu deals a fresh loadout, not the last match\'s guns', () => {
+  const game = makeGame();
+  const w = game.weapons;
+  w.resetForRound({ died: false });          // first match, round 1
+  game.progression.xp = xpForRank(12);
+  w.buy('awp');
+  w.resetForRound({ died: false });          // a survivor keeps the AWP into round 2
+  assert.equal(w.slots[1], 'awp');
+
+  game.events.emit('ui:menu');
+  game.events.emit('ui:start');              // PLAY from the menu
+  w.resetForRound({ died: false });          // the new match's round 1
+  assert.equal(w.slots[1], null, 'no AWP carried into a new match');
+  assert.deepEqual(w.slots[4], []);
+});

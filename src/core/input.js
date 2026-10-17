@@ -86,6 +86,12 @@ const MOVE_SPIKE_PX = 500;
 const WHEEL_STEP = 25;
 const WHEEL_STALE_MS = 200;
 
+/** Physical punctuation keys, by position, as their US unshifted character. */
+export const PUNCTUATION_BY_CODE = Object.freeze({
+  Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/', Backslash: '\\',
+  BracketLeft: '[', BracketRight: ']', Minus: '-', Equal: '=', Backquote: '`',
+});
+
 export default class Input {
   constructor(game) {
     this.game = game;
@@ -529,6 +535,12 @@ export default class Input {
     const letter = /^Key([A-Z])$/.exec(e?.code || '');
     if (letter) return letter[1].toLowerCase();
     if (e?.code === 'Space') return ' ';
+    // And punctuation: with Shift (sprint) held, ';' arrives as ':', so a key
+    // bound to it did nothing while sprinting and, released under Shift,
+    // stayed held (the player kept strafing). Stored as the US unshifted
+    // character; labels come from the player's layout like the letters.
+    const punct = PUNCTUATION_BY_CODE[e?.code];
+    if (punct) return punct;
     return normalizePhysicalKey(e?.key);
   }
 

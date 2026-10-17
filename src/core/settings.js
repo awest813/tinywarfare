@@ -96,11 +96,22 @@ export function setKeyboardLayoutMap(map) {
   keyboardLayout = map && typeof map.get === 'function' ? map : null;
 }
 
+const PUNCTUATION_CODES = Object.freeze({
+  ';': 'Semicolon', "'": 'Quote', ',': 'Comma', '.': 'Period', '/': 'Slash', '\\': 'Backslash',
+  '[': 'BracketLeft', ']': 'BracketRight', '-': 'Minus', '=': 'Equal', '`': 'Backquote',
+});
+
 export function formatKeyLabel(value) {
   const key = normalizePhysicalKey(value);
   if (!key) return 'UNBOUND';
   if (keyboardLayout && /^[a-z]$/.test(key)) {
     const printed = keyboardLayout.get('Key' + key.toUpperCase());
+    if (typeof printed === 'string' && printed.trim()) return printed.toUpperCase();
+  }
+  // Punctuation is bound by position too (input.js PUNCTUATION_BY_CODE).
+  const punctCode = PUNCTUATION_CODES[key];
+  if (keyboardLayout && punctCode) {
+    const printed = keyboardLayout.get(punctCode);
     if (typeof printed === 'string' && printed.trim()) return printed.toUpperCase();
   }
   const labels = {
