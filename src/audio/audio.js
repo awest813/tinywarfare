@@ -131,6 +131,9 @@ export default class AudioSys {
     ev.on('weapon:equip', (p) => this._onEquip(p));
     ev.on('weapon:scope', (p) => this._onScope(p));
     ev.on('grenade:throw', (p) => this._onThrow(p));
+    ev.on('bot:grenade', (p) => this._onBotThrow(p));
+    ev.on('killcam:start', () => this._duckLive(true));
+    ev.on('killcam:end', () => this._duckLive(false));
     // Gunfire the authority resolves for remote players (no bot:fire exists).
     ev.on('audio:shot', (p) => this._onBotFire(p));
     ev.on('grenade:stuck', (p) => this._onStuck(p));
@@ -277,6 +280,12 @@ export default class AudioSys {
     this.feedback.gain.value = 0.82;
     this.feedback.connect(this.master);
 
+    // The killcam replay's own shots: kept clear of the live match, which is
+    // ducked under it while the replay plays.
+    this.replayBus = ctx.createGain();
+    this.replayBus.gain.value = 1;
+    this.replayBus.connect(this.comp);
+
     this._makeBuffers();
     this._startAmbient();
   }
@@ -420,9 +429,9 @@ export default class AudioSys {
 
   /** Direct (non-positional) group into the SFX bus, or null when not ready /
    *  over the voice budget. */
-  _direct(vol, bus) {
+  _direct(vol, bus, priority = false) {
     if (!this._ready()) return null;
-    if (this._voices > 72) return null;
+    if (!priority && this._voices > 72) return null;
     return this._grp(bus || this.sfx, vol);
   }
 
@@ -470,9 +479,12 @@ export default class AudioSys {
     if (g <= 0.004) return null;
 
     // Voice shedding: drop quiet distant sounds during heavy firefights.
+    // Shed by loudness, not arrival order: past the budget only the quiet
+    // ones go, so a nearby shot is never dropped for a distant impact.
     if (!o.priority) {
-      if (this._voices > 70) return null;
+      if (this._voices > 70 && g < 0.3) return null;
       if (this._voices > 48 && g < 0.12) return null;
+      if (this._voices > 110) return null;
     }
 
     // Stereo pan from camera-relative azimuth.
@@ -488,7 +500,7 @@ export default class AudioSys {
     }
 
     const ctx = this.ctx;
-    let dest = this.sfx;
+    let dest = o.bus || this.sfx;
     let panner = null;
     if (ctx.createStereoPanner) {
       panner = ctx.createStereoPanner();
@@ -891,7 +903,7 @@ export default class AudioSys {
     }
     if (GRENADE_IDS[id]) return; // throws are voiced via 'grenade:throw'
 
-    const prof = GUN_PROFILES[id] || GUN_PROFILES.m4a1;
+    const prof = this._shotProfile(GUN_PROFILES[id] || GUN_PROFILES.m4a1, p.suppressed);
     // Defensive: 'weapon:fire' is player-emitted per spec, but if a payload
     // ever arrives flagged non-player with a world origin, voice it in 3D.
     if (p.byPlayer === false && p.origin) {
@@ -900,7 +912,8 @@ export default class AudioSys {
       });
       return;
     }
-    const grp = this._direct(prof.vol * 0.5);
+    // Your own shot always plays: shedding it in a firefight read as a misfire.
+    const grp = this._direct(prof.vol * 0.5, null, true);
     if (!grp) return;
     const t = this._t();
     this._gunshot(grp, t, prof, 0);
@@ -918,14 +931,30 @@ export default class AudioSys {
       this.play3D((g, t) => this._swish(g, t), p.origin, { refDist: 4, maxDist: 18, vol: 0.6 });
       return;
     }
-    const prof = GUN_PROFILES[id] || GUN_PROFILES.ak47;
+    const prof = this._shotProfile(GUN_PROFILES[id] || GUN_PROFILES.ak47, p.suppressed);
+    // A touch under your own gun (0.5): a bot beside you should not sound
+    // louder than the rifle in your hands.
     this.play3D((g, t, d) => this._gunshot(g, t, prof, d), p.origin, {
-      refDist: 11, maxDist: 95, vol: prof.vol * 0.55,
+      refDist: 11, maxDist: 95, vol: prof.vol * 0.42,
+      bus: p.replay ? this.replayBus : undefined,
+      priority: !!p.replay,
     });
   }
 
+  /** A suppressor: quieter, no supersonic crack or echo, muffled, mechanical. */
+  _shotProfile(prof, suppressed) {
+    if (!suppressed || prof.lp) return prof; // USP-S is built quiet already
+    if (!this._suppressedProfiles) this._suppressedProfiles = new Map();
+    let quiet = this._suppressedProfiles.get(prof);
+    if (!quiet) {
+      quiet = { ...prof, vol: prof.vol * 0.4, crack: 0.08, lp: 1300, mech: true, echo: false, sub: 0 };
+      this._suppressedProfiles.set(prof, quiet);
+    }
+    return quiet;
+  }
+
   _onDryFire() {
-    const grp = this._direct(0.22);
+    const grp = this._direct(0.22, null, true);
     if (!grp) return;
     const t = this._t();
     this._mech(grp, t, 1900, 0.6);
@@ -934,7 +963,7 @@ export default class AudioSys {
 
   _onReloadStart(p) {
     this._cancelReload();
-    const grp = this._direct(0.4);
+    const grp = this._direct(0.4, null, true);
     if (!grp) return;
     const id = p && p.id;
     const dur = (p && p.duration) || 2.4;
@@ -957,7 +986,18 @@ export default class AudioSys {
     for (let i = 0; i < grp.srcs.length; i++) this._reloadSrcs.push(grp.srcs[i]);
   }
 
+  /** The live match sits under the killcam replay, then comes back. */
+  _duckLive(on) {
+    if (!this.ctx || !this.sfx) return;
+    const now = this.ctx.currentTime;
+    const g = this.sfx.gain;
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(g.value, now);
+    g.linearRampToValueAtTime(on ? 0.32 : 1, now + (on ? 0.25 : 0.4));
+  }
+
   _cancelReload() {
+    if (!this._reloadSrcs) return;
     if (this.ctx && this._reloadSrcs.length) {
       const now = this.ctx.currentTime;
       for (let i = 0; i < this._reloadSrcs.length; i++) {
@@ -978,10 +1018,19 @@ export default class AudioSys {
   }
 
   _onScope(p) {
+    if (p && p.auto) return; // the AWP's own unscope/re-scope around a shot
     const grp = this._direct(0.18);
     if (!grp) return;
     const lvl = (p && p.level) || 0;
     this._mech(grp, this._t(), 800 + lvl * 350, 0.7);
+  }
+
+  /** A bot's grenade leaving its hand, where it stands. */
+  _onBotThrow(p) {
+    const pos = p && (p.from || p.pos || p.origin);
+    if (!this._ready() || !pos) return;
+    this.play3D((g, t) => this._noiseHit(g, t, { type: 'bandpass', f: 260, fEnd: 1100, slideDur: 0.2, q: 1.1, dur: 0.22, vol: 0.9, a: 0.05 }),
+      pos, { refDist: 5, maxDist: 28, vol: 0.5 });
   }
 
   _onThrow() {
@@ -999,7 +1048,7 @@ export default class AudioSys {
 
   _onBotStep(p) {
     if (!this._ready() || !p || !p.pos) return;
-    this.play3D((g, t) => this._footstep(g, t, 'concrete'), p.pos, { refDist: 6, maxDist: 30, vol: 0.55 });
+    this.play3D((g, t) => this._footstep(g, t, p.surface || 'concrete'), p.pos, { refDist: 6, maxDist: 30, vol: 0.38 });
   }
 
   _onLand(p) {
@@ -1022,6 +1071,7 @@ export default class AudioSys {
   }
 
   _onPlayerDeath() {
+    this._cancelReload(); // the mag never goes in on a body
     // The death cue lives on the foreground bus.  World audio is ducked below
     // it, but the fall itself is never attenuated by its own ducking call.
     const grp = this._critical(0.82);
@@ -1100,7 +1150,7 @@ export default class AudioSys {
     this._lastHitmarkerAt = now;
     this._lastHitmarkerKill = killed;
 
-    const grp = killed ? this._critical(0.62) : this._direct(0.30);
+    const grp = killed ? this._critical(0.62) : this._direct(0.30, null, true);
     if (!grp) return;
     const t = this._t();
     this._impactConfirm(grp, t, !!(p && p.headshot));
@@ -1141,8 +1191,12 @@ export default class AudioSys {
 
   _onImpact(p) {
     if (!this._ready() || !p || !p.point) return;
+    // A shotgun blast lands 8 pellets: voice a couple, quieter, not all 8.
+    if (p.pellet && Math.random() > 0.25) return;
     const surface = p.surface || 'concrete';
-    this.play3D((g, t) => this._impactSound(g, t, surface), p.point, { refDist: 6, maxDist: 45, vol: 0.55 });
+    this.play3D((g, t) => this._impactSound(g, t, surface), p.point, {
+      refDist: 6, maxDist: 45, vol: p.pellet ? 0.35 : 0.55,
+    });
   }
 
   _onExplosion(p) {
@@ -1162,7 +1216,9 @@ export default class AudioSys {
       refDist: 24, maxDist: 170, vol: big ? 1.5 : 1.1, priority: true,
     });
     // Master duck + concussion muffle scaled by proximity.
-    this._duckMaster(Math.min(0.8, 0.22 + d / 70), 2);
+    // Only a blast close enough to feel ducks the mix (an airstrike across
+    // the map used to make everything pump).
+    if (d < 45) this._duckMaster(Math.min(0.8, 0.22 + d / 70), 2);
     if (d < 26) this._muffle(900 + d * 60, 2);
   }
 
@@ -1731,6 +1787,13 @@ export default class AudioSys {
     if (!this._ready()) return;
     const st = this.game.state;
     const now = this.ctx.currentTime;
+    // Paused: the bomb timer and defuse progress are frozen, so their beeps
+    // and ticks would repeat forever at the frozen rate.
+    if (this.game.paused) {
+      this._nextBeep = now + 0.2;
+      this._nextDefTick = now + 0.2;
+      return;
+    }
 
     // A local economy event normally pairs with a detailed kill event in the
     // same call stack. Keep a timed fallback for any future/network path that

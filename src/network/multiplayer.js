@@ -2507,6 +2507,7 @@ export default class Multiplayer {
           origin: new THREE.Vector3(data.from.x, data.from.y, data.from.z),
           dir: direction,
           weaponId: data.weaponId,
+          suppressed: !!data.suppressed,
           _network: true,
         });
       }

@@ -31,6 +31,7 @@ const STREAK_LINES = Object.freeze({
 });
 
 const MIN_GAP_MS = 900;
+const PENDING_TTL_MS = 4000;  // a waiting line older than this is stale news
 
 export default class Announcer {
   constructor(game, synth = globalThis.speechSynthesis) {
@@ -61,6 +62,10 @@ export default class Announcer {
     ev.on('objective:hardpoint', () => this.say('Hardpoint moving.'));
     // Leaving for the menu (or hiding the tab) ends any line mid-sentence.
     ev.on('ui:menu', () => this.stop());
+    // Turning the announcer off (or the volume to zero) cuts a line mid-word.
+    ev.on('settings:changed', () => {
+      if (!this.enabled() || !(Number(this.game.settings?.volume ?? 0.8) > 0)) this.stop();
+    });
     globalThis.document?.addEventListener?.('visibilitychange', () => {
       if (globalThis.document.visibilityState === 'hidden') this.stop();
     });
@@ -80,7 +85,15 @@ export default class Announcer {
   }
 
   stop() {
+    this._pending = null;
     try { this.synth?.cancel(); } catch { /* unsupported */ }
+  }
+
+  /** Speak the line that had to wait, if it is still fresh. */
+  _drain() {
+    const p = this._pending;
+    this._pending = null;
+    if (p && Date.now() - p.at < PENDING_TTL_MS) this.say(p.text);
   }
 
   /**
@@ -90,7 +103,16 @@ export default class Announcer {
   say(text, urgent = false) {
     if (!text || !this.enabled()) return false;
     const now = Date.now();
-    if (!urgent && (now - this._last < MIN_GAP_MS || this.synth.speaking)) return false;
+    if (!urgent && (now - this._last < MIN_GAP_MS || this.synth.speaking)) {
+      // One line waits its turn (the newest wins) instead of being dropped:
+      // a flag capture and a streak call landing together both get said.
+      const first = !this._pending;
+      this._pending = { text, at: now };
+      if (first && !this.synth.speaking) {
+        setTimeout(() => this._drain(), Math.max(50, MIN_GAP_MS - (now - this._last)));
+      }
+      return false;
+    }
     this._last = now;
     const Utterance = globalThis.SpeechSynthesisUtterance;
     if (typeof Utterance !== 'function') return false;
@@ -103,6 +125,7 @@ export default class Announcer {
     line.volume = Math.min(1, volume);
     const voice = this._pickVoice();
     if (voice) line.voice = voice;
+    line.onend = () => { if (this._pending) setTimeout(() => this._drain(), MIN_GAP_MS); };
     try {
       if (urgent) this.synth.cancel();
       this.synth.speak(line);

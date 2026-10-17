@@ -658,7 +658,7 @@ export default class Weapons {
         this.scopeLevel = this._rescopeLevel;
         const fov = d.zoomFov[this.scopeLevel - 1];
         this._fovTarget = fov;
-        g.events.emit('weapon:scope', { level: this.scopeLevel, fov: fov });
+        g.events.emit('weapon:scope', { level: this.scopeLevel, fov: fov, auto: true });
       }
     }
 
@@ -843,7 +843,7 @@ export default class Weapons {
       this.scopeLevel = 0;
       const base = this._baseFov();
       this._fovTarget = base;
-      this.game.events.emit('weapon:scope', { level: 0, fov: base });
+      this.game.events.emit('weapon:scope', { level: 0, fov: base, auto: true });
       this._rescopeAt = this._now + RESCOPE_DELAY;
     }
   }

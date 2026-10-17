@@ -235,7 +235,7 @@ export default class Combat {
     if (!e || !shooter || !shooter.alive || !finiteVec(e.origin) || !finiteVec(e.dir)) return;
     shooter.spawnProtection = 0; // firing ends a fresh spawn's immunity
     // The authority hears the shot here; replicas hear it from the tracer.
-    this.game.events.emit('audio:shot', { origin: e.origin, weaponId: e.melee ? 'knife' : e.weaponId });
+    this.game.events.emit('audio:shot', { origin: e.origin, weaponId: e.melee ? 'knife' : e.weaponId, suppressed: !!e.suppressed });
     if (!e.melee) {
       this.game.events.emit('remote:fire', { origin: e.origin, team: shooter.team, suppressed: !!e.suppressed });
     }

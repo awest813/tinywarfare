@@ -285,3 +285,14 @@ test('reward haptics are suppressed while the page is hidden', (t) => {
   assert.equal(audio._rewardHaptic('record'), true);
   assert.deepEqual(patterns, [[22, 34, 46]]);
 });
+
+test('a suppressed shot uses a quieter, crack-free profile; the built-in USP-S is left alone', () => {
+  const sys = Object.create(AudioSys.prototype);
+  const rifle = { vol: 0.82, crack: 0.55, bpFrom: 1350, bpTo: 300, nDur: 0.118, thF: 133, thVol: 0.85, thDur: 0.135 };
+  const quiet = sys._shotProfile(rifle, true);
+  assert.ok(quiet.vol < rifle.vol * 0.5 && quiet.crack < 0.1 && quiet.lp > 0 && quiet.echo === false);
+  assert.equal(sys._shotProfile(rifle, true), quiet, 'cached per weapon');
+  assert.equal(sys._shotProfile(rifle, false), rifle);
+  const usp = { vol: 0.3, crack: 0.1, lp: 1150, mech: true };
+  assert.equal(sys._shotProfile(usp, true), usp);
+});

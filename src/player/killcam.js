@@ -458,7 +458,9 @@ export default class Killcam {
       // Straight to the effects and the audio: re-emitting would be relayed
       // to the room (and counted by everything listening for real shots).
       fx?._onTracer?.(tr);
-      if (!tr.pellet && !tr.suppressed) g.audio?._onBotFire?.({ origin: tr.from, weaponId: tr.weaponId });
+      // On the replay bus (the live match is ducked under it); suppressed
+      // shots play suppressed rather than not at all.
+      if (!tr.pellet) g.audio?._onBotFire?.({ origin: tr.from, weaponId: tr.weaponId, suppressed: tr.suppressed, replay: true });
       const kp = this._ghosts.killer.pose;
       if (kp && Math.hypot(tr.from.x - kp.x, tr.from.z - kp.z) < 1.6) this._ghosts.killer.fireAnim = 1;
     }
