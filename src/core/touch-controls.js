@@ -733,7 +733,7 @@ html.touch-gameplay,html.touch-gameplay body,html.touch-gameplay #app,html.touch
 #touch-controls.score-open .tc-stick,#touch-controls.score-open .tc-look,#touch-controls.score-open .tc-fire,
 #touch-controls.score-open .tc-crouch,#touch-controls.score-open .tc-use,#touch-controls.score-open .tc-reload,
 #touch-controls.score-open .tc-scope,#touch-controls.score-open .tc-buy,#touch-controls.score-open .tc-weapons,
-#touch-controls.score-open .tc-jump { display:none!important; }
+#touch-controls.score-open .tc-jump,#touch-controls.score-open .tc-pause { display:none!important; }
 
 .mn-touch-help { display:none; position:relative; width:100%; max-width:920px; min-height:44px; align-items:center; justify-content:center;
   padding:9px 14px; border:1px solid rgba(154,178,107,.24); color:#aabd8c; background:rgba(6,10,5,.55);
@@ -823,8 +823,9 @@ html.touch-device #hud-end { overflow:auto; padding:max(10px,env(safe-area-inset
   /* Phone menu in two columns, as a phone in landscape is wide and short:
      the battleground beside the mode and bot skill, under one header, with
      PLAY below (one column ran 470 px tall, so PLAY covered the modes). */
-  /* !important: the menu is shown with an inline display:flex. */
-  html.touch-device #hud-menu { display:grid!important; grid-template-columns:minmax(0,1fr) minmax(0,1fr); column-gap:10px; row-gap:6px; align-content:start; }
+  /* !important: the menu is shown with an inline display:flex; never while
+     it is hidden (inline display:none), or it covered the match. */
+  html.touch-device #hud-menu:not([style*="none"]) { display:grid!important; } html.touch-device #hud-menu { grid-template-columns:minmax(0,1fr) minmax(0,1fr); column-gap:10px; row-gap:6px; align-content:start; }
   html.touch-device #hud-menu::before,html.touch-device #hud-menu::after { display:none; }
   html.touch-device #hud-menu > * { grid-column:1 / -1; width:100%; max-width:none; justify-self:stretch; }
   html.touch-device #hud-menu > #hud-map-picker { grid-column:1; align-self:start; margin:0; }
