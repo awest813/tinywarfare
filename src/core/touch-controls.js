@@ -235,19 +235,19 @@ export default class TouchControls {
         <button type="button" class="tc-button tc-pause" aria-label="Pause match">❚❚</button>
         <button type="button" class="tc-button tc-score" aria-label="Toggle scoreboard">SCORE</button>
         <button type="button" class="tc-button tc-buy" aria-label="Open buy menu">$ BUY</button>
-        <button type="button" class="tc-button tc-reload" aria-label="Reload weapon">RELOAD</button>
-        <button type="button" class="tc-button tc-scope" aria-label="Aim down sights">AIM</button>
         <button type="button" class="tc-button tc-streak" aria-label="Call in scorestreak" hidden>STREAK</button>
       </div>
+      <button type="button" class="tc-button tc-arc tc-scope" aria-label="Aim down sights">AIM</button>
+      <button type="button" class="tc-button tc-arc tc-reload" aria-label="Reload weapon">RELOAD</button>
       <div class="tc-weapons" aria-label="Weapon slots">
         <button type="button" class="tc-slot" data-slot="1" aria-label="Primary weapon"><b>1</b><span>PRIMARY</span></button>
         <button type="button" class="tc-slot" data-slot="2" aria-label="Sidearm"><b>2</b><span>SIDEARM</span></button>
         <button type="button" class="tc-slot" data-slot="3" aria-label="Knife"><b>3</b><span>KNIFE</span></button>
         <button type="button" class="tc-slot" data-slot="4" aria-label="Grenade"><b>4</b><span>GRENADE</span></button>
       </div>
-      <button type="button" class="tc-button tc-use" aria-label="Hold to use">USE</button>
-      <button type="button" class="tc-button tc-crouch" aria-label="Toggle crouch">CROUCH</button>
-      <button type="button" class="tc-button tc-jump" aria-label="Jump">JUMP</button>
+      <button type="button" class="tc-button tc-arc tc-use" aria-label="Hold to use">USE</button>
+      <button type="button" class="tc-button tc-arc tc-crouch" aria-label="Toggle crouch">CROUCH</button>
+      <button type="button" class="tc-button tc-arc tc-jump" aria-label="Jump">JUMP</button>
         <button type="button" class="tc-button tc-fire" aria-label="Fire weapon and drag to aim"><span>FIRE</span></button>
     `;
     this.game.hudRoot.appendChild(root);
@@ -655,6 +655,12 @@ html.touch-gameplay,html.touch-gameplay body,html.touch-gameplay #app,html.touch
   --safe-t:env(safe-area-inset-top,0px); --safe-r:env(safe-area-inset-right,0px);
   --safe-b:env(safe-area-inset-bottom,0px); --safe-l:env(safe-area-inset-left,0px);
   --tc-stick:var(--touch-stick-size); --tc-fire:var(--touch-fire-size);
+  /* The right thumb's arc: every combat button sits on one of two rings
+     around FIRE (the old layout put AIM and RELOAD in the top corner, out
+     of reach mid-fight). Sized from FIRE, so it scales with the device. */
+  --tc-b:58px; --tc-fx:calc(17px + var(--tc-fire) / 2);
+  --tc-r:calc(var(--tc-fire) / 2 + var(--tc-b) / 2 + 22px);
+  --tc-r2:calc(var(--tc-r) + var(--tc-b) + 8px);
   font-family:"Avenir Next Condensed","Arial Narrow",Arial,sans-serif;
   user-select:none; -webkit-user-select:none; -webkit-tap-highlight-color:transparent;
 }
@@ -705,15 +711,19 @@ html.touch-gameplay,html.touch-gameplay body,html.touch-gameplay #app,html.touch
 }
 .tc-fire::after { content:''; position:absolute; inset:8px; border:1px solid rgba(255,217,201,.28); border-radius:50%; }
 .tc-fire.pressed { transform:scale(.91); background:rgba(216,70,40,.9); }
-.tc-jump,.tc-crouch,.tc-use { position:absolute; z-index:5; width:58px; height:58px; border-radius:50%; font-size:10px; letter-spacing:.08em; }
-.tc-jump { right:calc(var(--safe-r) + var(--tc-fire) + 28px); bottom:calc(var(--safe-b) + 16px); }
-.tc-crouch { right:calc(var(--safe-r) + var(--tc-fire) + 18px); bottom:calc(var(--safe-b) + 82px); }
-.tc-use { right:calc(var(--safe-r) + 20px); bottom:calc(var(--safe-b) + var(--tc-fire) + 28px); color:#eef6e2; border-color:rgba(224,188,93,.7); background:rgba(116,84,28,.67); }
+.tc-arc { position:absolute; z-index:5; width:var(--tc-b); height:var(--tc-b); padding:0; border-radius:50%; font-size:10px; letter-spacing:.06em; }
+.tc-scope { right:calc(var(--safe-r) + var(--tc-fx) + var(--tc-r) - var(--tc-b) / 2); bottom:calc(var(--safe-b) + var(--tc-fx) - var(--tc-b) / 2);
+  border-color:rgba(160,205,236,.6); background:radial-gradient(circle at 40% 35%,rgba(52,82,104,.78),rgba(9,15,20,.72)); }
+.tc-reload { right:calc(var(--safe-r) + var(--tc-fx) + var(--tc-r) * .71 - var(--tc-b) / 2); bottom:calc(var(--safe-b) + var(--tc-fx) + var(--tc-r) * .71 - var(--tc-b) / 2); }
+.tc-jump { right:calc(var(--safe-r) + var(--tc-fx) - var(--tc-b) / 2); bottom:calc(var(--safe-b) + var(--tc-fx) + var(--tc-r) - var(--tc-b) / 2); }
+.tc-crouch { right:calc(var(--safe-r) + var(--tc-fx) + var(--tc-r2) * .99 - var(--tc-b) / 2); bottom:calc(var(--safe-b) + var(--tc-fx) + var(--tc-r2) * .13 - var(--tc-b) / 2); }
+.tc-use { right:calc(var(--safe-r) + var(--tc-fx) + var(--tc-r2) * .86 - var(--tc-b) / 2); bottom:calc(var(--safe-b) + var(--tc-fx) + var(--tc-r2) * .52 - var(--tc-b) / 2);
+  color:#eef6e2; border-color:rgba(224,188,93,.7); background:rgba(116,84,28,.67); }
 
 .tc-weapons { position:absolute; z-index:4; left:50%; bottom:calc(var(--safe-b) + 11px); transform:translateX(-50%); display:flex; gap:5px; pointer-events:none; }
-.tc-slot { width:52px; min-height:48px; padding:4px 3px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; }
+.tc-slot { width:50px; min-height:44px; padding:3px 2px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; border-radius:6px; }
 .tc-slot b { font-size:15px; line-height:1; color:#dce9c9; }
-.tc-slot span { font-size:8.5px; letter-spacing:.035em; color:#a4b78b; }
+.tc-slot span { font-size:8px; letter-spacing:.02em; color:#a4b78b; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .tc-slot.active { border-color:#cbe5a0; background:linear-gradient(160deg,rgba(105,137,60,.82),rgba(38,54,22,.82)); box-shadow:inset 0 0 12px rgba(188,220,131,.18),0 0 12px rgba(105,145,58,.28); }
 
 #touch-controls.dead .tc-stick,#touch-controls.dead .tc-look,#touch-controls.dead .tc-fire,
@@ -768,9 +778,14 @@ html.touch-device #hud-ammo { right:max(10px,env(safe-area-inset-right)); top:ca
 html.touch-device #hud-ammo-mag { font-size:29px; }
 html.touch-device #hud-ammo-reserve { font-size:15px; }
 html.touch-device #hud-weapon-name { font-size:9px; }
-html.touch-device #hud-top { top:max(8px,env(safe-area-inset-top)); padding:5px 18px 6px; min-width:154px; }
-html.touch-device #hud-timer-num { font-size:23px; }
-html.touch-device #hud-round { font-size:8px; }
+/* One compact strip (timer beside the score) instead of a 70 px block in the
+   middle of the sightline. */
+html.touch-device #hud-top { top:max(6px,env(safe-area-inset-top)); display:flex; flex-wrap:wrap; align-items:center; justify-content:center;
+  column-gap:12px; row-gap:0; padding:3px 14px 4px; min-width:0; }
+html.touch-device #hud-timer-num { font-size:19px; }
+html.touch-device #hud-scores { font-size:17px; }
+html.touch-device #hud-scores .sc-flag { display:none; }
+html.touch-device #hud-round { flex-basis:100%; margin-top:0; font-size:8px; letter-spacing:.2em; }
 html.touch-device #hud-radar { top:max(8px,env(safe-area-inset-top)); left:max(8px,env(safe-area-inset-left)); width:112px; height:112px; padding:2px; }
 html.touch-device #hud-radar-canvas { width:106px; height:106px; }
 html.touch-device #hud-killfeed { top:calc(max(8px,env(safe-area-inset-top)) + 124px); right:max(8px,env(safe-area-inset-right)); max-width:48vw; gap:3px; }
@@ -783,7 +798,7 @@ html.touch-device .death-sub { white-space:normal; }
 /* Under the score panel (~110 px with Domination's flag row), clear of the
    radar and kill feed at the sides, one line for "THE BOMB HAS BEEN PLANTED":
    at 20% and .24em it wrapped to two lines across the panel on a 667x375 phone. */
-html.touch-device #hud-msg { top:max(20%,calc(max(8px,env(safe-area-inset-top)) + 112px)); padding:0 12vw; }
+html.touch-device #hud-msg { top:calc(max(8px,env(safe-area-inset-top)) + 76px); padding:0 14vw; }
 html.touch-device #hud-msg-main { font-size:clamp(18px,3.4vw,30px); letter-spacing:.14em; }
 html.touch-device #hud-msg-sub { font-size:10px; }
 
@@ -799,16 +814,11 @@ html.touch-device #hud-end { overflow:auto; padding:max(10px,env(safe-area-inset
 @media (orientation:landscape) and (max-height:500px) {
   html.touch-device { --touch-stick-size:112px; --touch-fire-size:74px; }
   .tc-utilities { top:calc(var(--safe-t) + 7px); right:calc(var(--safe-r) + 8px); gap:5px; }
-  /* The utility row (pause, SCORE, BUY) sat over the score panel at phone widths. */
-  html.touch-device #hud-top { top:calc(max(8px, env(safe-area-inset-top)) + 50px); }
-  html.touch-device #hud-msg { top:calc(max(8px, env(safe-area-inset-top)) + 134px); }
   .tc-utilities .tc-button { min-width:49px; min-height:44px; padding-inline:5px; font-size:9.5px; letter-spacing:.035em; }
   .tc-weapons { bottom:calc(var(--safe-b) + 7px); }
-  .tc-slot { width:47px; min-height:44px; }
-  .tc-jump,.tc-crouch,.tc-use { width:52px; height:52px; font-size:9px; }
-  .tc-jump { right:calc(var(--safe-r) + 98px); bottom:calc(var(--safe-b) + 12px); }
-  .tc-crouch { right:calc(var(--safe-r) + 91px); bottom:calc(var(--safe-b) + 67px); }
-  .tc-use { right:calc(var(--safe-r) + 12px); bottom:calc(var(--safe-b) + 97px); }
+  .tc-slot { width:46px; min-height:42px; }
+  #touch-controls { --tc-b:52px; }
+  .tc-arc { font-size:9px; letter-spacing:.03em; }
   html.touch-device #hud-menu { gap:8px; }
   html.touch-device .mn-title { font-size:38px; }
   html.touch-device .mn-op,html.touch-device .mn-sub { font-size:8px; }
@@ -918,7 +928,7 @@ html.touch-device #hud-end { overflow:auto; padding:max(10px,env(safe-area-inset
 @media (orientation:landscape) and (min-height:501px) and (min-width:760px) {
   html.touch-device { --touch-stick-size:146px; --touch-fire-size:94px; }
   .tc-utilities .tc-button { min-width:62px; min-height:54px; font-size:11px; }
-  .tc-jump,.tc-crouch,.tc-use { width:66px; height:66px; }
+  #touch-controls { --tc-b:64px; }
   .tc-slot { width:61px; min-height:54px; }
   html.touch-device #hud-radar { width:140px; height:140px; }
   html.touch-device #hud-radar-canvas { width:134px; height:134px; }
@@ -929,7 +939,13 @@ html.touch-device #hud-end { overflow:auto; padding:max(10px,env(safe-area-inset
 
 @media (orientation:landscape) and (max-width:720px) {
   .tc-utilities { gap:4px; }
-  .tc-utilities .tc-button { width:44px; min-width:44px; min-height:44px; padding:0 2px; font-size:9px; letter-spacing:0; }
+  .tc-utilities .tc-button { width:46px; min-width:46px; min-height:44px; padding:0 2px; font-size:9px; letter-spacing:0; }
+}
+/* The narrowest phones: the score strip moves left of the utility row, and
+   the weapon slots left of the thumb arc. */
+@media (orientation:landscape) and (max-width:620px) {
+  html.touch-device #hud-top { left:42%; }
+  .tc-weapons { left:calc(50% - 46px); }
 }
 `;
 }
