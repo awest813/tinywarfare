@@ -2155,7 +2155,9 @@ export default class Multiplayer {
     }
     remote._stateAt = performance.now();
     if (Number.isFinite(state.armor) && !stale) {
-      const buyTime = this.game.state?.phase === 'freeze' || this.game.state?.buyOpen;
+      // The round's buy window, not this host's own menu: a remote player buys
+      // armour in the opening seconds of a live round too.
+      const buyTime = this.game.state?.phase === 'freeze' || !!this.game.state?.canBuy;
       if (!(authority && remote.alive !== false && state.armor > (remote.armor || 0) && !buyTime)) {
         remote.armor = state.armor;
       }
