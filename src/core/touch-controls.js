@@ -820,7 +820,26 @@ html.touch-device #hud-end { overflow:auto; padding:max(10px,env(safe-area-inset
   #touch-controls { --tc-b:52px; }
   .tc-arc { font-size:9px; letter-spacing:.03em; }
   html.touch-device #hud-menu { gap:8px; }
-  html.touch-device .mn-title { font-size:38px; }
+  /* Phone menu in two columns, as a phone in landscape is wide and short:
+     the battleground beside the mode and bot skill, under one header, with
+     PLAY below (one column ran 470 px tall, so PLAY covered the modes). */
+  /* !important: the menu is shown with an inline display:flex. */
+  html.touch-device #hud-menu { display:grid!important; grid-template-columns:minmax(0,1fr) minmax(0,1fr); column-gap:10px; row-gap:6px; align-content:start; }
+  html.touch-device #hud-menu::before,html.touch-device #hud-menu::after { display:none; }
+  html.touch-device #hud-menu > * { grid-column:1 / -1; width:100%; max-width:none; justify-self:stretch; }
+  html.touch-device #hud-menu > #hud-map-picker { grid-column:1; align-self:start; margin:0; }
+  html.touch-device #hud-menu > #hud-mode-picker { grid-column:2; align-self:start; margin:0; }
+  html.touch-device .mn-map-grid { grid-template-columns:repeat(3,minmax(0,1fr)); grid-auto-flow:row; grid-auto-columns:auto; overflow:visible; gap:5px; }
+  html.touch-device .mn-map { min-height:44px; }
+  /* Phone menu: names only, three to a row at touch height, so the modes and
+     bot skills fit above the PLAY bar instead of scrolling under it. */
+  html.touch-device .mn-mode-row { grid-template-columns:repeat(3,minmax(0,1fr)); gap:5px; }
+  html.touch-device .mn-mode { min-height:44px; align-items:center; justify-content:center; padding:0 6px; }
+  html.touch-device .mn-mode span { display:none; }
+  html.touch-device .mn-mode strong { font-size:11px; letter-spacing:.06em; white-space:normal; text-align:center; line-height:1.1; }
+  html.touch-device .mn-quick { flex-wrap:nowrap; justify-content:flex-start; overflow-x:auto; width:100%; max-width:820px; scrollbar-width:none; }
+  html.touch-device .mn-quick > button { flex:0 0 auto; min-height:44px; padding:0 14px; }
+  html.touch-device .mn-title { font-size:30px; }
   html.touch-device .mn-op,html.touch-device .mn-sub { font-size:8px; }
   html.touch-device .mn-map-picker { padding:7px; }
   html.touch-device .mn-career { grid-template-columns:1.08fr .92fr 1fr; }
@@ -839,7 +858,7 @@ html.touch-device #hud-end { overflow:auto; padding:max(10px,env(safe-area-inset
   html.touch-device .mn-daily > strong { margin-top:5px; font-size:8px; }
   html.touch-device .mn-daily-track { margin:5px 0; }
   html.touch-device #hud-career-leaderboard,html.touch-device #hud-bot-cta { min-height:44px; }
-  html.touch-device .mn-map-art { height:46px; }
+  html.touch-device .mn-map-art { height:30px; }
   html.touch-device .mn-map-copy { padding-block:5px; }
   html.touch-device .mn-map-copy small { display:none; }
   html.touch-device .mn-actions { width:100%; max-width:820px; gap:7px; }
@@ -944,6 +963,11 @@ html.touch-device #hud-end { overflow:auto; padding:max(10px,env(safe-area-inset
 /* The narrowest phones: the score strip moves left of the utility row, and
    the weapon slots left of the thumb arc. */
 @media (orientation:landscape) and (max-width:620px) {
+  /* The career card stacked into a 110 px block here: one line instead
+     (the ranks are a tap away on it and in LEADERBOARDS). */
+  html.touch-device .mn-op { display:none; }
+  html.touch-device .mn-title { font-size:24px; }
+  html.touch-device .mn-id-stats { display:none; }
   html.touch-device #hud-top { left:42%; }
   .tc-weapons { left:calc(50% - 46px); }
 }

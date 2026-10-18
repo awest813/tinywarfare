@@ -5767,6 +5767,13 @@ html.touch-device .kc-row { padding-right: 104px; }
   .buy-funds { font-size: 22px; }
   .buy-foot { margin-inline: 14px; font-size: 10px; letter-spacing: .14em; }
 }
+/* Laptops and Chromebooks (768-800 px tall): the score panel is the same
+   one-glance read in less of the view, as on phones and tablets. */
+@media (max-height: 820px) and (min-width: 900px) {
+  html:not(.touch-device) #hud-top { padding: 4px 24px 5px; }
+  html:not(.touch-device) #hud-timer-num { font-size: 24px; }
+  html:not(.touch-device) #hud-round { margin-top: 1px; }
+}
 /* A narrow desktop window (phones get the rotate prompt instead): the radar
    sat on the score panel and the bottom boxes on each other. */
 @media (max-width: 520px) {
