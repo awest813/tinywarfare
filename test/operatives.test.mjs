@@ -306,3 +306,35 @@ test('a sliding soldier glides on still, crouched legs', async () => {
   for (let i = 0; i < 10; i++) { pos.z -= 1 / 30; animator.update(actor, 1 / 30, { family: 'Rifle' }); }
   assert.equal(animator.lowerName, 'CrouchWalk');
 });
+
+test('turning on the spot steps the feet round, and a fall lands with a knee bend', async () => {
+  const gltf = await load('assets/models/operative_us.glb');
+  const set = buildAnimationSet(gltf.animations, gltf.scene.userData);
+  const animator = new OperativeAnimator(gltf.scene, new THREE.AnimationMixer(gltf.scene), set);
+  const actor = { pos: new THREE.Vector3(), yaw: 0, onGround: true, aimBlend: 1, moveSpeed: 0 };
+  const run = (secs, each = () => {}) => {
+    for (let t = 0; t < secs; t += 1 / 30) { each(); animator.update(actor, 1 / 30, { family: 'Rifle' }); }
+  };
+  run(0.5);
+  assert.equal(animator.lowerName, 'Idle');
+  run(0.1, () => { actor.yaw += 0.01; }); // tracking a target: 0.3 rad/s
+  assert.equal(animator.lowerName, 'Idle', 'a slow track stays planted');
+  run(0.3, () => { actor.yaw += 3 / 30; }); // a 3 rad/s turn
+  assert.equal(animator.lowerName, 'Walk', 'a fast turn steps');
+  run(0.6);
+  assert.equal(animator.lowerName, 'Idle', 'and settles once the turn stops');
+
+  actor.onGround = false;
+  run(0.6);
+  assert.equal(animator.lowerName, 'JumpLoop');
+  actor.onGround = true;
+  run(1 / 30);
+  assert.equal(animator.lowerName, 'CrouchIdle', 'the landing bends the knees');
+  run(0.4);
+  assert.equal(animator.lowerName, 'Idle');
+  actor.onGround = false;
+  run(0.1); // a hop over a kerb
+  actor.onGround = true;
+  run(1 / 30);
+  assert.notEqual(animator.lowerName, 'CrouchIdle', 'a short hop does not dip');
+});

@@ -65,6 +65,13 @@ const DEFAULT_SPEEDS = { Walk: 1.1, Jog: 5.6, Sprint: 5.4, CrouchWalk: 0.66 };
 
 const DEG = Math.PI / 180;
 const MAX_TWIST = 70 * DEG;
+// Turning on the spot faster than this steps the feet round instead of
+// pivoting the whole body on planted soles; the steps run on a little after.
+const TURN_STEP_RATE = 1.6; // rad/s
+const TURN_STEP_HOLD = 0.35; // s
+// A fall at least this long lands with a brief knee bend.
+const LAND_MIN_AIR = 0.35; // s
+const LAND_HOLD = 0.16; // s
 const RECOIL_PITCH = { Rifle: 5 * DEG, Pistol: 9 * DEG };
 export const IK_FAR_SQ = 28 * 28; // beyond this the support hand keeps the authored pose
 
@@ -217,6 +224,9 @@ export class OperativeAnimator {
     this.lastX = NaN;
     this.lastZ = NaN;
     this.airTime = 0;
+    this.lastYaw = NaN;
+    this.turnStep = 0;
+    this.landDip = 0;
     this.sprintBlend = 0;
     this.moving = false;
     this.sprintHeld = false;
@@ -357,7 +367,18 @@ export class OperativeAnimator {
     if (this.backpedal) moveAngle -= Math.sign(moveAngle) * Math.PI;
 
     // ---- legs --------------------------------------------------------------
-    this.airTime = actor.onGround === false ? this.airTime + step : 0;
+    if (actor.onGround === false) this.airTime += step;
+    else {
+      if (this.airTime > LAND_MIN_AIR) this.landDip = LAND_HOLD;
+      this.airTime = 0;
+    }
+    this.landDip = Math.max(0, this.landDip - step);
+    if (step > 0 && Number.isFinite(this.lastYaw)) {
+      const dYaw = Math.atan2(Math.sin(yaw - this.lastYaw), Math.cos(yaw - this.lastYaw));
+      if (Math.abs(dYaw) / step > TURN_STEP_RATE) this.turnStep = TURN_STEP_HOLD;
+    }
+    this.lastYaw = yaw;
+    this.turnStep = Math.max(0, this.turnStep - step);
     // Inferred only well above a run: bots move at 4.6 m/s and every one of
     // them out of a fight played the sprint (and its carry pose) at that pace.
     const inferred = this.sprintHeld
@@ -371,16 +392,18 @@ export class OperativeAnimator {
     // A slide is a glide on bent legs; any stepping cycle would scurry.
     else if (actor.sliding) lower = 'CrouchIdle';
     else if (actor.crouching) lower = moving ? 'CrouchWalk' : 'CrouchIdle';
-    else if (!moving) lower = 'Idle';
+    else if (this.landDip > 0) lower = 'CrouchIdle';
+    else if (!moving) lower = this.turnStep > 0 ? 'Walk' : 'Idle';
     else if (sprinting && !this.backpedal) lower = 'Sprint';
     else if (speed > (this.lowerName === 'Jog' ? 2.6 : 3.0)) lower = 'Jog';
     else lower = 'Walk';
-    const legs = this._play('lower', lower, lower === 'JumpLoop' ? 0.12 : 0.2);
+    const legs = this._play('lower', lower, lower === 'JumpLoop' || this.landDip > 0 ? 0.08 : 0.2);
     if (legs) {
       const natural = this.set.speeds[lower];
       // A wide range keeps the feet planted: a jog clip driven at 7 m/s
       // needs ~2x, and anything clamped below the real speed skates.
       let scale = natural && lower !== 'Kneel' ? THREE.MathUtils.clamp(speed / natural, 0.5, 2.6) : 1;
+      if (!moving && lower === 'Walk') scale = 1.4; // turning steps
       if (this.backpedal) scale = -scale;
       legs.setEffectiveTimeScale(scale);
     }
