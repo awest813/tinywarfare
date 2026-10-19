@@ -161,7 +161,8 @@ function defaultBindings() {
 // binding saved before that switch to a layout's own character ('ц' on
 // Russian, 'ö' on German) can never fire again. It falls back to its default
 // instead of leaving the action silently dead.
-const REACHABLE_CHAR = /^[a-z0-9 ;',./\\[\]\-=`]$/;
+// (Numpad + and * have no position mapping and arrive as typed: keep them.)
+const REACHABLE_CHAR = /^[a-z0-9 ;',./\\[\]\-=`+*]$/;
 
 function reachable(key) {
   return key.length > 1 || REACHABLE_CHAR.test(key);

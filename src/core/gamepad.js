@@ -145,7 +145,17 @@ export default class Gamepads {
     const phase = this.game.state?.phase;
     const inMatch = ACTIVE_PHASES.has(phase);
 
-    if (input && inMatch && input.locked) {
+    // A match that ended (or never started) must not keep the pad's simulated
+    // lock: it blocked typing in the menu's text fields and key rebinding.
+    // (Only a lock that has been in a match: the one PLAY just took is taken
+    // while the phase still reads 'menu'.)
+    if (input && inMatch && input.locked) this._lockSeenInMatch = true;
+    if (input && !inMatch && this._lockSeenInMatch) {
+      this._lockSeenInMatch = false;
+      if (input.locked && input._virtualLock && !input.touchMode && !this.game.debug) input.releaseLock();
+    }
+    // An overlay over the match (the buy menu) is navigated, not played.
+    if (input && inMatch && input.locked && !this._overlayOpen()) {
       this._play(dt, now, pressed, released, ax, input);
     } else {
       if (this._held.size) this._releaseAll();
@@ -172,7 +182,9 @@ export default class Gamepads {
   _play(dt, now, pressed, released, ax, input) {
     // Move: forward is -y on the stick, +y in the move vector.
     const [mx, my, mm] = radial(ax[0] || 0, ax[1] || 0, MOVE_DEADZONE);
-    input.setMoveVector(mx, my ? -my : 0);
+    // Only while the stick is in use (and once as it returns): writing zero
+    // every step overrode the touch move stick on a tablet with a pad paired.
+    if (mm > 0 || this._padMoving) input.setMoveVector(mx, my ? -my : 0);
     this._padMoving = mm > 0;
 
     // Look: radial deadzone, then a power curve for precision near centre.

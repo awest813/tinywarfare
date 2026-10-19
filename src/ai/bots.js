@@ -1814,6 +1814,9 @@ export default class Bots {
   _resetOperativePose(actor) {
     if (!actor || !actor.mixer) return;
     actor.actionName = null;
+    // A gesture queued in the frame its thrower died must not play at the
+    // next spawn (posing is once per frame, after the death).
+    actor.gesture = null;
     if (actor.animator) {
       actor.animator.reset();
       return;
@@ -4202,6 +4205,9 @@ export default class Bots {
       if (!bot.deathPlayed) {
         bot.deathPlayed = true;
         bot.deathYaw = this._corpseYaw(bot);
+        bot.gesture = null;
+        // Killed mid-lob: the stowed gun goes back in the corpse's hand.
+        if (bot.heldWeapon) bot.heldWeapon.visible = true;
         bot.animator.die(Math.random(), bot.crouching ? 0.22 : 0.08);
       }
       m.position.copy(bot.pos);

@@ -481,3 +481,13 @@ test('invert look, aim sensitivity and toggle crouch persist and reset', () => {
   assert.equal(restored.crouchToggle, false);
   assert.equal(restored.adsSensitivity, 1);
 });
+
+test('numpad + and * bindings survive a reload', () => {
+  const storage = new MemoryStorage();
+  const settings = new GameSettings(null, storage);
+  settings.rebind('weapon4', '+');
+  settings.rebind('streak1', '*');
+  const restored = new GameSettings(null, storage);
+  assert.equal(restored.get('weapon4'), '+');
+  assert.equal(restored.get('streak1'), '*');
+});

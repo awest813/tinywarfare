@@ -599,8 +599,10 @@ export default class Input {
     // fine mouse/trackpad. A genuine mouse click upgrades the touch-friendly
     // virtual lock to pointer lock; synthesized mouse events from touch stay
     // on the virtual path.
+    // The same goes for a controller's simulated lock on a desktop: picking
+    // the mouse back up mid-match must capture it, not fire the gun.
     if (
-      this.touchMode && this._virtualLock && canvas && e.target === canvas &&
+      (this.touchMode || !this.game.debug) && this._virtualLock && canvas && e.target === canvas &&
       e.sourceCapabilities?.firesTouchEvents !== true
     ) {
       this.requestLock({ preferReal: true });

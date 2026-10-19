@@ -81,3 +81,32 @@ test('Start pauses; everything held is released on unlock; Start in a paused mat
   press(1, false); press(9, true); step();
   assert.ok(log.some((l) => l.startsWith('lock:')), 'Start resumes');
 });
+
+test('the pad lets go: its lock after a match, the buy menu over a match, and an idle stick', () => {
+  const { pad, input, log, held, press, step, gp } = rig();
+  const game = gp.game;
+  // An idle pad never overwrites a touch stick's move vector.
+  input.setMoveVector(0.4, 0.7);
+  step(3);
+  assert.deepEqual(input.move, { x: 0.4, y: 0.7 }, 'an idle stick leaves the touch stick alone');
+  pad.axes = [0, -1, 0, 0]; step();
+  pad.axes = [0, 0, 0, 0]; step();
+  assert.deepEqual(input.move, { x: 0, y: 0 }, 'a released pad stick zeroes once');
+
+  // The buy menu over a locked match: inputs release, nothing is played.
+  game.hud = { _buyOpen: true };
+  press(0, true); press(7, true); step();
+  assert.ok(!held.has('jump') && !held.has('btn0'), 'A and RT do not jump or fire under the buy menu');
+  press(0, false); press(7, false); step();
+  game.hud._buyOpen = false;
+
+  // The match ends with the pad's simulated lock still on: it is released.
+  input._virtualLock = true;
+  let released = 0;
+  input.releaseLock = () => { released++; input.locked = false; };
+  step();
+  game.state.phase = 'menu';
+  step();
+  assert.equal(released, 1, 'the lock is released back in the menu');
+  assert.ok(Array.isArray(log));
+});
