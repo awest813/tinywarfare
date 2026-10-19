@@ -258,11 +258,9 @@ function base(theme) {
      * lots and faded for different lengths of time. macroRelief bulges the top
      * course at the same 0.65 m, which is where you look down on them.
      *
-     * (This is a material-side substitute for what the shape should be doing.
      * The key is shared with the theme's hanging tarps and cloth rolls
-     * (`clothKey: 'sandbag'` in dressing.js), so a bag lattice with seams and
-     * folded ears cannot go in the tile — it would print bags on the laundry.
-     * A per-bag form needs the emplacement to stop being flush cuboids.)
+     * (`clothKey: 'sandbag'` in dressing.js), so the bag form lives in the
+     * geometry (`makeBagGeometry` in map.js), not in the tile.
      */
     sandbag: ['burlap', {
       /**
@@ -277,22 +275,9 @@ function base(theme) {
       macro: [0.5, 0.5, 0.2, 0.4],
       macroBig: [1.9, 0.085, 0.11, 0],
       macroRelief: 0.55,
-      /**
-       * And the bags themselves, out of the repair-patch layer: an 85%-occupied
-       * lattice of 660 mm cells on vertical faces, each an inset rectangle at
-       * +/-18% value with a 3-6 cm feathered edge and a bright lip. That is a
-       * sandbag: bag-sized, soft-edged, standing a little proud, and hashed off
-       * world position so no two are alike and nothing repeats with the tile.
-       * The layer costs nothing extra to sample — it is arithmetic on macro
-       * values the shader has already fetched.
-       *
-       * 0.18, not 0.13: +/-13% is 0.18 of a stop, and measured against a 3.2 m
-       * emplacement wall in full sun that is at the edge of visible — the bag
-       * divisions were there and you had to look for them. 0.18 is 0.24 of a
-       * stop, still inside the value spread a stack of bags filled from
-       * different lots would have.
-       */
-      patch: [0.85, 0.66, 0.18, -0.05],
+      // No repair-patch bag lattice any more: World.sandbags() lays real
+      // pillow-shaped bags now, and a painted lattice over them never lined up
+      // with the shapes — it read as blocky camouflage on every emplacement.
     }],
     // A 200 l drum is 580 mm across and 880 mm tall — 1.8 m of circumference.
     // At 0.8 m it wore two rust blooms; at 0.5 m it wears a dozen.
@@ -316,7 +301,7 @@ function base(theme) {
     // metalDoor's pale paint both turned it into a glowing white pole.
     fixture: ['metal_painted', { scale: 0.5, tint: tintOf(0x262b31, 0.6, 0.32) }],
     // Gratings, walkway mesh and plant housings: 0.5-0.6 m objects.
-    metalGrid: ['metal_brushed', { scale: 0.62, tint: tintOf(0x8d9aa3, 0.45, 0.8) }],
+    metalGrid: ['metal_brushed', { scale: 0.62, tint: tintOf(0x8d9aa3, 0.45, 0.8), roughness: [1, 0.16, 0.34] }],
     // Shipping containers are 5.8 x 2.6 m; 1.25 m puts four panels of chipping
     // and blistered paint along one, instead of one smear stretched over it.
     accentA: ['metal_painted', { scale: 1.25, tint: tintOf(theme.accentA, 0.92) }],
@@ -466,8 +451,10 @@ const THEMES = {
     padCool: ['snow_packed', { scale: 1.5, tint: tintOf(0xd6e2ea, 0.4, 0.96) }],
     // Walkway grating and equipment decks, not sheet: 1.1 m puts a real
     // brushed panel under foot instead of one smear over a 1.6 m tile.
-    padPlat: ['metal_brushed', { scale: 1.1, tint: tintOf(0x9fb0bb, 0.45, 0.8) }],
-    padPlatB: ['metal_brushed', { scale: 1.0, tint: tintOf(0x93a5b2, 0.45, 0.75) }],
+    // Boots scuff a deck matte: left at the bare brushed finish a 20 m plate
+    // mirrored the sun (and Neon's moon and lamps) into a white sheet.
+    padPlat: ['metal_brushed', { scale: 1.1, tint: tintOf(0x9fb0bb, 0.45, 0.8), roughness: [1, 0.16, 0.34] }],
+    padPlatB: ['metal_brushed', { scale: 1.0, tint: tintOf(0x93a5b2, 0.45, 0.75), roughness: [1, 0.16, 0.34] }],
     // Insulated cladding panels are ~1 m wide; 1.8 m keeps the paint blistering
     // and the panel chipping at the size a hut actually wears them.
     // The splash band runs to 0.85 m because what climbs an arctic wall is a
@@ -487,15 +474,15 @@ const THEMES = {
     }],
     padWarm: ['concrete_floor', { scale: 3.0, tint: tintOf(theme.wallA, 0.5), roughness: [0.75, -0.1, 0.06] }],
     padCool: ['concrete_floor', { scale: 3.0, tint: tintOf(theme.wallB, 0.5), roughness: [0.75, -0.1, 0.06] }],
-    padPlat: ['metal_brushed', { scale: 1.2, tint: tintOf(0x6d7a86, 0.5, 0.6) }],
-    padPlatB: ['metal_brushed', { scale: 1.1, tint: tintOf(0x63727f, 0.5, 0.55) }],
+    padPlat: ['metal_brushed', { scale: 1.2, tint: tintOf(0x6d7a86, 0.5, 0.6), roughness: [1, 0.16, 0.34] }],
+    padPlatB: ['metal_brushed', { scale: 1.1, tint: tintOf(0x63727f, 0.5, 0.55), roughness: [1, 0.16, 0.34] }],
     wallN: ['metal_painted', { scale: 1.9, tint: tintOf(theme.wall, 0.5), weather: [0.25, 0.5, 0.6, 0.55] }],
     // The rust bake is authored for 1.2 m; at 2.0 m each bloom was a 300 mm
     // continent and the plant read as camouflage paint.
     wallA: ['metal_rust', { scale: 1.2, tint: tintOf(theme.wallA, 0.5) }],
     wallB: ['concrete', { scale: 2.1, tint: tintOf(theme.wallB, 0.5), weather: [0.2, 0.55, 0.7, 0.6] }],
     trim: ['metal_brushed', { scale: 0.9, tint: tintOf(theme.trim, 0.6, 0.72) }],
-    metalGrid: ['metal_brushed', { scale: 0.6, tint: tintOf(0x7f8d97, 0.45, 0.7) }],
+    metalGrid: ['metal_brushed', { scale: 0.6, tint: tintOf(0x7f8d97, 0.45, 0.7), roughness: [1, 0.16, 0.34] }],
   }),
 
   // Citadel — dressed ashlar, timber galleries, gravel courts.

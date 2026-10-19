@@ -83,6 +83,7 @@ export default class World {
     // ---- internals -------------------------------------------------------
     this._unitBox = new THREE.BoxGeometry(1, 1, 1);
     this._cylGeo = new THREE.CylinderGeometry(1, 1, 1, 12);
+    this._bagGeo = makeBagGeometry();
     this._raycaster = new THREE.Raycaster();
     this._rayHits = [];
     this._moveResult = { pos: new THREE.Vector3(), onGround: false, hitCeiling: false };
@@ -229,7 +230,7 @@ export default class World {
     const visit = (root) => {
       if (!root) return;
       root.traverse((object) => {
-        if (object.geometry && object.geometry !== this._unitBox && object.geometry !== this._cylGeo) {
+        if (object.geometry && object.geometry !== this._unitBox && object.geometry !== this._cylGeo && object.geometry !== this._bagGeo) {
           geometries.add(object.geometry);
         }
         const objectMaterials = Array.isArray(object.material) ? object.material : [object.material];
@@ -1233,12 +1234,16 @@ export default class World {
         const bz = alongX ? (z0 + z1) / 2 : z0 + t * (z1 - z0);
         const m = this.deco(
           bx, yBase + 0.17 + r * 0.33, bz,
-          alongX ? 0.66 : (x1 - x0) + 0.08,
-          0.34,
-          alongX ? (z1 - z0) + 0.08 : 0.66,
+          alongX ? 0.68 : (x1 - x0) + 0.14,
+          0.36,
+          alongX ? (z1 - z0) + 0.14 : 0.68,
           this.mats.sandbag
         );
-        m.rotation.y = ((r * 31 + b * 17) % 7 - 3) * 0.02;
+        // A filled bag, not a brick: the shared pillow geometry slumps at the
+        // ends and pinches at the seams, so each course reads as bags.
+        m.geometry = this._bagGeo;
+        m.rotation.y = ((r * 31 + b * 17) % 7 - 3) * 0.02 + (alongX ? 0 : Math.PI / 2);
+        if (!alongX) m.scale.set(m.scale.z, m.scale.y, m.scale.x);
       }
     }
   }
@@ -2138,3 +2143,39 @@ export default class World {
     return cand[(Math.random() * cand.length) | 0].pos.clone();
   }
 }
+
+/**
+ * Unit sandbag (1 x 1 x 1, long axis on x): a subdivided box slumped toward a
+ * pillow. Thickness falls away toward the tied ends and the sides, and the
+ * faces pinch in at the top and bottom seams. It keeps BoxGeometry's
+ * attributes (position, normal, uv, indexed), so it merges into the same
+ * environment batch as the unit-box decor; normals are averaged across the
+ * box's split face seams so the bag shades round instead of faceted.
+ */
+function makeBagGeometry() {
+  const geo = new THREE.BoxGeometry(1, 1, 1, 8, 4, 4);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const u = Math.abs(2 * x), w = Math.abs(2 * z), v = 2 * y;
+    const slump = (1 - 0.45 * u ** 4) * (1 - 0.25 * w ** 4);
+    pos.setXYZ(i, x * (1 - 0.08 * v * v), y * slump, z * (1 - 0.08 * v * v));
+  }
+  geo.computeVertexNormals();
+  const nrm = geo.attributes.normal;
+  const sums = new Map();
+  const keyOf = (i) => `${pos.getX(i).toFixed(4)},${pos.getY(i).toFixed(4)},${pos.getZ(i).toFixed(4)}`;
+  for (let i = 0; i < pos.count; i++) {
+    const k = keyOf(i);
+    const s = sums.get(k) || [0, 0, 0];
+    s[0] += nrm.getX(i); s[1] += nrm.getY(i); s[2] += nrm.getZ(i);
+    sums.set(k, s);
+  }
+  for (let i = 0; i < pos.count; i++) {
+    const [nx, ny, nz] = sums.get(keyOf(i));
+    const len = Math.hypot(nx, ny, nz) || 1;
+    nrm.setXYZ(i, nx / len, ny / len, nz / len);
+  }
+  return geo;
+}
+
