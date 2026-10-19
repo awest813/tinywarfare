@@ -306,7 +306,7 @@ export class OperativeAnimator {
    *
    * @param {object} actor   bot or remote: pos, yaw, aimPitch, crouching,
    *                         onGround, sprinting, aimBlend, burstLeft, fireAnim,
-   *                         reloadTimer, hitFlinch, hitHeadshot, kneeling,
+   *                         reloadTimer, hitFlinch, hitHeadshot, kneeling, sliding,
    *                         gesture ('slash' | 'lob', consumed like hitFlinch)
    * @param {number} dt
    * @param {object} ctx     { family: 'Rifle'|'Pistol', runSpeed, weapon (held
@@ -368,6 +368,8 @@ export class OperativeAnimator {
     let lower;
     if (this.airTime > 0.18) lower = 'JumpLoop';
     else if (kneeling) lower = 'Kneel';
+    // A slide is a glide on bent legs; any stepping cycle would scurry.
+    else if (actor.sliding) lower = 'CrouchIdle';
     else if (actor.crouching) lower = moving ? 'CrouchWalk' : 'CrouchIdle';
     else if (!moving) lower = 'Idle';
     else if (sprinting && !this.backpedal) lower = 'Sprint';

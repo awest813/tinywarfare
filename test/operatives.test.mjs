@@ -292,3 +292,17 @@ test('a remote human kneels only while planting on a site or defusing at the bom
   game.state.mode = 'tdm';
   assert.equal(kneels(ct), false, 'no bomb in a respawn mode');
 });
+
+test('a sliding soldier glides on still, crouched legs', async () => {
+  const gltf = await load('assets/models/operative_us.glb');
+  const set = buildAnimationSet(gltf.animations, gltf.scene.userData);
+  const animator = new OperativeAnimator(gltf.scene, new THREE.AnimationMixer(gltf.scene), set);
+  const pos = new THREE.Vector3();
+  const actor = { pos, yaw: 0, onGround: true, aimBlend: 1, moveSpeed: 7, crouching: true, sliding: true };
+  for (let i = 0; i < 10; i++) { pos.z -= 7 / 30; animator.update(actor, 1 / 30, { family: 'Rifle' }); }
+  assert.equal(animator.lowerName, 'CrouchIdle');
+  actor.sliding = false;
+  actor.moveSpeed = 1;
+  for (let i = 0; i < 10; i++) { pos.z -= 1 / 30; animator.update(actor, 1 / 30, { family: 'Rifle' }); }
+  assert.equal(animator.lowerName, 'CrouchWalk');
+});
