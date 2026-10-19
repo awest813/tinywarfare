@@ -3967,6 +3967,30 @@ export default class Bots {
   // Body animation
   // -------------------------------------------------------------------------
 
+  /**
+   * A remote human has no AI state; read the plant / defuse off what the
+   * rounds logic itself checks: E held, standing still, on a site before the
+   * plant or at the bomb after it.
+   */
+  _humanKneeling(actor) {
+    const st = this.game.state;
+    if (!actor.useDown || actor.alive === false || actor.onGround === false) return false;
+    if ((Number(actor.moveSpeed2D) || 0) > 0.7 || !st || !st.bomb || isRespawnMode(st.mode)) return false;
+    const p = actor.pos || actor.position;
+    if (!p) return false;
+    if (st.bomb.planted && st.bomb.pos) {
+      return actor.team === 'ct' && p.distanceToSquared(st.bomb.pos) <= 1.6 * 1.6;
+    }
+    if (actor.team !== 't') return false;
+    const sites = this.game.world && this.game.world.bombSites;
+    if (!Array.isArray(sites)) return false;
+    for (const site of sites) {
+      _v2.set(p.x, site.center.y, p.z);
+      if (site.box && site.box.containsPoint(_v2)) return true;
+    }
+    return false;
+  }
+
   _animateBot(bot, dt) {
     const m = bot.mesh;
     const p = bot.parts;
@@ -3984,7 +4008,9 @@ export default class Bots {
       const camera = this.game && this.game.camera;
       const near = !camera || camera.position.distanceToSquared(bot.pos) < IK_FAR_SQ;
       // On its knees over the bomb: the plant and the defuse play the kneel.
-      bot.kneeling = bot.state === 'plant' || bot.state === 'defuse';
+      bot.kneeling = bot.isRemotePlayer
+        ? this._humanKneeling(bot)
+        : bot.state === 'plant' || bot.state === 'defuse';
       bot.animator.update(bot, dt, {
         family: !family || family === 'Pistol' ? 'Pistol' : 'Rifle',
         weapon: bot.heldWeapon || null,

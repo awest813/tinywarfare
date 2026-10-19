@@ -274,3 +274,21 @@ test('a gait change starts the new cycle on the same foot', async () => {
   const diff = Math.abs(((after - before) % 1 + 1.5) % 1 - 0.5);
   assert.ok(diff < 0.08, `walk picks up ${diff.toFixed(2)} of a cycle away from the jog's stride`);
 });
+
+test('a remote human kneels only while planting on a site or defusing at the bomb', () => {
+  const site = { center: new THREE.Vector3(0, 0, 0), box: new THREE.Box3(new THREE.Vector3(-3, -1, -3), new THREE.Vector3(3, 2, 3)) };
+  const game = { state: { mode: 'sd', bomb: { planted: false, pos: null } }, world: { bombSites: [site] } };
+  const kneels = (actor) => Bots.prototype._humanKneeling.call({ game }, actor);
+  const t = { team: 't', alive: true, onGround: true, useDown: true, moveSpeed2D: 0, position: new THREE.Vector3(1, 0, 1) };
+  assert.equal(kneels(t), true, 'a terrorist holding E on the site');
+  assert.equal(kneels({ ...t, useDown: false }), false, 'not holding E');
+  assert.equal(kneels({ ...t, moveSpeed2D: 3 }), false, 'walking');
+  assert.equal(kneels({ ...t, position: new THREE.Vector3(10, 0, 10) }), false, 'off the site');
+  game.state.bomb = { planted: true, pos: new THREE.Vector3(1, 0, 1) };
+  const ct = { ...t, team: 'ct', position: new THREE.Vector3(1.5, 0, 1.5) };
+  assert.equal(kneels(ct), true, 'a CT holding E at the bomb');
+  assert.equal(kneels({ ...ct, position: new THREE.Vector3(4, 0, 4) }), false, 'too far from the bomb');
+  assert.equal(kneels(t), false, 'nothing left for a terrorist to plant');
+  game.state.mode = 'tdm';
+  assert.equal(kneels(ct), false, 'no bomb in a respawn mode');
+});

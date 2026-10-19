@@ -223,6 +223,7 @@ export class OperativeAnimator {
     this.reloading = false;
     this.gesture = null;
     this.ikWeight = 1;
+    this.heldWeapon = undefined;
     this._play('lower', 'Idle', 0);
     this._play('upper', 'Rifle_Aim', 0);
     this.mixer.update(0);
@@ -420,6 +421,12 @@ export class OperativeAnimator {
     // Eased so the torso does not snap between sprint and aim posture.
     this.sprintBlend += ((sprinting ? 1 : 0) - this.sprintBlend) * (1 - Math.exp(-10 * step));
     const ikTarget = this.reloading || gesture || kneeling ? 0 : 1;
+    // A new gun in the hand: the support hand comes off and eases onto the
+    // new handguard with the torso's crossfade instead of snapping there.
+    if (ctx.weapon !== this.heldWeapon) {
+      if (this.heldWeapon !== undefined) this.ikWeight = 0;
+      this.heldWeapon = ctx.weapon;
+    }
     this.ikWeight += (ikTarget - this.ikWeight) * Math.min(1, step * 14);
 
     this._restoreClipPose();
