@@ -51,6 +51,12 @@ const RANKED_MAX_ATTEMPTS = 18;
 const RANKED_FAILURE_MESSAGE = 'Match rewards could not be recorded. Your existing career progress is safe.';
 const CHARACTER_IDS = new Set(['vanguard', 'ranger', 'breacher', 'shadow']);
 
+// room.players is a plain object parsed from storage, so a client-supplied id
+// such as "__proto__" would otherwise resolve to Object.prototype.
+function playerById(room, id) {
+  return typeof id === 'string' && Object.hasOwn(room.players, id) ? room.players[id] : null;
+}
+
 function cleanName(value) {
   // Only a string is a name (an object or array arrives as "[object Object]").
   const name = (typeof value === 'string' ? value : '').trim().replace(/[^\p{L}\p{N} _.-]/gu, '').slice(0, 20);
@@ -112,6 +118,9 @@ function publicPlayer(player, hostId) {
     team: player.team,
     host: player.id === hostId,
     alive: player.alive,
+    // A dropped player keeps the seat through the reconnect grace; peers must
+    // not count the frozen body as a living teammate meanwhile.
+    connected: player.connected !== false,
     characterId: cleanCharacterId(player.characterId),
     spectating,
     joinRound: eligibleRound,
@@ -206,8 +215,8 @@ function recordRankedKill(room, data) {
   if (!data || !room.matchStats) return;
   const killerId = typeof data.killerId === 'string' ? data.killerId : null;
   const victimId = typeof data.victimId === 'string' ? data.victimId : null;
-  const killer = killerId ? room.players[killerId] : null;
-  const victim = victimId ? room.players[victimId] : null;
+  const killer = playerById(room, killerId);
+  const victim = playerById(room, victimId);
   if (victim) {
     const victimStats = room.matchStats[victim.id];
     if (victimStats) victimStats.deaths++;
@@ -268,7 +277,7 @@ function observeRankedSnapshot(room, state) {
   const bomb = state.bomb || {};
   const planted = !!bomb.planted;
   if (planted && !room.lastObservedPlant) {
-    const planter = typeof bomb.carrierId === 'string' ? room.players[bomb.carrierId] : null;
+    const planter = playerById(room, bomb.carrierId);
     if (planter && planter.team === 't') {
       const stats = room.matchStats[planter.id];
       if (stats) stats.plants++;
@@ -283,7 +292,7 @@ function observeRankedSnapshot(room, state) {
     const key = `${resultRound}:${result.defuserId}`;
     room.observedDefuses ||= [];
     if (!room.observedDefuses.includes(key)) {
-      const defuser = room.players[result.defuserId];
+      const defuser = playerById(room, result.defuserId);
       if (defuser && defuser.team === 'ct') {
         const stats = room.matchStats[defuser.id];
         if (stats) stats.defuses++;
@@ -440,7 +449,7 @@ export class RoomDurableObject {
   }
 
   _authorityCandidate(room, preferredId = null) {
-    const preferred = preferredId ? room.players[preferredId] : null;
+    const preferred = playerById(room, preferredId);
     if (preferred && preferred.id !== room.hostId && Number(preferred.authorityProtocol) >= 1 &&
       this._isConnectedAuthorityCandidate(room, preferred)) {
       return preferred;
@@ -590,8 +599,22 @@ export class RoomDurableObject {
       return connection;
     }
     if (message.action === 'reconnect') return this._reconnect(ws, connection, message);
+    // The ranked lookup below awaits another Durable Object, and a second
+    // hello on this socket would pass the seat check above meanwhile and take
+    // a second seat with the same connection id.
+    this._joining ||= new WeakSet();
+    if (this._joining.has(ws)) {
+      this._send(ws, { type: 'error', message: 'Already joining a room.' });
+      return connection;
+    }
+    this._joining.add(ws);
+    let rankedPlayer;
+    try {
+      rankedPlayer = await this._rankedPlayer(message.leaderboardToken);
+    } finally {
+      this._joining.delete(ws);
+    }
     const action = message.action === 'create' ? 'create' : 'join';
-    const rankedPlayer = await this._rankedPlayer(message.leaderboardToken);
     let code = cleanRoomCode(message.room);
     let room = code ? this._room(code) : null;
 
@@ -989,7 +1012,7 @@ export class RoomDurableObject {
       case 'respawn':
         if (room.started && isRespawnGameMode(room.gameMode) && player.id === room.hostId &&
           this._authorityEpochMatches(room, message, player) && message.targetId) {
-          const target = room.players[message.targetId];
+          const target = playerById(room, message.targetId);
           if (!target) break;
           respawnRoomPlayer(target);
           dirty = true;
@@ -1111,7 +1134,7 @@ export class RoomDurableObject {
       case 'damage':
         if (room.started && player.id === room.hostId && this._authorityEpochMatches(room, message, player) &&
           message.targetId && message.result) {
-          const target = room.players[message.targetId];
+          const target = playerById(room, message.targetId);
           if (target && isWaitingForRound(target)) break;
           if (target) applyAuthoritativeDamageResult(target, message.result);
           dirty = true;
@@ -1174,6 +1197,7 @@ export class RoomDurableObject {
     player.disconnectDeadline = Date.now() + this._graceMs();
     if (room.hostId === player.id) this._moveRoomAuthority(room, null, 'disconnected');
     this._saveRoom(room);
+    this._broadcastLobby(room);
     await this._scheduleDisconnectAlarm();
   }
 

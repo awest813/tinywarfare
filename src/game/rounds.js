@@ -387,9 +387,9 @@ export default class Rounds {
     if (!mp || !mp.active || (bots && bots.aliveOf('t') > 0)) return;
     const s = this.game.state;
     const bomb = s.bomb;
-    let carrier = mp.humans('t').find((p) => p.networkId === bomb.carrierId && p.alive);
+    let carrier = mp.humans('t').find((p) => p.networkId === bomb.carrierId && p.alive && !p.disconnected);
     if (!carrier) {
-      carrier = mp.humans('t').find((p) => p.alive) || null;
+      carrier = mp.humans('t').find((p) => p.alive && !p.disconnected) || null;
       bomb.carrierId = carrier ? carrier.networkId : null;
       this._plantProgress = 0;
     }

@@ -289,7 +289,9 @@ export default class Multiplayer {
 
   aliveOf(team) {
     let count = 0;
-    for (const human of this.humans(team)) if (human.alive) count++;
+    // A player inside the reconnect grace holds the seat but cannot fight:
+    // counting the frozen body kept a team from ever being eliminated.
+    for (const human of this.humans(team)) if (human.alive && !human.disconnected) count++;
     return count;
   }
 
@@ -1979,6 +1981,7 @@ export default class Multiplayer {
         const teamChanged = remote.team !== nextTeam;
         remote.team = nextTeam;
         remote.spectating = !!entry.spectating;
+        remote.disconnected = entry.connected === false;
         remote.joinRound = positiveRound(entry.joinRound);
         if (entry.characterId || teamChanged) {
           this._applyRemoteAppearance(remote, entry.characterId || remote.characterId, teamChanged);
@@ -2051,6 +2054,7 @@ export default class Multiplayer {
       hasKit: false,
       alive: entry.alive !== false && !entry.spectating,
       spectating: !!entry.spectating,
+      disconnected: entry.connected === false,
       joinRound: positiveRound(entry.joinRound),
       hasNetworkPose: false,
       crouching: false,

@@ -203,6 +203,9 @@ function publicPlayer(player, hostId) {
     team: player.team,
     host: player.id === hostId,
     alive: player.alive,
+    // A dropped player keeps the seat through the reconnect grace; peers must
+    // not count the frozen body as a living teammate meanwhile.
+    connected: player.connected !== false,
     characterId: cleanCharacterId(player.characterId),
     spectating,
     joinRound: eligibleRound,
@@ -555,6 +558,8 @@ function detachFromRoom(player, ws) {
   if (player.disconnectTimer) clearTimeout(player.disconnectTimer);
   player.disconnectTimer = setTimeout(() => leaveRoom(player), RECONNECT_GRACE_MS);
   player.disconnectTimer.unref?.();
+  const room = rooms.get(player.roomCode);
+  if (room) broadcastLobby(room);
 }
 
 function welcomePayload(room, client, resumed = false) {
