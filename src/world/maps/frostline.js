@@ -25,6 +25,8 @@ const edges = [
   ...chain('mid_5', 'se_mid', 'se_0', 'se_1', 'se_2'),
   ['sw_0', 'ct_w'], ['ct_w', 'ct_c'], ['ct_c', 'ct_e'], ['ct_e', 'se_0'],
   ['a_3', 'a_back'], ['b_3', 'b_back'],
+  // The CT-side stairs onto each pad (see stairs below).
+  ['sw_1', 'a_back'], ['se_1', 'b_back'],
 ];
 
 export const FROSTLINE = {
@@ -64,6 +66,12 @@ export const FROSTLINE = {
   stairs: [
     [-42, -24, 0, 3, 4, 0.2, '+z', 'padPlatB', 0],
     [24, 42, 0, 3, 4, 0.2, '+z', 'padPlat', 0],
+    // A narrower flight up the back (CT side) of each pad. Without it the
+    // 0.8 m south edge was a wall to bots, so every CT retake walked 141 m
+    // round through the T approach (T reached either site in 82 m) and the
+    // map played 8-1 / 8-4 / 8-5 to T.
+    [-34, -28, 22, 25, 4, 0.2, '-z', 'padPlatB', 0],
+    [28, 34, 22, 25, 4, 0.2, '-z', 'padPlat', 0],
   ],
   arches: [
     [0, -18, 6.4, 'x', 0.7, 3.2, 4.8, 'wallBs'],
