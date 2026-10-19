@@ -36,6 +36,11 @@ export const HOLD_CLIPS = [
   'Rifle_Aim', 'Rifle_Ready', 'Rifle_Sprint', 'Rifle_Reload',
   'Pistol_Aim', 'Pistol_Ready', 'Pistol_Reload',
 ];
+// Hold clip names per weapon family (no per-frame string building).
+const HOLD = {
+  Rifle: { aim: 'Rifle_Aim', ready: 'Rifle_Ready', reload: 'Rifle_Reload' },
+  Pistol: { aim: 'Pistol_Aim', ready: 'Pistol_Ready', reload: 'Pistol_Reload' },
+};
 export const DEATH_CLIPS = ['Death_A', 'Death_A_M', 'Death_B', 'Death_B_M'];
 export const HIT_CLIPS = ['HitChest', 'HitHead'];
 export const ACTION_CLIPS = ['Kneel', 'Slash', 'Lob'];
@@ -430,10 +435,10 @@ export class OperativeAnimator {
     const gesture = this._gestureStep(step);
     if (gesture) upper = gesture.clip;
     else if (kneeling && this.actions.Kneel_Work) upper = 'Kneel_Work';
-    else if (this.reloading) upper = `${family}_Reload`;
+    else if (this.reloading) upper = HOLD[family].reload;
     else if (sprinting && !firing) upper = family === 'Rifle' ? 'Rifle_Sprint' : 'Pistol_Ready';
-    else if (firing || (actor.aimBlend ?? 1) > 0.3 || (actor.crouching && !moving)) upper = `${family}_Aim`;
-    else upper = `${family}_Ready`;
+    else if (firing || (actor.aimBlend ?? 1) > 0.3 || (actor.crouching && !moving)) upper = HOLD[family].aim;
+    else upper = HOLD[family].ready;
     const wasUpper = this.upperName;
     const torso = this._play('upper', upper, gesture ? 0.06 : this.reloading ? 0.12 : 0.16);
     if (torso && gesture) {
@@ -530,16 +535,19 @@ export class OperativeAnimator {
 
     // Everything read before anything is written: the getters below re-derive
     // world matrices from the current locals.
+    // Straight off the matrices the root update just computed: the
+    // getWorld* helpers each re-walk the whole ancestor chain to the scene.
     k.target.fromArray(grip.pos).applyMatrix4(weapon.matrixWorld);
-    weapon.getWorldQuaternion(k.wantHand)
+    weapon.matrixWorld.decompose(k.p, k.wantHand, k.s);
+    k.wantHand
       .multiply(weapon.userData.gripBasisL)
       .multiply(k.tmp.copy(this.set.handBasisL).invert());
-    upperL.getWorldPosition(k.a);
-    foreL.getWorldPosition(k.b);
-    handL.getWorldPosition(k.c);
-    upperL.parent.getWorldQuaternion(k.parentQ);
-    upperL.getWorldQuaternion(k.upperQ);
-    foreL.getWorldQuaternion(k.foreQ);
+    k.a.setFromMatrixPosition(upperL.matrixWorld);
+    k.b.setFromMatrixPosition(foreL.matrixWorld);
+    k.c.setFromMatrixPosition(handL.matrixWorld);
+    upperL.parent.matrixWorld.decompose(k.p, k.parentQ, k.s);
+    upperL.matrixWorld.decompose(k.p, k.upperQ, k.s);
+    foreL.matrixWorld.decompose(k.p, k.foreQ, k.s);
 
     const l1 = k.a.distanceTo(k.b);
     const l2 = k.b.distanceTo(k.c);
@@ -579,4 +587,5 @@ const IK = {
   u: new THREE.Vector3(), v: new THREE.Vector3(),
   wantHand: new THREE.Quaternion(), parentQ: new THREE.Quaternion(), upperQ: new THREE.Quaternion(),
   foreQ: new THREE.Quaternion(), swing: new THREE.Quaternion(), tmp: new THREE.Quaternion(),
+  p: new THREE.Vector3(), s: new THREE.Vector3(), // decompose scratch
 };

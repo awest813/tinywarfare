@@ -1297,8 +1297,15 @@ export default class ViewModel {
       ray.origin.copy(cam.position);
       cam.getWorldDirection(ray.direction);
       let best = Infinity;
-      for (let i = 0; i < boxes.length; i++) {
-        const box = boxes[i];
+      // Only boxes near the eye can be within reach: the world's grid
+      // broadphase when it has one, every box otherwise.
+      const o = ray.origin;
+      const near = typeof world._collidersIn === 'function'
+        ? world._collidersIn(o.x - reach, o.x + reach, o.z - reach, o.z + reach, this._wallNear || (this._wallNear = []))
+        : null;
+      const count = near ? near.length : boxes.length;
+      for (let n = 0; n < count; n++) {
+        const box = boxes[near ? near[n] : n];
         if (box.distanceToPoint(ray.origin) > reach) continue;
         if (ray.intersectBox(box, this._wallHit)) {
           const d = this._wallHit.distanceTo(ray.origin);

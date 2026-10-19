@@ -261,6 +261,9 @@ game.weapons = new Weapons(game);
 game.viewmodel = new ViewModel(game);
 game.combat = new Combat(game);
 game.bots = new Bots(game);
+// Soldiers are posed once per rendered frame, not per simulation sub-step.
+game.bots.deferAnimation = true;
+game.botAnim = { update: (dt) => game.bots.animateFrame(dt) };
 game.rounds = new Rounds(game);
 game.score = new MatchScore(game);
 game.progression = new Progression(game);
@@ -351,7 +354,7 @@ const UPDATE_ORDER = [
   // its replay then lands in the same frame the replay ends, instead of the
   // spectator showing a teammate for one frame in between. (It records the
   // poses the previous frame left, one frame behind, which is invisible.)
-  'world', 'killcam', 'rounds', 'score', 'streaks', 'touchControls', 'gamepad', 'player', 'weapons', 'viewmodel', 'bots',
+  'world', 'killcam', 'rounds', 'score', 'streaks', 'touchControls', 'gamepad', 'player', 'weapons', 'viewmodel', 'bots', 'botAnim',
   // Spectator runs after replicated/AI actors so deaths, disconnects, and
   // poses affect the observer camera in the same rendered frame. It hands the
   // camera to the killcam while a replay plays.
@@ -406,7 +409,7 @@ function reportFailure(key, error) {
 // for them two or three times over (which is what deepens a slowdown on a
 // weak machine). Effects stay sub-stepped: their particles integrate drag and
 // gravity explicitly, which is not stable at a 0.15 s step.
-const FRAME_SYSTEMS = new Set(['world', 'hud', 'audio', 'materials']);
+const FRAME_SYSTEMS = new Set(['world', 'botAnim', 'hud', 'audio', 'materials']);
 
 function runSystem(key, dt) {
   const sys = game[key];

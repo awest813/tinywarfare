@@ -118,15 +118,23 @@ export default class Gamepads {
   }
 
   update(dt) {
+    // getGamepads() is not free (~15 us a call in Chromium): with no pad seen
+    // yet, look once a second instead of every simulation step.
+    if (!this.connected) {
+      this._probeT = (this._probeT || 0) - dt;
+      if (this._probeT > 0) return;
+      this._probeT = 1;
+    }
     const pad = this._pad();
     if (!pad) {
+      this.connected = false;
       if (this._held.size) this._releaseAll();
       return;
     }
+    this.connected = true;
     const btn = pad.buttons;
-    const down = (i) => !!(btn[i] && (btn[i].pressed || btn[i].value > TRIGGER_ON));
-    const now = new Array(17);
-    for (let i = 0; i < 17; i++) now[i] = down(i);
+    const now = this._now || (this._now = new Array(17).fill(false));
+    for (let i = 0; i < 17; i++) now[i] = !!(btn[i] && (btn[i].pressed || btn[i].value > TRIGGER_ON));
     const pressed = (i) => now[i] && !this._prev[i];
     const released = (i) => !now[i] && this._prev[i];
     const ax = pad.axes;
@@ -148,6 +156,8 @@ export default class Gamepads {
         this._navigate(dt, now, pressed, ax);
       }
     }
+    // Swap the buffers rather than allocate a fresh array every step.
+    this._now = this._prev;
     this._prev = now;
   }
 

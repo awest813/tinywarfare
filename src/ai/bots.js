@@ -2423,6 +2423,7 @@ export default class Bots {
         if (typeof mp._replicaFootstep === 'function') mp._replicaFootstep(b, dt);
         if (Number.isFinite(b.netYaw)) b.yaw += angleDiff(b.netYaw, b.yaw) * blend;
         if (Number.isFinite(b.netAimPitch)) b.aimPitch += (b.netAimPitch - b.aimPitch) * blend;
+        if (this.deferAnimation) continue;
         if (!b.alive) this._animateDeath(b, dt);
         else this._animateBot(b, dt);
       }
@@ -2450,13 +2451,13 @@ export default class Bots {
     for (let i = 0; i < this.all.length; i++) {
       const b = this.all[i];
       if (!b.alive) {
-        this._animateDeath(b, dt);
+        if (!this.deferAnimation) this._animateDeath(b, dt);
         continue;
       }
       if (frozen || over) {
         b.moveSpeed = 0;
         b.burstLeft = 0;
-        this._animateBot(b, dt);
+        if (!this.deferAnimation) this._animateBot(b, dt);
         continue;
       }
 
@@ -2471,7 +2472,24 @@ export default class Bots {
 
       this._moveBot(b, dt);
       this._combatFrame(b, dt);
-      this._animateBot(b, dt);
+      if (!this.deferAnimation) this._animateBot(b, dt);
+    }
+  }
+
+  /**
+   * Pose every soldier once per rendered frame (main.js sets deferAnimation
+   * and runs this with the frame's whole time). Inside the sub-stepped
+   * update, a slow frame of 2-3 steps posed every rig 2-3 times — mixer, spine
+   * passes and hand IK — on exactly the devices sub-stepping protects. Hits
+   * are tested against analytic capsules, not the meshes, so this changes
+   * nothing but cost.
+   */
+  animateFrame(dt) {
+    if (!this.deferAnimation || this.game.state.phase === 'menu') return;
+    for (let i = 0; i < this.all.length; i++) {
+      const b = this.all[i];
+      if (!b.alive) this._animateDeath(b, dt);
+      else this._animateBot(b, dt);
     }
   }
 
@@ -4053,12 +4071,12 @@ export default class Bots {
       bot.kneeling = bot.isRemotePlayer
         ? this._humanKneeling(bot)
         : bot.state === 'plant' || bot.state === 'defuse';
-      bot.animator.update(bot, dt, {
-        family: !family || family === 'Pistol' ? 'Pistol' : 'Rifle',
-        weapon: bot.heldWeapon || null,
-        ik: near && m.visible !== false,
-        root: m,
-      });
+      const ctx = this._animCtx || (this._animCtx = { family: 'Rifle', weapon: null, ik: false, root: null });
+      ctx.family = !family || family === 'Pistol' ? 'Pistol' : 'Rifle';
+      ctx.weapon = bot.heldWeapon || null;
+      ctx.ik = near && m.visible !== false;
+      ctx.root = m;
+      bot.animator.update(bot, dt, ctx);
       bot.fireAnim = Math.max(0, (bot.fireAnim || 0) - dt * 8);
       // The throwing hand is the gun hand: stow what it holds for the lob
       // (a knife stays in it for the slash).

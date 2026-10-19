@@ -2793,6 +2793,10 @@ export default class HUD {
     const root = this._el.objective;
     if (!root) return;
     const objective = isRespawnMode(st.mode) ? this.game.rounds?.tdm?.objective : null;
+    // hud() builds a fresh array of rows: capture progress reads fine at 10 Hz.
+    const now = performance.now();
+    if (objective && this._cache.objectiveKey !== undefined && now - (this._cache.objectiveAt || 0) < 100) return;
+    this._cache.objectiveAt = now;
     const flags = objective && typeof objective.hud === 'function' ? objective.hud() : null;
     const key = flags
       ? flags.map((f) => f.name + (f.owner || '-') + (f.contested ? '!' : '') + Math.round(f.control * 20)).join('|')
@@ -2937,6 +2941,11 @@ export default class HUD {
       root.hidden = !on;
     }
     if (!on) return;
+    // status() sorts and builds rows, and the key is a fresh string: check at
+    // 10 Hz, not every frame (progress moves on kills; timers tick per second).
+    const now = performance.now();
+    if (this._cache.streaksKey !== undefined && now - (this._cache.streaksAt || 0) < 100) return;
+    this._cache.streaksAt = now;
     const rows = streaks.status();
     const uav = streaks.uavActive() ? Math.ceil(streaks.uavTime) : 0;
     const cuav = streaks.counterUavActive() ? Math.ceil(streaks.counterTime) : 0;
@@ -3549,16 +3558,22 @@ export default class HUD {
         this._el.moneyBox.style.visibility = show ? 'hidden' : '';
       }
       c.defuse = -1;
+      c.barPlanting = undefined;
     }
     if (show) {
       const hasKit = !!(p && p.hasKit);
       const need = planting ? (cfg.PLANT_TIME || 3.2) : (hasKit ? (cfg.DEFUSE_TIME_KIT || 5) : (cfg.DEFUSE_TIME || 10));
       const frac = clamp((planting ? plantProg : prog) / need, 0, 1);
-      if (this._el.defuseLabel) this._el.defuseLabel.textContent = planting ? 'PLANTING…' : 'DEFUSING…';
-      if (planting && this._el.defuseNote) {
-        c.kitNote = null;
-        this._el.defuseNote.textContent = 'ARMING THE BOMB — HOLD STEADY';
-        this._el.defuseNote.classList.remove('kit');
+      // Written on change only: a textContent write replaces the text node
+      // (and restyles) even when the string is the same.
+      if (planting !== c.barPlanting) {
+        c.barPlanting = planting;
+        if (this._el.defuseLabel) this._el.defuseLabel.textContent = planting ? 'PLANTING…' : 'DEFUSING…';
+        if (planting && this._el.defuseNote) {
+          c.kitNote = null;
+          this._el.defuseNote.textContent = 'ARMING THE BOMB — HOLD STEADY';
+          this._el.defuseNote.classList.remove('kit');
+        }
       }
       if (Math.abs(frac - c.defuse) > 0.004) {
         c.defuse = frac;

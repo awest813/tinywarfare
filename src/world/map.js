@@ -70,6 +70,8 @@ const _v3 = new THREE.Vector3();
 const _wrapTmp = new THREE.Vector3();
 
 const MAX_DEPENETRATION = 0.75; // m a capsule found inside a box may be pushed out per axis
+const GRID_CELL = 4;              // m: collider broadphase cell (see _colliderGrid)
+const ascending = (a, b) => a - b;
 const KNEE_HEIGHT = 0.6;       // m: rays below this pass over steppable curbs
 const REACH_CANDIDATES = 6;    // nearest nodes tried for a walkable entry
 const REACH_STEP = 0.6;        // m: a fallback entry node may sit this far above the feet
@@ -1840,6 +1842,66 @@ export default class World {
   // Used by the player AND every bot each frame — allocation-free.
   // Returned object (and its .pos) are REUSED between calls: copy, don't keep.
   // =========================================================================
+  /**
+   * Static XZ grid over the colliders, built lazily and rebuilt whenever the
+   * collider array is replaced or grows (map load, dressing, tests). Movement
+   * used to test every box several times per call — ~300 on Dustyard, for the
+   * player and every bot each step.
+   */
+  _colliderGrid() {
+    const cols = this.colliders;
+    const g = this._grid;
+    if (g && g.cols === cols && g.n === cols.length) return g;
+    let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity;
+    for (const c of cols) {
+      if (c.min.x < minX) minX = c.min.x;
+      if (c.min.z < minZ) minZ = c.min.z;
+      if (c.max.x > maxX) maxX = c.max.x;
+      if (c.max.z > maxZ) maxZ = c.max.z;
+    }
+    if (!cols.length) { minX = minZ = 0; maxX = maxZ = 1; }
+    const nx = Math.max(1, Math.ceil((maxX - minX) / GRID_CELL) + 1);
+    const nz = Math.max(1, Math.ceil((maxZ - minZ) / GRID_CELL) + 1);
+    const cells = new Array(nx * nz);
+    for (let i = 0; i < cells.length; i++) cells[i] = [];
+    for (let i = 0; i < cols.length; i++) {
+      const c = cols[i];
+      const x0 = Math.floor((c.min.x - minX) / GRID_CELL), x1 = Math.floor((c.max.x - minX) / GRID_CELL);
+      const z0 = Math.floor((c.min.z - minZ) / GRID_CELL), z1 = Math.floor((c.max.z - minZ) / GRID_CELL);
+      for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) cells[z * nx + x].push(i);
+    }
+    this._grid = { cols, n: cols.length, minX, minZ, nx, nz, cells, stamp: new Uint32Array(cols.length), query: 0 };
+    return this._grid;
+  }
+
+  /**
+   * Indices of every collider whose XZ footprint may overlap the rectangle,
+   * ascending (the order the old full scans used, so clamping resolves the
+   * same way), written into `out` (a caller-owned array: queries nest).
+   */
+  _collidersIn(x0, x1, z0, z1, out) {
+    const g = this._colliderGrid();
+    out.length = 0;
+    const cx0 = Math.max(0, Math.floor((x0 - g.minX) / GRID_CELL));
+    const cx1 = Math.min(g.nx - 1, Math.floor((x1 - g.minX) / GRID_CELL));
+    const cz0 = Math.max(0, Math.floor((z0 - g.minZ) / GRID_CELL));
+    const cz1 = Math.min(g.nz - 1, Math.floor((z1 - g.minZ) / GRID_CELL));
+    if (cx0 > cx1 || cz0 > cz1) return out;
+    const stamp = g.stamp;
+    const q = ++g.query;
+    for (let z = cz0; z <= cz1; z++) {
+      for (let x = cx0; x <= cx1; x++) {
+        const cell = g.cells[z * g.nx + x];
+        for (let k = 0; k < cell.length; k++) {
+          const i = cell[k];
+          if (stamp[i] !== q) { stamp[i] = q; out.push(i); }
+        }
+      }
+    }
+    if (out.length > 1) out.sort(ascending);
+    return out;
+  }
+
   resolveMovement(pos, delta, radius, height) {
     const res = this._moveResult;
     const p = res.pos.copy(pos);
@@ -1861,8 +1923,9 @@ export default class World {
       const cols = this.colliders;
       const e = 0.001;
       const step = this.game.config.PLAYER.STEP_HEIGHT;
-      for (let i = 0; i < cols.length; i++) {
-        const c = cols[i];
+      const near = this._collidersIn(p.x - radius, p.x + radius, p.z - radius, p.z + radius, this._qVert || (this._qVert = []));
+      for (let n = 0; n < near.length; n++) {
+        const c = cols[near[n]];
         if (
           c.min.x < p.x + radius - e && c.max.x > p.x - radius + e &&
           c.min.z < p.z + radius - e && c.max.z > p.z - radius + e &&
@@ -1901,8 +1964,9 @@ export default class World {
     const e = 0.001;
     let best = y - reach <= 0 ? 0 : null;
     const cols = this.colliders;
-    for (let i = 0; i < cols.length; i++) {
-      const c = cols[i];
+    const near = this._collidersIn(x - radius, x + radius, z - radius, z + radius, this._qBelow || (this._qBelow = []));
+    for (let n = 0; n < near.length; n++) {
+      const c = cols[near[n]];
       if (c.max.y > y + e || c.max.y < y - reach) continue;
       if (best !== null && c.max.y <= best) continue;
       if (c.min.x < x + radius - e && c.max.x > x - radius + e &&
@@ -1919,8 +1983,15 @@ export default class World {
     const before = axis === 0 ? p.x : p.z;
     if (axis === 0) p.x += amount; else p.z += amount;
     const cols = this.colliders;
-    for (let i = 0; i < cols.length; i++) {
-      const c = cols[i];
+    // Everything the loop can test: the swept span plus the farthest a
+    // depenetration may push along this axis.
+    const reach = radius + MAX_DEPENETRATION + 2 * e;
+    const lo0 = Math.min(before, before + amount) - reach, hi0 = Math.max(before, before + amount) + reach;
+    const near = axis === 0
+      ? this._collidersIn(lo0, hi0, p.z - radius, p.z + radius, this._qMove || (this._qMove = []))
+      : this._collidersIn(p.x - radius, p.x + radius, lo0, hi0, this._qMove || (this._qMove = []));
+    for (let n = 0; n < near.length; n++) {
+      const c = cols[near[n]];
       if (!(
         c.min.x < p.x + radius - e && c.max.x > p.x - radius + e &&
         c.min.z < p.z + radius - e && c.max.z > p.z - radius + e &&
@@ -1966,8 +2037,9 @@ export default class World {
   _clearAt(x, y, z, radius, height) {
     const e = 0.001;
     const cols = this.colliders;
-    for (let i = 0; i < cols.length; i++) {
-      const c = cols[i];
+    const near = this._collidersIn(x - radius, x + radius, z - radius, z + radius, this._qClear || (this._qClear = []));
+    for (let n = 0; n < near.length; n++) {
+      const c = cols[near[n]];
       if (
         c.min.x < x + radius - e && c.max.x > x - radius + e &&
         c.min.z < z + radius - e && c.max.z > z - radius + e &&
@@ -1982,8 +2054,9 @@ export default class World {
     if (y <= 0.002) return true; // base ground plane
     const e = 0.001;
     const cols = this.colliders;
-    for (let i = 0; i < cols.length; i++) {
-      const c = cols[i];
+    const near = this._collidersIn(x - radius, x + radius, z - radius, z + radius, this._qGround || (this._qGround = []));
+    for (let n = 0; n < near.length; n++) {
+      const c = cols[near[n]];
       if (
         c.min.x < x + radius - e && c.max.x > x - radius + e &&
         c.min.z < z + radius - e && c.max.z > z - radius + e &&
@@ -2015,16 +2088,55 @@ export default class World {
     return hit ? hit.point.y : null;
   }
 
+  /**
+   * Each solid mesh with its world box, cached per map (the solids are
+   * static). raycast() rejects a mesh with a ray-vs-box test before three's
+   * own mesh test: that one bounding-spheres all ~300 solids, inverts a matrix
+   * and runs triangle tests for each candidate, and allocates a hit object
+   * per triangle crossed.
+   */
+  _raySolids() {
+    const kids = this.solids.children;
+    const c = this._rayCache;
+    if (c && c.kids === kids && c.n === kids.length) return c.list;
+    const list = [];
+    this.solids.updateMatrixWorld(true);
+    for (const mesh of kids) {
+      if (!mesh.isMesh) continue;
+      list.push({ mesh, box: new THREE.Box3().setFromObject(mesh) });
+    }
+    this._rayCache = { kids, n: kids.length, list };
+    return list;
+  }
+
   raycast(origin, dir, maxDist) {
     const rc = this._raycaster;
-    rc.ray.origin.copy(origin);
-    rc.ray.direction.copy(dir).normalize();
+    const ray = rc.ray;
+    ray.origin.copy(origin);
+    ray.direction.copy(dir).normalize();
     rc.near = 0;
     rc.far = maxDist;
-    this._rayHits.length = 0;
-    rc.intersectObjects(this.solids.children, false, this._rayHits);
-    if (this._rayHits.length === 0) return null;
-    const hit = this._rayHits[0];
+    const hits = this._rayHits;
+    const list = this._raySolids();
+    const entry = this._rayEntry || (this._rayEntry = new THREE.Vector3());
+    let hit = null;
+    let bestD = maxDist;
+    for (let i = 0; i < list.length; i++) {
+      const it = list[i];
+      if (!ray.intersectBox(it.box, entry)) continue;
+      // A box whose nearest point is beyond the best hit cannot beat it.
+      // (With a little slack: coplanar faces of two boxes tie to the last bit.)
+      if (it.box.containsPoint(ray.origin) === false && entry.distanceTo(ray.origin) > bestD + 1e-6) continue;
+      hits.length = 0;
+      it.mesh.raycast(rc, hits);
+      for (let k = 0; k < hits.length; k++) {
+        // First hit wins a tie, as in intersectObjects' stable sort.
+        const d = hits[k].distance;
+        if (hit === null ? d <= bestD : d < bestD) { bestD = d; hit = hits[k]; }
+      }
+    }
+    hits.length = 0;
+    if (!hit) return null;
     const normal = hit.face
       ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld)
       : new THREE.Vector3(0, 1, 0);
