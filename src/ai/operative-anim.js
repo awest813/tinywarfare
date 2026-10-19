@@ -320,7 +320,7 @@ export class OperativeAnimator {
     }
     if (actor.gesture) {
       const steps = GESTURES[actor.gesture];
-      if (steps && steps.every((g) => this.actions[g.clip])) this.gesture = { steps, step: -1, t: 0 };
+      if (steps && steps.every((g) => this.actions[g.clip])) this.gesture = { kind: actor.gesture, steps, step: -1, t: 0 };
       actor.gesture = null;
     }
     const kneeling = !!actor.kneeling && !!this.actions.Kneel;

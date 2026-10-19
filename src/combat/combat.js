@@ -279,8 +279,10 @@ export default class Combat {
     this._sDir.set(e.dir.x, e.dir.y, e.dir.z);
     if (this._sDir.lengthSq() < 1e-10) return;
     this._sDir.normalize();
-    if (e.melee) this._resolveMelee(shooter, shooter.team, false, weaponId, def);
-    else {
+    if (e.melee) {
+      shooter.gesture = 'slash';
+      this._resolveMelee(shooter, shooter.team, false, weaponId, def);
+    } else {
       this._suppressedShot = !!e.suppressed;
       try {
         this._fireBullet(weaponId, def, shooter, shooter.team, false, null);

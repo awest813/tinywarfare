@@ -79,6 +79,15 @@ const CHAR_GUN_MESH = {
 
 const _gunScale = new THREE.Vector3();
 
+// Knife and grenades have no procedural third-person model; the soldier holds
+// the first-person GLB instead (same convention as the seats: origin at the
+// grip, forward down -Z, real-world metres), on the pistol seat.
+const HAND_PROP_URL = 'assets/models/viewmodels/';
+const HAND_PROP = {
+  knife: 'knife', hegrenade: 'hegrenade', semtex: 'hegrenade',
+  flashbang: 'flashbang', stun: 'flashbang', smokegrenade: 'smokegrenade',
+};
+
 // ---------------------------------------------------------------------------
 // Operative body merge (see _optimizeCharacterAsset)
 // ---------------------------------------------------------------------------
@@ -1083,8 +1092,24 @@ export default class Bots {
   // Skinned GLB soldier bodies (loaded async; primitive bodies are the fallback)
   // -------------------------------------------------------------------------
 
+  _loadHandProps(loader) {
+    this._handProps = {};
+    for (const file of new Set(Object.values(HAND_PROP))) {
+      loader.load(HAND_PROP_URL + file + '.glb', (gltf) => {
+        const prop = gltf.scene;
+        prop.traverse((o) => {
+          if (o.isMesh) { o.castShadow = this.game.gfx?.weaponShadows !== false; o.receiveShadow = true; }
+          if (o.name === 'Muzzle') o.visible = false;
+        });
+        this._handProps[file] = prop;
+        for (const actor of [...(this.all || []), ...(this._externalActors || [])]) this._applyGunLook(actor);
+      }, undefined, () => { /* the hand stays empty, as before */ });
+    }
+  }
+
   _loadCharacterModels() {
     const loader = new GLTFLoader();
+    this._loadHandProps(loader);
     for (const team of ['ct', 't']) {
       loader.load(
         CHAR_MODELS[team].url,
@@ -1848,8 +1873,15 @@ export default class Bots {
   _attachHeldWeapon(bot, family) {
     const library = this.game && this.game.materials;
     const anchor = family && bot.gunMeshes ? bot.gunMeshes[family] : null;
-    // Nothing to hold (knife, grenade, or a weapon with no third-person
-    // model): put the last gun away rather than leave it in the hand.
+    const propFile = HAND_PROP[bot.weaponId];
+    const prop = propFile && this._handProps ? this._handProps[propFile] : null;
+    const seat = prop && bot.gunMeshes ? bot.gunMeshes.Pistol : null;
+    if (prop && seat && seat.parent) {
+      if (bot.heldWeaponId === bot.weaponId && bot.heldWeapon) return true;
+      return this._seatInHand(bot, seat, prop.clone());
+    }
+    // Nothing to hold (a weapon with no third-person model, or its prop still
+    // loading): put the last gun away rather than leave it in the hand.
     if (!library || !anchor || !anchor.parent || !hasWeaponModel(bot.weaponId)) {
       if (bot.heldWeapon) {
         bot.heldWeapon.parent?.remove(bot.heldWeapon);
@@ -1871,7 +1903,17 @@ export default class Bots {
       castShadow: this.game.gfx?.weaponShadows !== false,
     });
     if (!weapon) return false;
+    return this._seatInHand(bot, anchor, weapon);
+  }
 
+  /** Parent `weapon` at `anchor`, at true size (see _attachHeldWeapon). */
+  _seatInHand(bot, anchor, weapon) {
+    if (bot.heldWeaponId === bot.weaponId && bot.heldWeapon) return true;
+    if (bot.heldWeapon) {
+      bot.heldWeapon.parent?.remove(bot.heldWeapon);
+      bot.heldWeapon = null;
+      bot.heldWeaponId = null;
+    }
     anchor.parent.updateMatrixWorld(true);
     _gunScale.setFromMatrixScale(anchor.parent.matrixWorld);
     const inv = 1 / Math.max(1e-6, _gunScale.x);
@@ -4018,8 +4060,9 @@ export default class Bots {
         root: m,
       });
       bot.fireAnim = Math.max(0, (bot.fireAnim || 0) - dt * 8);
-      // The throwing hand is the gun hand: stow the gun for the lob.
-      if (bot.heldWeapon) bot.heldWeapon.visible = !bot.animator.gesture;
+      // The throwing hand is the gun hand: stow what it holds for the lob
+      // (a knife stays in it for the slash).
+      if (bot.heldWeapon) bot.heldWeapon.visible = bot.animator.gesture?.kind !== 'lob';
       return;
     }
 
