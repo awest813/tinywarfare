@@ -409,6 +409,7 @@ function makeClip(name, times, frames) {
 
 const clips = [];
 const speeds = {};
+const phases = {};
 for (const [name, srcKey, clipName, mirror] of RETARGET) {
   const src = sources[srcKey];
   const clip = findClip(src, clipName);
@@ -460,6 +461,13 @@ for (const [name, srcKey, clipName, mirror] of RETARGET) {
       return dur > 0 ? dist / dur : 0;
     });
     speeds[name] = +(Math.max(...perFoot) * GAME_SCALE).toFixed(3); // in-game m/s
+    // Gait phase: where in the cycle the left foot is furthest ahead of the
+    // right, so the runtime can carry the stride across a gait change.
+    let best = -Infinity;
+    for (let f = 0; f < count - 1; f++) {
+      const lead = feet[f][0].z - feet[f][1].z;
+      if (lead > best) { best = lead; phases[name] = +(times[f] / clip.duration).toFixed(3); }
+    }
   }
 }
 
@@ -706,6 +714,8 @@ if (Math.abs(box.max.y - BODY_HEIGHT) > 0.01) {
 const META = {
   // in-game m/s each locomotion clip covers at timeScale 1
   speeds,
+  // fraction of each locomotion cycle at which the left foot leads furthest
+  phases,
   // hand-local finger (+X) / back-of-hand (+Y) frames, for runtime hand IK
   handBasis: { L: HAND.L.basis.toArray(), R: HAND.R.basis.toArray() },
 };
@@ -795,5 +805,5 @@ for (const variant of VARIANTS) {
   console.log(`${variant.file}: ${(out.length / 1024).toFixed(0)} KB, ${clips.length} clips`);
 }
 console.log('clips:', clips.map((c) => c.name).join(' '));
-console.log('locomotion speeds (m/s):', JSON.stringify(speeds));
+console.log('locomotion speeds (m/s):', JSON.stringify(speeds), 'phases:', JSON.stringify(phases));
 console.log(`hip scale ual ${sources.ual.hipScale.toFixed(3)}, pack ${sources.pack.hipScale.toFixed(3)}`);

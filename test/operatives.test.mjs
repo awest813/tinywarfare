@@ -251,3 +251,26 @@ test('plant and defuse kneel, and a grenade throw winds up and releases before t
   assert.equal(actor.gesture, null, 'the gesture is consumed');
   assert.deepEqual(seen, ['Slash', 'Lob', 'Rifle_Aim']);
 });
+
+test('a gait change starts the new cycle on the same foot', async () => {
+  const gltf = await load('assets/models/operative_us.glb');
+  const set = buildAnimationSet(gltf.animations, gltf.scene.userData);
+  for (const name of ['Walk', 'Jog', 'Sprint', 'CrouchWalk']) assert.ok(set.phases[name] >= 0 && set.phases[name] < 1, `${name} phase`);
+  const inst = gltf.scene;
+  const animator = new OperativeAnimator(inst, new THREE.AnimationMixer(inst), set);
+  const pos = new THREE.Vector3();
+  const actor = { pos, yaw: Math.PI, onGround: true, aimBlend: 1, moveSpeed: 4.6 };
+  // Jog (moving +Z with yaw PI is straight ahead), then drop to a walk.
+  for (let i = 0; i < 40; i++) { pos.z += 4.6 / 30; animator.update(actor, 1 / 30, { family: 'Rifle' }); }
+  assert.equal(animator.lowerName, 'Jog');
+  const jog = animator.actions.Jog;
+  const before = jog.time / jog.getClip().duration - set.phases.Jog;
+  actor.moveSpeed = 1.2;
+  pos.z += 1.2 / 30;
+  animator.update(actor, 1 / 30, { family: 'Rifle' });
+  assert.equal(animator.lowerName, 'Walk');
+  const walk = animator.actions.Walk;
+  const after = walk.time / walk.getClip().duration - set.phases.Walk;
+  const diff = Math.abs(((after - before) % 1 + 1.5) % 1 - 0.5);
+  assert.ok(diff < 0.08, `walk picks up ${diff.toFixed(2)} of a cycle away from the jog's stride`);
+});

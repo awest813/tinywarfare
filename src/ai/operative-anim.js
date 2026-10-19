@@ -92,7 +92,7 @@ export function buildAnimationSet(clips, userData = {}) {
   const required = [...LOCOMOTION_CLIPS, ...HOLD_CLIPS, 'Death_A'];
   if (!required.every((name) => byName.has(name))) return null;
 
-  const set = { lower: {}, upper: {}, death: {}, hit: {}, speeds: { ...DEFAULT_SPEEDS }, handBasisL: null };
+  const set = { lower: {}, upper: {}, death: {}, hit: {}, speeds: { ...DEFAULT_SPEEDS }, phases: {}, handBasisL: null };
   for (const name of LOCOMOTION_CLIPS) set.lower[name] = filterClip(byName.get(name), (b) => LOWER_BONES.has(b));
   for (const name of HOLD_CLIPS) set.upper[name] = filterClip(byName.get(name), (b) => !LOWER_BONES.has(b));
   for (const name of DEATH_CLIPS) if (byName.has(name)) set.death[name] = byName.get(name);
@@ -114,6 +114,7 @@ export function buildAnimationSet(clips, userData = {}) {
   }
   const meta = userData && userData.tinywarfare;
   if (meta && meta.speeds) Object.assign(set.speeds, meta.speeds);
+  if (meta && meta.phases) Object.assign(set.phases, meta.phases);
   if (meta && meta.handBasis && Array.isArray(meta.handBasis.L)) {
     set.handBasisL = new THREE.Quaternion().fromArray(meta.handBasis.L);
   }
@@ -236,6 +237,14 @@ export class OperativeAnimator {
     next.enabled = true;
     next.setEffectiveTimeScale(1);
     next.reset().fadeIn(fade).play();
+    // Walk -> jog -> sprint: start the new cycle on the same foot, or the
+    // crossfade averages a left stride with a right one and the legs scissor.
+    const ph = this.set.phases;
+    if (layer === 'lower' && prev && ph && this[key] in ph && name in ph) {
+      const prevDur = prev.getClip().duration;
+      const at = ((prev.time / prevDur - ph[this[key]] + ph[name]) % 1 + 1) % 1;
+      next.time = at * next.getClip().duration;
+    }
     if (prev && prev !== next) prev.fadeOut(fade);
     this[key] = name;
     return next;
