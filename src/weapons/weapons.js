@@ -561,6 +561,10 @@ export default class Weapons {
     this._driftP = 0;
     this._driftY = 0;
     this._bloom = 0;
+    // A death in mid-air left these running, so the next life opened on a
+    // landing-spread penalty from the previous one.
+    this._airT = 0;
+    this._landT = 9;
     this._cancelActivity(); // also unscopes + resets fov target to base
 
     // Snap fov instantly across the round transition (no visible zoom-out).
@@ -729,6 +733,7 @@ export default class Weapons {
 
     const fireBlocked =
       phase === 'freeze' ||
+      phase === 'roundEnd' || // the round is decided; the bots stand frozen
       buyOpen ||
       this._state === 'equipping' ||
       this._state === 'reloading' ||

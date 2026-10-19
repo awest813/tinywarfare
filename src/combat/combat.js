@@ -724,10 +724,15 @@ export default class Combat {
         : base;
       const part = this._hitPartBest;
 
-      ev.emit('fx:blood', {
-        point: this._hitPos.clone(),
-        dir: this._sDir.clone(),
-      });
+      if (target.spawnProtection > 0) {
+        // Same as a bullet on a fresh spawn: a glancing spark, never false blood.
+        ev.emit('fx:impact', { point: this._hitPos.clone(), normal: this._sDir.clone().negate(), surface: 'metal' });
+      } else {
+        ev.emit('fx:blood', {
+          point: this._hitPos.clone(),
+          dir: this._sDir.clone(),
+        });
+      }
       this._applyDamage(target, this._hitIsPlayer, dmg, shooter, weaponId, false, part, byPlayer);
       return;
     }
@@ -744,6 +749,9 @@ export default class Combat {
 
   _applyDamage(target, isPlayer, dmg, shooter, weaponId, headshot, part, byPlayer) {
     if (!target || typeof target.takeDamage !== 'function') return;
+    // The round is decided and the bots stand frozen: a kill now would be a
+    // free one (cash, score, XP) on a target that cannot answer.
+    if (this.game.state && this.game.state.phase === 'roundEnd') return;
     const shielded = target.spawnProtection > 0;
     // Stamp the wound before takeDamage: a kill emits its 'kill' event from
     // inside it, and the killer's own hit must not read as an assist.

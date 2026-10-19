@@ -2356,6 +2356,10 @@ export default class HUD {
     if (this._el.death) this._el.death.style.display = 'none';
     if (this._el.deathFx) this._el.deathFx.style.opacity = '0';
     this._deathFxOpacity = 0;
+    // A full flash outlasts the 3 s respawn: start the new life with clear eyes.
+    this._flash = null;
+    this._flashOpacity = 0;
+    if (this._el.flash) this._el.flash.style.opacity = '0';
   }
 
   _onRoundPhase(d) {

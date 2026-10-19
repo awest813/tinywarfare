@@ -58,7 +58,8 @@ const DIP_MAX = 0.15;            // m max downward dip
 const TERMINAL_FALL = 30;        // m/s max fall speed
 const DEATH_TILT = -0.5;         // rad: dead camera pitches down toward this
 const DEATH_ROLL = 0.32;         // rad: slump roll when dead
-const DEATH_EYE = 0.5;           // m: dead camera sinks toward this height
+const DEATH_EYE = 0.5;
+const STEP_EYE_RATE = 18;        // 1/s: how fast the eye catches up a stair step           // m: dead camera sinks toward this height
 const DEATH_CAMERA_FALL_DURATION = 1.05; // s: readable collapse before the hold
 export const DEATH_SPECTATE_DELAY = 1.55; // s: let the death land before spectating
 
@@ -124,6 +125,7 @@ export default class Player {
     this._bobAmp = 0;                  // smoothed 0..1 bob intensity
     this._breatheTime = 0;
     this._dipY = 0;                    // landing dip spring (negative = down)
+    this._stepEye = 0;                 // m: eye lag after a stair step, eases to 0
     this._dipVel = 0;
     this._stepAccum = 0;               // meters since last footstep
     this._jumpQueued = 0;              // seconds left on buffered jump press
@@ -346,6 +348,7 @@ export default class Player {
     this._recoilQueueY = 0;
     this._shakeAmp = 0;
     this._dipY = 0;
+    this._stepEye = 0;
     this._dipVel = 0;
     this._bobAmp = 0;
     this._bobPhase = 0;
@@ -439,6 +442,10 @@ export default class Player {
     this._dipVel += (-DIP_SPRING_K * this._dipY - DIP_SPRING_C * this._dipVel) * dt;
     this._dipY += this._dipVel * dt;
     if (this._dipY < -DIP_MAX) this._dipY = -DIP_MAX;
+
+    // stair step: the feet move a tread at once, the eye follows over ~0.1 s
+    this._stepEye *= Math.exp(-STEP_EYE_RATE * dt);
+    if (Math.abs(this._stepEye) < 1e-4) this._stepEye = 0;
   }
 
   // ---- look ---------------------------------------------------------------
@@ -596,8 +603,12 @@ export default class Player {
         game.events.emit('player:jump');
       }
     } else if (this.onGround) {
-      // ground friction — exponential, always applied for decisive stops
-      const drop = Math.exp(-P.FRICTION_GROUND * dt);
+      // ground friction — exponential, always applied for decisive stops.
+      // On the frame a buffered jump leaves the ground the loss is one fixed
+      // 60 Hz frame's worth: scaled by dt, a chain of hops kept 94% of its
+      // speed per hop at 144 fps and 74% at 30.
+      const hopping = !moveLocked && this._jumpQueued > 0 && this._jumpCooldown <= 0;
+      const drop = Math.exp(-P.FRICTION_GROUND * (hopping ? 1 / 60 : dt));
       v.x *= drop;
       v.z *= drop;
       if (!hasInput && v.x * v.x + v.z * v.z < 0.0009) {
@@ -664,6 +675,7 @@ export default class Player {
     _delta.y = (vyStart + v.y) * 0.5 * dt;
 
     const world = game.world;
+    const yBefore = this.position.y;
     if (world && typeof world.resolveMovement === 'function') {
       const res = world.resolveMovement(this.position, _delta, this.radius, this._heightCur);
       if (res) {
@@ -680,6 +692,12 @@ export default class Player {
       } else {
         this.onGround = false;
       }
+    }
+
+    // Grounded before and after but the feet jumped: a stair step up or down.
+    const stepped = this.position.y - yBefore;
+    if (wasGround && this.onGround && Math.abs(stepped) > 0.05) {
+      this._stepEye = THREE.MathUtils.clamp(this._stepEye - stepped, -0.6, 0.6);
     }
 
     if (this.onGround && v.y < 0) {
@@ -837,7 +855,7 @@ export default class Player {
     // -- compose: eye + bob + dip + shake / aim + punch + shake --
     cam.position.set(
       this.position.x + _right.x * bobL + shX,
-      this.position.y + this.eyeHeight + bobV + this._dipY + breathe + shY,
+      this.position.y + this.eyeHeight + bobV + this._dipY + this._stepEye + breathe + shY,
       this.position.z + _right.z * bobL
     );
     // Visible spray climb (weapons keeps the matching share out of the shot).

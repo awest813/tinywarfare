@@ -327,3 +327,28 @@ test('a capsule found inside a long wall is not thrown to the far end of it, or 
   const outside = world.resolveMovement(new THREE.Vector3(10, 0, -38), new THREE.Vector3(0, -0.05, -2), 0.35, 1.83);
   assert.ok(Math.abs(outside.pos.z - (-40 + 0.35)) < 0.01, `clamped at the face (z ${outside.pos.z})`);
 });
+
+test('walking down stairs keeps the feet on each tread; a real drop still falls', () => {
+  const world = new World(gameFor(DEFAULT_MAP_ID));
+  // Three 0.5 m treads descending toward +x, then a 1.5 m ledge.
+  world.colliders = [
+    new THREE.Box3(new THREE.Vector3(-1, 0, -2), new THREE.Vector3(1.2, 1.5, 2)),
+    new THREE.Box3(new THREE.Vector3(1.2, 0, -2), new THREE.Vector3(2.4, 1.0, 2)),
+    new THREE.Box3(new THREE.Vector3(2.4, 0, -2), new THREE.Vector3(3.6, 0.5, 2)),
+  ];
+  const pos = new THREE.Vector3(0, 1.5, 0);
+  let airborne = 0;
+  for (let i = 0; i < 60; i++) { // 5.2 m/s at 60 Hz, gravity from rest each grounded step
+    const res = world.resolveMovement(pos, new THREE.Vector3(5.2 / 60, -9.8 / 60 / 60, 0), 0.35, 1.83);
+    pos.copy(res.pos);
+    if (!res.onGround) airborne++;
+  }
+  assert.equal(airborne, 0, 'never airborne going down 0.5 m treads');
+  assert.ok(pos.y < 0.01, `reached the floor (y ${pos.y.toFixed(2)})`);
+
+  // Off a 1.5 m ledge: deeper than a step, so it falls.
+  world.colliders = [new THREE.Box3(new THREE.Vector3(-1, 0, -2), new THREE.Vector3(1.2, 1.5, 2))];
+  const edge = new THREE.Vector3(1.4, 1.5, 0); // footprint still over the lip
+  const res = world.resolveMovement(edge, new THREE.Vector3(0.5, -0.003, 0), 0.35, 1.83);
+  assert.equal(res.onGround, false, 'a real drop is a fall');
+});

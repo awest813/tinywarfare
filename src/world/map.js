@@ -1885,7 +1885,30 @@ export default class World {
     } else {
       res.onGround = this._probeGround(p.x, p.y, p.z, radius);
     }
+    // Snap down: walking off a stair tread or a kerb (anything up to a step
+    // below) keeps the feet on it. Without this every 0.5 m tread on the way
+    // down was a 0.2 s fall — jump spread, a landing thud and a lost jump on
+    // each one. A real drop (deeper than a step) still falls.
+    if (startedOnGround && delta.y <= 0 && !res.onGround) {
+      const top = this._groundTopBelow(p.x, p.y, p.z, radius, this.game.config.PLAYER.STEP_HEIGHT);
+      if (top !== null) { p.y = top; res.onGround = true; }
+    }
     return res;
+  }
+
+  /** Highest collider top (or the floor) within `reach` below feet at y, or null. */
+  _groundTopBelow(x, y, z, radius, reach) {
+    const e = 0.001;
+    let best = y - reach <= 0 ? 0 : null;
+    const cols = this.colliders;
+    for (let i = 0; i < cols.length; i++) {
+      const c = cols[i];
+      if (c.max.y > y + e || c.max.y < y - reach) continue;
+      if (best !== null && c.max.y <= best) continue;
+      if (c.min.x < x + radius - e && c.max.x > x - radius + e &&
+          c.min.z < z + radius - e && c.max.z > z - radius + e) best = c.max.y;
+    }
+    return best;
   }
 
   // Move along one horizontal axis (0 = x, 2 = z), clamping against colliders,

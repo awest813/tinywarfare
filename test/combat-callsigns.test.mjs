@@ -53,3 +53,18 @@ test('combat preserves an explicitly chosen local Operative callsign', () => {
 
   assert.equal(combat._localPlayerName(), 'Operative');
 });
+
+test('no damage lands once the round is decided (frozen bots are not free kills)', () => {
+  let hits = 0;
+  const target = { alive: true, spawnProtection: 0, takeDamage() { hits++; } };
+  const self = {
+    game: { state: { phase: 'roundEnd' }, events: { emit() {} } },
+    _noteWound() {},
+    _markerAgg: null,
+  };
+  Combat.prototype._applyDamage.call(self, target, false, 50, null, 'ak47', false, 'body', true);
+  assert.equal(hits, 0, 'round end: no damage');
+  self.game.state.phase = 'live';
+  Combat.prototype._applyDamage.call(self, target, false, 50, null, 'ak47', false, 'body', true);
+  assert.equal(hits, 1, 'live: damage lands');
+});
