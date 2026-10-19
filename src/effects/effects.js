@@ -554,6 +554,7 @@ export default class Effects {
       const geo = new THREE.BufferGeometry();
       this._decalPos = new Float32Array(DECAL_MAX * 4 * 3);
       this._decalCol = new Float32Array(DECAL_MAX * 4 * 3);
+      this._decalNrm = new Float32Array(DECAL_MAX * 4 * 3);
       const uvs = new Float32Array(DECAL_MAX * 4 * 2);
       const idx = new Uint16Array(DECAL_MAX * 6);
       for (let i = 0; i < DECAL_MAX; i++) {
@@ -570,11 +571,20 @@ export default class Effects {
       this._decalColAttr = new THREE.BufferAttribute(this._decalCol, 3).setUsage(THREE.DynamicDrawUsage);
       geo.setAttribute('position', this._decalPosAttr);
       geo.setAttribute('color', this._decalColAttr);
+      this._decalNrmAttr = new THREE.BufferAttribute(this._decalNrm, 3).setUsage(THREE.DynamicDrawUsage);
+      geo.setAttribute('normal', this._decalNrmAttr);
       geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
       geo.setIndex(new THREE.BufferAttribute(idx, 1));
       geo.setDrawRange(0, 0);
-      const mat = new THREE.MeshBasicMaterial({
+      // Lit, not MeshBasic: an unlit hole kept its chipped-rim flecks at a
+      // fixed 0.36 linear, which Neon's night exposure (up to 4x) tone-mapped
+      // to glowing white specks, and which never darkened in a shadow. Rough
+      // dielectric, so it takes the same sun, lamps, sky light and shadow as
+      // the wall it sits on.
+      const mat = new THREE.MeshStandardMaterial({
         map: this.texHole,
+        roughness: 1,
+        metalness: 0,
         transparent: true,
         depthWrite: false,
         vertexColors: true,
@@ -583,6 +593,7 @@ export default class Effects {
         polygonOffsetUnits: -2,
       });
       this.decalMesh = new THREE.Mesh(geo, mat);
+      this.decalMesh.receiveShadow = true;
       this.decalMesh.frustumCulled = false;
       this.decalMesh.renderOrder = 2;
       this._decalGeo = geo;
@@ -1304,9 +1315,12 @@ export default class Effects {
     pa[o + 6] = _vf.x + _vg.x + _ve.x; pa[o + 7] = _vf.y + _vg.y + _ve.y; pa[o + 8] = _vf.z + _vg.z + _ve.z;
     // corner 3: base - e1 + e2
     pa[o + 9] = _vf.x - _vg.x + _ve.x; pa[o + 10] = _vf.y - _vg.y + _ve.y; pa[o + 11] = _vf.z - _vg.z + _ve.z;
+    const na = this._decalNrm;
     for (let k = 0; k < 4; k++) {
       ca[o + k * 3] = r; ca[o + k * 3 + 1] = g; ca[o + k * 3 + 2] = b;
+      na[o + k * 3] = _vd.x; na[o + k * 3 + 1] = _vd.y; na[o + k * 3 + 2] = _vd.z;
     }
+    this._decalNrmAttr.needsUpdate = true;
     this._decalPosAttr.needsUpdate = true;
     this._decalColAttr.needsUpdate = true;
     this._decalGeo.setDrawRange(0, this._decalCount * 6);
