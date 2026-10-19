@@ -1300,7 +1300,7 @@ export default class Combat {
     this.game.events.emit('fx:explosion', { pos: p.pos.clone(), radius: HE_RADIUS });
     // A semtex stuck to someone is lethal to its host.
     const host = p.type === 'semtex' ? p.stuckTo : null;
-    if (host && host.alive !== false && typeof host.takeDamage === 'function') {
+    if (host && host.alive !== false && !this._roundDecided() && typeof host.takeDamage === 'function') {
       const shielded = host.spawnProtection > 0;
       this._noteWound(host, p.thrower);
       host.takeDamage(250, { from: p.thrower, weapon: weaponId, headshot: false, part: 'body' });
@@ -1398,11 +1398,20 @@ export default class Combat {
     this._shakePlayer(this._center, 45, 1.6);
   }
 
+  _roundDecided() {
+    const ph = this.game.state?.phase;
+    return ph === 'roundEnd' || ph === 'gameEnd';
+  }
+
   /**
    * Radial explosion damage: dmg = maxDmg × (1 − d/radius)^1.6, optional LOS
    * gate, optional teammate immunity (self-damage always applies).
    */
   _radialDamage(center, radius, maxDmg, attacker, attackerTeam, weaponId, requireLOS, hurtTeammates) {
+    // Explosions skip _applyDamage, so they need its round-over check: a
+    // grenade still on its fuse when the round was decided went off during
+    // the round-end banner and killed (or farmed) frozen soldiers.
+    if (this._roundDecided()) return;
     const g = this.game;
     const ev = g.events;
     const byPlayer = this._isPlayer(attacker);

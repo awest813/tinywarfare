@@ -2382,6 +2382,8 @@ export default class HUD {
       this._deathKiller = '';
       this._cache.dead = null;
       this._cache.dying = null;
+      clearTimeout(this._buyPromptTimer);
+      this._buyAutoPending = false;
     }
   }
 
@@ -2431,7 +2433,10 @@ export default class HUD {
           this._showMsg(GAME_MODES.sd.label, brief, briefDur);
           clearTimeout(this._buyPromptTimer);
           this._buyPromptTimer = setTimeout(() => {
-            if (this.game.state?.phase !== 'freeze') return;
+            // Real time, so it can land in a pause or after a quit into a
+            // respawn mode's own freeze.
+            if (this.game.state?.phase !== 'freeze' || this.game.paused ||
+                isRespawnMode(this.game.state?.mode)) return;
             this._showMsg('BUY PHASE', buyPrompt, dur - briefDur);
             // A first-timer who misses the prompt fights rifles with the
             // starting pistol, so the first match of a visit opens the menu.

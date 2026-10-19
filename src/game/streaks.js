@@ -19,6 +19,7 @@
 
 import * as THREE from 'three';
 import { isRespawnMode } from './tdm.js';
+import { isFfa } from './hostility.js';
 import { PERK_TUNING, hasPerk } from './loadouts.js';
 
 export const STREAKS = Object.freeze({
@@ -32,8 +33,12 @@ export const DEFAULT_STREAKS = Object.freeze(['uav', 'airstrike']);
 export const STREAK_KEYS = Object.freeze(['5', '6', '7']); // slot 1, slot 2, bonus
 export const STREAK_STORAGE_KEY = 'tiny-strike-streaks-v1';
 
-// s between airstrikes one remote human may call (host side, see runRemote).
-const REMOTE_STRIKE_GAP = 30;
+
+// s between airstrikes one remote human may call (host side, see runRemote):
+// the run's own length, so calls cannot stack. A longer gap silently ate a
+// second legitimate strike (slot plus care-package bonus), which the client
+// had already spent.
+const remoteStrikeGap = () => AIRSTRIKE.DELAY + AIRSTRIKE.BOMBS * AIRSTRIKE.INTERVAL;
 
 export const AIRSTRIKE = Object.freeze({
   DELAY: 2.2,        // s from call-in to the first impact
@@ -258,7 +263,8 @@ export default class Scorestreaks {
   _onKill(e) {
     if (!this.enabled() || !e || this.game.state.phase !== 'live') return;
     const playerTeam = (this.game.player && this.game.player.team) || 'ct';
-    if (!e.killerTeam || e.killerTeam === playerTeam || e.killerIsLocal) return;
+    // In free-for-all every bot is an enemy, whatever uniform it wears.
+    if (!e.killerTeam || e.killerIsLocal || (!isFfa(this.game) && e.killerTeam === playerTeam)) return;
     this._enemyTeamKills += 1;
     if (this._enemyTeamKills % ENEMY_UAV_KILLS === 0) {
       this.enemyUavTime = STREAKS.uav.duration;
@@ -339,10 +345,10 @@ export default class Scorestreaks {
     if (this.game.state.phase !== 'live' || message.streakId !== 'airstrike') return false;
     const t = message.target;
     if (!t || !Number.isFinite(t.x) || !Number.isFinite(t.y) || !Number.isFinite(t.z)) return false;
-    // One strike per caller per REMOTE_STRIKE_GAP: earning one takes kills,
+    // One strike per caller per run length: earning one takes kills,
     // and a client could otherwise call as many as it liked.
     const now = Number(this.game.bots?.time) || performance.now() / 1000;
-    if (Number.isFinite(caller._lastStrikeAt) && now - caller._lastStrikeAt < REMOTE_STRIKE_GAP) return false;
+    if (Number.isFinite(caller._lastStrikeAt) && now - caller._lastStrikeAt < remoteStrikeGap()) return false;
     const target = new THREE.Vector3(t.x, t.y, t.z);
     // Calls land within the caller's reach, like a local call.
     if (caller.position && target.distanceTo(caller.position) > AIRSTRIKE.RANGE + 5) return false;
