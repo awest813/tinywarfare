@@ -2330,7 +2330,7 @@ export default class Bots {
     bot.grenades--;
     this._say(bot, 'frag');
     bot.pauseTimer = Math.max(bot.pauseTimer, 0.5);
-    bot.fireAnim = 1;
+    bot.gesture = 'lob';
     return true;
   }
 
@@ -3983,6 +3983,8 @@ export default class Bots {
       const family = CHAR_GUN_MESH[bot.weaponId];
       const camera = this.game && this.game.camera;
       const near = !camera || camera.position.distanceToSquared(bot.pos) < IK_FAR_SQ;
+      // On its knees over the bomb: the plant and the defuse play the kneel.
+      bot.kneeling = bot.state === 'plant' || bot.state === 'defuse';
       bot.animator.update(bot, dt, {
         family: !family || family === 'Pistol' ? 'Pistol' : 'Rifle',
         weapon: bot.heldWeapon || null,
@@ -3990,6 +3992,8 @@ export default class Bots {
         root: m,
       });
       bot.fireAnim = Math.max(0, (bot.fireAnim || 0) - dt * 8);
+      // The throwing hand is the gun hand: stow the gun for the lob.
+      if (bot.heldWeapon) bot.heldWeapon.visible = !bot.animator.gesture;
       return;
     }
 

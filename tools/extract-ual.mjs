@@ -25,6 +25,8 @@ const KEEP = [
   'Crouch_Idle_Loop', 'Crouch_Fwd_Loop',
   'Jump_Start', 'Jump_Loop', 'Jump_Land', 'Roll',
   'Hit_Chest', 'Hit_Head', 'Death01',
+  // actions: plant / defuse, knife swing, grenade release
+  'Fixing_Kneeling', 'Sword_Attack', 'Spell_Simple_Shoot',
 ];
 const OUT = new URL('../assets/models/source/ual_clips.glb', import.meta.url);
 

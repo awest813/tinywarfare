@@ -152,6 +152,12 @@ const RETARGET = [
   ['Death_A_M', 'ual', 'Death01', true],
   ['Death_B', 'pack', 'Death'],
   ['Death_B_M', 'pack', 'Death', true],
+  // Actions, played over the layers: kneel for plant/defuse, a knife slash
+  // (its first fifth doubles as a grenade wind-up) and the release, mirrored
+  // so the throwing arm is the gun hand.
+  ['Kneel', 'ual', 'Fixing_Kneeling'],
+  ['Slash', 'ual', 'Sword_Attack'],
+  ['Lob', 'ual', 'Spell_Simple_Shoot', true],
 ];
 const LOCOMOTION = ['Walk', 'Jog', 'Sprint', 'CrouchWalk'];
 

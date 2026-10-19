@@ -8,6 +8,8 @@
 //   weapon holds Rifle_* / Pistol_* Aim, Ready, Sprint, Reload (authored by IK
 //                against the real guns' grip data)
 //   reactions    HitChest HitHead, Death_A / _B and their mirrors
+//   actions      Kneel (plant / defuse), Slash (knife), Lob (grenade release)
+//                (UAL again; optional, older GLBs simply go without)
 //
 // A soldier plays one locomotion clip on the LEGS and one hold on the TORSO at
 // the same time — the clips are split by bone at load — and then a few cheap
@@ -36,6 +38,21 @@ export const HOLD_CLIPS = [
 ];
 export const DEATH_CLIPS = ['Death_A', 'Death_A_M', 'Death_B', 'Death_B_M'];
 export const HIT_CLIPS = ['HitChest', 'HitHead'];
+export const ACTION_CLIPS = ['Kneel', 'Slash', 'Lob'];
+
+// The kneel is a 5 s clip that stands up at both ends; the working stretch in
+// the middle ping-pongs for as long as the plant or defuse lasts.
+const KNEEL_HOLD = [0.2, 0.7];
+// Gestures play a window of their clip over the torso: [start, end] as
+// fractions of the clip, and how long that window takes on screen.
+const GESTURES = {
+  slash: [{ clip: 'Slash', from: 0.15, to: 0.6, secs: 0.34 }],
+  // Wind up on the slash's raised arm, then release with the mirrored lob.
+  lob: [
+    { clip: 'Slash', from: 0.2, to: 0.2, secs: 0.16 },
+    { clip: 'Lob', from: 0, to: 0.6, secs: 0.36 },
+  ],
+};
 
 const LOWER_BONES = new Set([
   'Hip', 'thighL', 'shinL', 'footL', 'toeL', 'thighR', 'shinR', 'footR', 'toeR',
@@ -83,6 +100,17 @@ export function buildAnimationSet(clips, userData = {}) {
     if (!byName.has(name)) continue;
     const torso = filterClip(byName.get(name), (b) => TORSO_BONES.has(b), `${name}_add`);
     set.hit[name] = THREE.AnimationUtils.makeClipAdditive(torso, 0);
+  }
+  if (byName.has('Kneel')) {
+    const clip = byName.get('Kneel');
+    const fps = 30;
+    const hold = THREE.AnimationUtils.subclip(clip, 'KneelHold',
+      Math.round(KNEEL_HOLD[0] * clip.duration * fps), Math.round(KNEEL_HOLD[1] * clip.duration * fps), fps);
+    set.lower.Kneel = filterClip(hold, (b) => LOWER_BONES.has(b), 'Kneel');
+    set.upper.Kneel_Work = filterClip(hold, (b) => !LOWER_BONES.has(b), 'Kneel_Work');
+  }
+  for (const name of ['Slash', 'Lob']) {
+    if (byName.has(name)) set.upper[name] = filterClip(byName.get(name), (b) => !LOWER_BONES.has(b));
   }
   const meta = userData && userData.tinywarfare;
   if (meta && meta.speeds) Object.assign(set.speeds, meta.speeds);
@@ -160,6 +188,7 @@ export class OperativeAnimator {
     };
     for (const clip of Object.values(set.lower)) make(clip);
     for (const clip of Object.values(set.upper)) make(clip, clip.name.endsWith('_Reload') ? { once: true, clamp: true } : {});
+    for (const name of ['Kneel', 'Kneel_Work']) this.actions[name]?.setLoop(THREE.LoopPingPong, Infinity);
     for (const clip of Object.values(set.death)) make(clip, { once: true, clamp: true });
     this.hitActions = {};
     for (const [name, clip] of Object.entries(set.hit)) this.hitActions[name] = make(clip, { once: true, additive: true });
@@ -191,6 +220,7 @@ export class OperativeAnimator {
     this.moving = false;
     this.sprintHeld = false;
     this.reloading = false;
+    this.gesture = null;
     this.ikWeight = 1;
     this._play('lower', 'Idle', 0);
     this._play('upper', 'Rifle_Aim', 0);
@@ -236,6 +266,7 @@ export class OperativeAnimator {
       this[key] = null;
     }
     for (const action of Object.values(this.hitActions)) action.stop();
+    this.gesture = null;
     const death = this.actions[name];
     death.enabled = true;
     death.reset().fadeIn(fade).play();
@@ -265,7 +296,8 @@ export class OperativeAnimator {
    *
    * @param {object} actor   bot or remote: pos, yaw, aimPitch, crouching,
    *                         onGround, sprinting, aimBlend, burstLeft, fireAnim,
-   *                         reloadTimer, hitFlinch, hitHeadshot
+   *                         reloadTimer, hitFlinch, hitHeadshot, kneeling,
+   *                         gesture ('slash' | 'lob', consumed like hitFlinch)
    * @param {number} dt
    * @param {object} ctx     { family: 'Rifle'|'Pistol', runSpeed, weapon (held
    *                           weapon Object3D or null), ik (bool) }
@@ -276,6 +308,12 @@ export class OperativeAnimator {
       this.flinch(!!actor.hitHeadshot);
       actor.hitFlinch = 0;
     }
+    if (actor.gesture) {
+      const steps = GESTURES[actor.gesture];
+      if (steps && steps.every((g) => this.actions[g.clip])) this.gesture = { steps, step: -1, t: 0 };
+      actor.gesture = null;
+    }
+    const kneeling = !!actor.kneeling && !!this.actions.Kneel;
 
     // ---- where are we going, relative to where we look ----------------------
     const px = actor.pos ? actor.pos.x : 0;
@@ -319,6 +357,7 @@ export class OperativeAnimator {
     const sprinting = !actor.crouching && (actor.sprinting === true || inferred || speed > 6);
     let lower;
     if (this.airTime > 0.18) lower = 'JumpLoop';
+    else if (kneeling) lower = 'Kneel';
     else if (actor.crouching) lower = moving ? 'CrouchWalk' : 'CrouchIdle';
     else if (!moving) lower = 'Idle';
     else if (sprinting && !this.backpedal) lower = 'Sprint';
@@ -329,7 +368,7 @@ export class OperativeAnimator {
       const natural = this.set.speeds[lower];
       // A wide range keeps the feet planted: a jog clip driven at 7 m/s
       // needs ~2x, and anything clamped below the real speed skates.
-      let scale = natural ? THREE.MathUtils.clamp(speed / natural, 0.5, 2.6) : 1;
+      let scale = natural && lower !== 'Kneel' ? THREE.MathUtils.clamp(speed / natural, 0.5, 2.6) : 1;
       if (this.backpedal) scale = -scale;
       legs.setEffectiveTimeScale(scale);
     }
@@ -347,13 +386,23 @@ export class OperativeAnimator {
     }
     const firing = actor.burstLeft > 0 || (actor.fireAnim || 0) > 0.05;
     let upper;
-    if (this.reloading) upper = `${family}_Reload`;
+    const gesture = this._gestureStep(step);
+    if (gesture) upper = gesture.clip;
+    else if (kneeling && this.actions.Kneel_Work) upper = 'Kneel_Work';
+    else if (this.reloading) upper = `${family}_Reload`;
     else if (sprinting && !firing) upper = family === 'Rifle' ? 'Rifle_Sprint' : 'Pistol_Ready';
     else if (firing || (actor.aimBlend ?? 1) > 0.3 || (actor.crouching && !moving)) upper = `${family}_Aim`;
     else upper = `${family}_Ready`;
     const wasUpper = this.upperName;
-    const torso = this._play('upper', upper, this.reloading ? 0.12 : 0.16);
-    if (torso && this.reloading) {
+    const torso = this._play('upper', upper, gesture ? 0.06 : this.reloading ? 0.12 : 0.16);
+    if (torso && gesture) {
+      // Drive the window by hand: seek, then hold still (timeScale 0) so the
+      // mixer's own clock does not run past it.
+      const dur = torso.getClip().duration;
+      const k = gesture.secs > 0 ? Math.min(1, this.gesture.t / gesture.secs) : 1;
+      torso.time = (gesture.from + (gesture.to - gesture.from) * k) * dur;
+      torso.setEffectiveTimeScale(0);
+    } else if (torso && this.reloading) {
       // _play already restarted a newly chosen reload (with its crossfade);
       // only a back-to-back reload of the same clip needs rewinding here.
       if (restart && wasUpper === upper) torso.reset().play();
@@ -361,7 +410,7 @@ export class OperativeAnimator {
     }
     // Eased so the torso does not snap between sprint and aim posture.
     this.sprintBlend += ((sprinting ? 1 : 0) - this.sprintBlend) * (1 - Math.exp(-10 * step));
-    const ikTarget = this.reloading ? 0 : 1;
+    const ikTarget = this.reloading || gesture || kneeling ? 0 : 1;
     this.ikWeight += (ikTarget - this.ikWeight) * Math.min(1, step * 14);
 
     this._restoreClipPose();
@@ -382,7 +431,8 @@ export class OperativeAnimator {
     const hm = _qc.copy(_qT).multiply(hc); // twisted pelvis (model)
 
     // Torso correction: cancel most of the clip's pelvis motion and all of the twist.
-    const cancel = 0.85 - 0.5 * this.sprintBlend;
+    // A kneeling soldier keeps the clip's lean over the work.
+    const cancel = kneeling ? 0 : 0.85 - 0.5 * this.sprintBlend;
     const delta = _qd.copy(this.hipRestModel).multiply(_qa.copy(hc).invert());
     const corr = _qe.copy(_qId).slerp(delta, cancel).multiply(_qT.invert());
     const third = _qd.copy(_qId).slerp(corr, 1 / 3);
@@ -395,7 +445,7 @@ export class OperativeAnimator {
     rotateInModel(s3, model, third);
 
     // Aim pitch and recoil: about the model's lateral axis, half at each joint.
-    const pitch = THREE.MathUtils.clamp(Number(actor.aimPitch) || 0, -1.2, 1.2) * (1 - 0.7 * this.sprintBlend);
+    const pitch = kneeling ? 0 : THREE.MathUtils.clamp(Number(actor.aimPitch) || 0, -1.2, 1.2) * (1 - 0.7 * this.sprintBlend);
     const kick = (actor.fireAnim || 0) * RECOIL_PITCH[family];
     rotateInModel(s2, s2Parent, _qHalf.setFromAxisAngle(_X, -pitch * 0.5));
     s2Parent.multiply(s2.quaternion);
@@ -403,6 +453,21 @@ export class OperativeAnimator {
     rotateInModel(s3, s2Parent, _qT);
 
     if (ctx.ik && this.ikWeight > 0.01 && ctx.weapon && this.set.handBasisL) this._supportHand(ctx);
+  }
+
+  /** Advance the running gesture; returns its current step, or null when done. */
+  _gestureStep(step) {
+    const g = this.gesture;
+    if (!g) return null;
+    if (g.step < 0) { g.step = 0; g.t = 0; } else g.t += step;
+    while (g.step < g.steps.length && g.t >= g.steps[g.step].secs) {
+      g.t -= g.steps[g.step].secs;
+      g.step++;
+      // A step that reuses the clip already on the torso still has to seek.
+      if (g.step < g.steps.length && g.steps[g.step].clip === this.upperName) this.upperName = null;
+    }
+    if (g.step >= g.steps.length) { this.gesture = null; return null; }
+    return g.steps[g.step];
   }
 
   /** Solve the left arm onto the held weapon's support grip (world space). */

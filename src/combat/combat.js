@@ -291,10 +291,10 @@ export default class Combat {
     }
   }
 
-  /** Spawn a non-host human's grenade in the authoritative simulation. */
+  /** Spawn a non-host human's grenade in the authoritative simulation; true when thrown. */
   throwRemoteGrenade(e, shooter) {
-    if (!e || !shooter || !shooter.alive || !finiteVec(e.origin)) return;
-    if (!this._remoteActionAllowed(shooter, e.origin, { grenade: true, amount: 1 })) return;
+    if (!e || !shooter || !shooter.alive || !finiteVec(e.origin)) return false;
+    if (!this._remoteActionAllowed(shooter, e.origin, { grenade: true, amount: 1 })) return false;
     shooter.spawnProtection = 0;
     this._onGrenadeThrow({
       type: e.grenadeType || 'hegrenade',
@@ -303,6 +303,7 @@ export default class Combat {
       strength: e.strength,
       thrower: shooter,
     });
+    return true;
   }
 
   /** Apply a host-replicated flashbang to this client's local camera/HUD. */

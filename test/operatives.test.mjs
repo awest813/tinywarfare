@@ -17,7 +17,7 @@ import Bots from '../src/ai/bots.js';
 import { CONFIG } from '../src/shared/config.js';
 import {
   buildAnimationSet, OperativeAnimator,
-  LOCOMOTION_CLIPS, HOLD_CLIPS, DEATH_CLIPS, HIT_CLIPS,
+  LOCOMOTION_CLIPS, HOLD_CLIPS, DEATH_CLIPS, HIT_CLIPS, ACTION_CLIPS,
 } from '../src/ai/operative-anim.js';
 import { buildWeaponModel } from '../src/gfx/weapons/catalogue.js';
 
@@ -213,4 +213,41 @@ test('the layered runtime keeps the muzzle on the aim line and the support hand 
     assert.ok(err < 0.015, `${sc.name}: support hand ${(err * 100).toFixed(1)} cm off the AK's handguard`);
   }
   assert.ok(animator.twist > 0.3, 'a backpedal turns the hips off the line of travel');
+});
+
+test('plant and defuse kneel, and a grenade throw winds up and releases before the hold returns', async () => {
+  const gltf = await load('assets/models/operative_us.glb');
+  const set = buildAnimationSet(gltf.animations, gltf.scene.userData);
+  for (const name of ACTION_CLIPS) assert.ok(gltf.animations.some((c) => c.name.endsWith(name)), `missing clip ${name}`);
+  assert.ok(set.lower.Kneel && set.upper.Kneel_Work && set.upper.Slash && set.upper.Lob, 'the action layers are built');
+  const inst = gltf.scene;
+  inst.scale.setScalar(GAME_SCALE);
+  const mixer = new THREE.AnimationMixer(inst);
+  const animator = new OperativeAnimator(inst, mixer, set);
+  const pos = new THREE.Vector3();
+  const actor = { pos, yaw: 0, aimPitch: 0, onGround: true, aimBlend: 1, moveSpeed: 0 };
+  const run = (secs) => { for (let t = 0; t < secs; t += 1 / 30) animator.update(actor, 1 / 30, { family: 'Rifle', ik: false }); };
+  const hipY = () => { inst.updateMatrixWorld(true); return wp(inst.getObjectByName('Hip')).y; };
+
+  run(0.5);
+  const standing = hipY();
+  actor.kneeling = true;
+  run(1.5);
+  assert.equal(animator.lowerName, 'Kneel');
+  assert.equal(animator.upperName, 'Kneel_Work');
+  assert.ok(hipY() < standing - 0.3, `kneeling drops the hips (${standing.toFixed(2)} -> ${hipY().toFixed(2)})`);
+  run(6); // past the clip's own stand-up: the hold ping-pongs inside the kneel
+  assert.ok(hipY() < standing - 0.3, 'still on the knees after the clip length');
+  actor.kneeling = false;
+  run(0.6);
+  assert.equal(animator.lowerName, 'Idle');
+
+  actor.gesture = 'lob';
+  const seen = [];
+  for (let t = 0; t < 0.8; t += 1 / 30) {
+    animator.update(actor, 1 / 30, { family: 'Rifle', ik: false });
+    if (seen[seen.length - 1] !== animator.upperName) seen.push(animator.upperName);
+  }
+  assert.equal(actor.gesture, null, 'the gesture is consumed');
+  assert.deepEqual(seen, ['Slash', 'Lob', 'Rifle_Aim']);
 });

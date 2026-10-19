@@ -1655,7 +1655,7 @@ export default class Multiplayer {
         if (!this.isHost) break;
         const shooter = this._remoteById.get(message.shooterId);
         if (shooter && this.game.combat && typeof this.game.combat.throwRemoteGrenade === 'function') {
-          this.game.combat.throwRemoteGrenade(message, shooter);
+          if (this.game.combat.throwRemoteGrenade(message, shooter)) shooter.gesture = 'lob';
         }
         break;
       }

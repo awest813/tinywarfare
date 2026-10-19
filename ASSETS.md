@@ -20,14 +20,16 @@ operatives.
 
 ## Quaternius Universal Animation Library (Standard)
 
-`assets/models/source/ual_clips.glb` is a trimmed copy (skeleton plus the 14
+`assets/models/source/ual_clips.glb` is a trimmed copy (skeleton plus the 17
 clips the soldiers use; `tools/extract-ual.mjs`) of the free Standard edition
 of Quaternius'
 [Universal Animation Library](https://quaternius.itch.io/universal-animation-library),
 released under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/),
 as mirrored at <https://github.com/J-Ponzo/gltf-universal-animation-library>.
 The operatives' locomotion (idle, walk, jog, sprint, crouch, jump), hit
-reactions and their first death are retargeted from it. Attribution is not
+reactions, first death, plant/defuse kneel (`Fixing_Kneeling`), knife slash
+(`Sword_Attack`, which also supplies the grenade wind-up) and grenade release
+(`Spell_Simple_Shoot`, mirrored) are retargeted from it. Attribution is not
 required by CC0, but is included with thanks to Quaternius.
 
 ## Quaternius Toon Shooter Game Kit
