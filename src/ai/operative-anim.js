@@ -386,6 +386,7 @@ export class OperativeAnimator {
       : (speed > 5.5 && (actor.aimBlend ?? 1) < 0.2 && !(actor.burstLeft > 0));
     this.sprintHeld = inferred;
     const sprinting = !actor.crouching && (actor.sprinting === true || inferred || speed > 6);
+    const combatGait = actor.burstLeft > 0 || (actor.fireAnim || 0) > 0.05 || (actor.aimBlend ?? 1) > 0.3;
     let lower;
     if (this.airTime > 0.18) lower = 'JumpLoop';
     else if (kneeling) lower = 'Kneel';
@@ -395,14 +396,19 @@ export class OperativeAnimator {
     else if (this.landDip > 0) lower = 'CrouchIdle';
     else if (!moving) lower = this.turnStep > 0 ? 'Walk' : 'Idle';
     else if (sprinting && !this.backpedal) lower = 'Sprint';
-    else if (speed > (this.lowerName === 'Jog' ? 2.6 : 3.0)) lower = 'Jog';
+    // Aiming or shooting on the move is a quick walk, not a jog: a combat
+    // strafe runs ~3 m/s, which is the 5.6 m/s jog at half speed — slow-motion
+    // lunging strides on a twisted pelvis.
+    else if (speed > (this.lowerName === 'Jog' ? 2.6 : 3.0) + (combatGait ? 0.6 : 0)) lower = 'Jog';
     else lower = 'Walk';
     const legs = this._play('lower', lower, lower === 'JumpLoop' || this.landDip > 0 ? 0.08 : 0.2);
     if (legs) {
       const natural = this.set.speeds[lower];
       // A wide range keeps the feet planted: a jog clip driven at 7 m/s
       // needs ~2x, and anything clamped below the real speed skates.
-      let scale = natural && lower !== 'Kneel' ? THREE.MathUtils.clamp(speed / natural, 0.5, 2.6) : 1;
+      // The quick combat walk may run to 3x so the feet keep up with 3.6 m/s.
+      const maxScale = lower === 'Walk' && combatGait ? 3.3 : 2.6;
+      let scale = natural && lower !== 'Kneel' ? THREE.MathUtils.clamp(speed / natural, 0.5, maxScale) : 1;
       if (!moving && lower === 'Walk') scale = 1.4; // turning steps
       if (this.backpedal) scale = -scale;
       legs.setEffectiveTimeScale(scale);

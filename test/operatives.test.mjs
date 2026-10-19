@@ -338,3 +338,16 @@ test('turning on the spot steps the feet round, and a fall lands with a knee ben
   run(1 / 30);
   assert.notEqual(animator.lowerName, 'CrouchIdle', 'a short hop does not dip');
 });
+
+test('strafing while shooting is a quick walk, running is still a jog', async () => {
+  const gltf = await load('assets/models/operative_us.glb');
+  const set = buildAnimationSet(gltf.animations, gltf.scene.userData);
+  const animator = new OperativeAnimator(gltf.scene, new THREE.AnimationMixer(gltf.scene), set);
+  const pos = new THREE.Vector3();
+  const run = (actor, v) => { for (let i = 0; i < 30; i++) { pos.x += v / 30; animator.update(actor, 1 / 30, { family: 'Rifle' }); } };
+  run({ pos, yaw: 0, onGround: true, aimBlend: 1, moveSpeed: 3.1, burstLeft: 2 }, 3.1);
+  assert.equal(animator.lowerName, 'Walk', 'a 3 m/s firing strafe walks');
+  assert.ok(animator.actions.Walk.getEffectiveTimeScale() > 2.6, 'and the walk is quickened to keep the feet planted');
+  run({ pos, yaw: 0, onGround: true, aimBlend: 0, moveSpeed: 3.1 }, 3.1);
+  assert.equal(animator.lowerName, 'Jog', 'the same pace out of a fight jogs');
+});
