@@ -4951,7 +4951,9 @@ export default class HUD {
       '<span>SELECT AN ACTION, THEN PRESS A KEY</span></div>' +
       '<div class="mn-bindings">' + bindings + '</div>' +
       '</section>' +
-      '<div class="mn-settings-foot"><span class="mn-settings-mouse">MOUSE — AIM · LMB — FIRE · RMB — AIM DOWN SIGHTS / SCOPE · WHEEL — CYCLE</span>' +
+      '<div class="mn-settings-foot"><span class="mn-settings-mouse">MOUSE — AIM · LMB — FIRE · RMB — AIM DOWN SIGHTS / SCOPE · WHEEL — CYCLE<br>' +
+      'CONTROLLER — RT FIRE · LT AIM · A JUMP · B CROUCH · X RELOAD (HOLD: USE) · Y / RB WEAPONS · LB GRENADE · ' +
+      'R3 KNIFE · L3 SPRINT · D-PAD STREAKS / BUY · VIEW SCORES · START PAUSE</span>' +
       '<button id="hud-settings-reset" type="button">RESET DEFAULTS</button>' +
       '<span id="hud-settings-status" role="status" aria-live="polite" aria-atomic="true"></span></div>' +
       '</section>' +
