@@ -311,6 +311,9 @@ export default class World {
         skyRefresh: this.game.gfx?.skyRefresh,
         exposure: this.game.renderer.toneMappingExposure,
         getBrightnessEv: () => this.game.settings?.brightnessEv ?? 0,
+        // The shadow box fits the map, not whatever else stands in the scene
+        // (the last match's soldiers, drops, the viewmodel) at a map change.
+        getArenaRoots: () => [this.solids, this.environment],
         debug: this.game.debug,
         site: preset.site,
         hour: preset.hour,

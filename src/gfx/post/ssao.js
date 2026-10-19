@@ -564,6 +564,12 @@ export class Ssao {
     hide(dome);
     hide(precip);
     for (const child of game?.effects?.root?.children ?? []) if (!child.isLight) hide(child);
+    // The override has no map or alphaTest, so a foliage card (mostly empty)
+    // or a window pane would land in the depth buffer as a solid slab: AO
+    // bands around every bush, and no AO at all through a window. They are
+    // static map geometry, so they are found once per map (the environment
+    // batch is rebuilt per map).
+    for (const mesh of this._cutoutsOf(game)) hide(mesh);
 
     // renderer.render() re-renders the shadow map on every call, and this pass
     // does not read it. Suppressing it for the prepass and letting the beauty
@@ -603,6 +609,23 @@ export class Ssao {
   }
 
   /** Hand the materials a term that changes nothing, without unbinding the sampler. */
+  /** The map's alpha-cut and transparent meshes, cached per loaded map. */
+  _cutoutsOf(game) {
+    const world = game?.world;
+    const key = world?.environment ?? null; // a new group per loaded map
+    if (key === this._cutoutKey && this._cutouts) return this._cutouts;
+    this._cutoutKey = key;
+    const list = (this._cutouts = []);
+    for (const root of [world?.solids, world?.environment]) {
+      root?.traverse((o) => {
+        if (!o.isMesh) return;
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        if (mats.some((m) => m && (m.transparent || m.alphaTest > 0))) list.push(o);
+      });
+    }
+    return list;
+  }
+
   disable() {
     ssaoUniforms.owSsaoP.value.z = 0;
   }

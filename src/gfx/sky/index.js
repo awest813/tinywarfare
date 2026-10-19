@@ -524,6 +524,7 @@ export class SkySystem {
     this._getBrightnessEv = typeof opts.getBrightnessEv === 'function'
       ? opts.getBrightnessEv
       : () => 0;
+    this._getArenaRoots = typeof opts.getArenaRoots === 'function' ? opts.getArenaRoots : null;
     this._elapsed = 0;
 
     // Merge, never replace: a preset that names only a latitude must keep the
@@ -808,7 +809,8 @@ export class SkySystem {
     // but a caster parented anywhere else would be measured off a stale matrix.
     // Once per map load, so the walk costs nothing worth saving.
     this.scene.updateMatrixWorld();
-    this.scene.traverse((o) => {
+    const roots = (this._getArenaRoots && this._getArenaRoots().filter(Boolean)) || [this.scene];
+    for (const root of roots) root.traverse((o) => {
       if (!o.isMesh || !o.geometry || !(o.castShadow || o.receiveShadow)) return;
       const g = o.geometry;
       if (!g.boundingBox) g.computeBoundingBox();

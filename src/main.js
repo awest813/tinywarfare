@@ -281,8 +281,11 @@ loadingScreen?.setStage?.('Calibrating combat systems', 92);
 // (soldier GLBs). Without it the first live frame and the first tracer and
 // explosion each froze a low-end GPU mid-fight.
 const prewarm = () => {
-  // The post chain draws the scene off-screen first (a different program key).
-  const targets = game.post?.sceneRt ? [game.post.sceneRt, null] : [null];
+  // With the post chain on, the scene is only ever drawn off-screen (a
+  // different program key from the canvas's ACES/sRGB one), so warming the
+  // canvas variant too doubled the compile work for nothing. The trailer
+  // tool is the one thing that also draws straight to the canvas.
+  const targets = game.post?.sceneRt ? (TRAILER ? [game.post.sceneRt, null] : [game.post.sceneRt]) : [null];
   // ...and the ambient-occlusion prepass draws it again with one override material.
   const ssao = game.post?.ssao;
   const passes = ssao?.depthRt && ssao.depthMaterial ? [{ target: ssao.depthRt, override: ssao.depthMaterial }] : [];
