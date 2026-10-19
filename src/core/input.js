@@ -15,7 +15,8 @@
 //                           then zeroed. Accumulates only while locked.
 //   firing        (bool)  — LMB currently held (while locked).
 //   aiming        (bool)  — RMB currently held (while locked).
-//   requestLock(options)  — request a virtual or real lock on game.canvas.
+//   requestLock(options)  — request a virtual or real lock on game.canvas
+//                           ({ virtual: true } or an active gamepad: simulated).
 //   setTouchMode(on)      — use a virtual lock on touch-only browsers.
 //   setVirtualKey(k,on)   — feed a held key from an on-screen control.
 //   pulseVirtualKey(k)    — feed a one-frame key press.
@@ -376,8 +377,12 @@ export default class Input {
   requestLock(options = {}) {
     const preferReal = options?.preferReal === true;
     if (this.locked && (!preferReal || !this._virtualLock)) return;
+    // A controller cannot take a real pointer lock (that needs a gesture in
+    // the page), so while it is the active device the lock is simulated, as
+    // in touch mode.
+    const pad = options?.virtual === true || (!preferReal && this.game.gamepad?.active === true);
 
-    if (this.game.debug || (this.touchMode && !preferReal)) {
+    if (this.game.debug || (this.touchMode && !preferReal) || pad) {
       // Simulated lock: no real pointer capture, but the input pipeline
       // behaves exactly as if locked (synthetic events drive the game).
       this.locked = true;

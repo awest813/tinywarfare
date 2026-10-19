@@ -4,6 +4,7 @@ import { CONFIG } from './shared/config.js';
 import Input from './core/input.js';
 import GameSettings, { setKeyboardLayoutMap } from './core/settings.js';
 import TouchControls, { shouldEnableTouchControls } from './core/touch-controls.js';
+import Gamepads from './core/gamepad.js';
 import World from './world/map.js';
 import { MaterialSystem } from './gfx/materials/index.js';
 import { PostChain } from './gfx/post/index.js';
@@ -271,6 +272,7 @@ game.leaderboard = new LeaderboardClient(game);
 game.progression.syncCareer(game.leaderboard.getProgression?.());
 game.hud = new HUD(game);
 game.touchControls = new TouchControls(game);
+game.gamepad = new Gamepads(game);
 game.multiplayer = new Multiplayer(game);
 game.killcam = new Killcam(game);
 loadingScreen?.setStage?.('Calibrating combat systems', 92);
@@ -349,7 +351,7 @@ const UPDATE_ORDER = [
   // its replay then lands in the same frame the replay ends, instead of the
   // spectator showing a teammate for one frame in between. (It records the
   // poses the previous frame left, one frame behind, which is invisible.)
-  'world', 'killcam', 'rounds', 'score', 'streaks', 'touchControls', 'player', 'weapons', 'viewmodel', 'bots',
+  'world', 'killcam', 'rounds', 'score', 'streaks', 'touchControls', 'gamepad', 'player', 'weapons', 'viewmodel', 'bots',
   // Spectator runs after replicated/AI actors so deaths, disconnects, and
   // poses affect the observer camera in the same rendered frame. It hands the
   // camera to the killcam while a replay plays.
@@ -362,7 +364,7 @@ const UPDATE_ORDER = [
 // What still runs while a solo match is paused (game.paused, set by the HUD's
 // pause overlay): the menus, input, sky bakes and audio. The match itself —
 // rounds, actors, projectiles, effects — holds still.
-const PAUSED_SYSTEMS = new Set(['world', 'touchControls', 'multiplayer', 'hud', 'audio', 'input', 'materials']);
+const PAUSED_SYSTEMS = new Set(['world', 'touchControls', 'gamepad', 'multiplayer', 'hud', 'audio', 'input', 'materials']);
 
 const clock = new THREE.Clock();
 let shadowFrame = 0;
