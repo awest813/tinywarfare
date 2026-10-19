@@ -335,6 +335,40 @@ function poseMarine(src, sample) {
   }
 }
 
+// Skinned meshes of the Marine, and its floor: the lowest skinned point at rest.
+const SKINNED = [];
+marine.scene.traverse((o) => { if (o.isSkinnedMesh) SKINNED.push(o); });
+const _vtx = new THREE.Vector3();
+function lowestSkinnedY() {
+  let min = Infinity;
+  for (const mesh of SKINNED) {
+    const count = mesh.geometry.attributes.position.count;
+    for (let i = 0; i < count; i++) {
+      mesh.getVertexPosition(i, _vtx);
+      _vtx.applyMatrix4(mesh.matrixWorld);
+      if (_vtx.y < min) min = _vtx.y;
+    }
+  }
+  return min;
+}
+let FLOOR_Y = null;
+/** Lift the pelvis so no part of the posed body is below the rest floor. */
+function groundFit() {
+  if (FLOOR_Y === null) {
+    const keep = snapshot();
+    resetMarine();
+    FLOOR_Y = lowestSkinnedY();
+    applySnapshot(keep);
+  }
+  const dip = FLOOR_Y - lowestSkinnedY();
+  if (!(dip > 1e-4)) return;
+  const hip = B('Hip');
+  const target = worldPos(hip).add(new THREE.Vector3(0, dip, 0));
+  hip.parent.updateMatrixWorld(true);
+  hip.position.copy(hip.parent.worldToLocal(target));
+  refresh();
+}
+
 function snapshot() {
   const q = new Map();
   for (const name of ANIMATED) q.set(name, B(name).quaternion.clone());
@@ -387,6 +421,9 @@ for (const [name, srcKey, clipName, mirror] of RETARGET) {
     const t = Math.min(clip.duration, f / FPS);
     times.push(t);
     poseMarine(src, sampleSource(src, mixer, t, !!mirror));
+    // Deaths keep the body above the floor: retargeted onto the Marine (whose
+    // backpack the source rigs lack) Death01 ended 0.26 m into the ground.
+    if (name.startsWith('Death')) groundFit();
     frames.push(snapshot());
     feet.push([worldPos(B('footL')), worldPos(B('footR'))]);
   }
@@ -395,19 +432,28 @@ for (const [name, srcKey, clipName, mirror] of RETARGET) {
   clips.push(makeClip(name, times, frames));
 
   if (LOCOMOTION.includes(name)) {
-    // Ground speed: the lower foot, while it slides backward, is the planted
-    // one, and it slides at the speed the body travels over the ground. (An
-    // estimate: it also counts the landing foot's pre-contact sweep.)
-    let dist = 0;
-    let dur = 0;
-    for (let f = 1; f < count; f++) {
-      const side = feet[f][0].y < feet[f][1].y ? 0 : 1;
-      const dz = feet[f][side].z - feet[f - 1][side].z;
-      if (dz >= 0) continue;
-      dist -= dz;
-      dur += times[f] - times[f - 1];
-    }
-    speeds[name] = +(dist / Math.max(1e-6, dur) * GAME_SCALE).toFixed(3); // in-game m/s
+    // Ground speed: a foot on the ground (within 6 cm of its lowest point in
+    // the cycle) slides backward at the speed the body travels. Counting every
+    // backward frame of the lower foot, flight and swing included, read the
+    // jog at 3.4 m/s against its real 5.5, and the soldiers' feet skated.
+    const lowest = [0, 1].map((k) => Math.min(...feet.map((pair) => pair[k].y)));
+    const planted = 0.06 / GAME_SCALE;
+    // Per foot: the retarget leaves one foot's contact less clean than the
+    // other's (the Sprint's right foot rolls onto its toe early and reads 30%
+    // slow), so the faster, cleaner stance is the body's speed.
+    const perFoot = [0, 1].map((k) => {
+      let dist = 0;
+      let dur = 0;
+      for (let f = 1; f < count; f++) {
+        if (feet[f][k].y > lowest[k] + planted || feet[f - 1][k].y > lowest[k] + planted) continue;
+        const dz = feet[f][k].z - feet[f - 1][k].z;
+        if (dz >= 0) continue;
+        dist -= dz;
+        dur += times[f] - times[f - 1];
+      }
+      return dur > 0 ? dist / dur : 0;
+    });
+    speeds[name] = +(Math.max(...perFoot) * GAME_SCALE).toFixed(3); // in-game m/s
   }
 }
 

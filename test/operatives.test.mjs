@@ -65,7 +65,11 @@ for (const file of ['assets/models/operative_us.glb', 'assets/models/operative_r
     for (const name of ['Walk', 'Jog', 'Sprint', 'CrouchWalk']) {
       assert.ok(set.speeds[name] > 0.3 && set.speeds[name] < 8, `${name} ground speed ${set.speeds[name]}`);
     }
-    assert.ok(set.speeds.Walk < set.speeds.Jog && set.speeds.Jog < set.speeds.Sprint, 'gaits get faster');
+    assert.ok(set.speeds.CrouchWalk < set.speeds.Walk && set.speeds.Walk < set.speeds.Jog, 'gaits get faster');
+    // The UAL sprint covers about the jog's ground per second (longer, slower
+    // strides); the runtime speeds it up to the sprint pace, so it only has to
+    // land near the jog, not above it.
+    assert.ok(set.speeds.Sprint > set.speeds.Jog * 0.85, `sprint ${set.speeds.Sprint} vs jog ${set.speeds.Jog}`);
     assert.ok(set.handBasisL, 'the support-hand basis ships in the scene extras');
     // Legs and torso never fight over a bone.
     for (const name of LOCOMOTION_CLIPS) {

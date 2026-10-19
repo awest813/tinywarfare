@@ -232,6 +232,7 @@ const CALLOUTS = {
 };
 const GRUDGE_TIME = 45;         // s a bot remembers who killed it
 const GRUDGE_HUNT = 0.5;        // chance a free hunt goes after its killer instead of the nearest enemy
+const CORPSE_REACH = 1.9;        // m: how far a falling body lands behind its feet
 const NEAR_MISS_OFFSET = 0.7;   // m: a deliberate miss passes at least this far from the body
 const COVER_HEALTH = 45;        // hp below which a bot breaks off to cover
 const COVER_RANGE = 10;         // m it will run for cover
@@ -4060,6 +4061,30 @@ export default class Bots {
     }
   }
 
+  /**
+   * Which way to lay a body down. Every death falls about 1.75 m backward,
+   * so one shot in front of a wall put three quarters of the corpse inside
+   * it: turn the fall toward the most open side (behind first, then the
+   * sides, then forward) along a hip-height ray.
+   */
+  _corpseYaw(bot) {
+    const world = this.game.world;
+    const yaw = Number.isFinite(bot.yaw) ? bot.yaw : 0;
+    if (!world || typeof world.raycast !== 'function' || !bot.pos) return yaw;
+    let best = yaw;
+    let bestClear = -1;
+    for (const turn of [0, Math.PI / 2, -Math.PI / 2, Math.PI]) {
+      const y = yaw + turn;
+      _v1.set(bot.pos.x, bot.pos.y + 0.5, bot.pos.z);
+      _v2.set(Math.sin(y), 0, Math.cos(y));
+      const hit = world.raycast(_v1, _v2, CORPSE_REACH);
+      const clear = hit ? hit.distance : CORPSE_REACH;
+      if (clear >= CORPSE_REACH - 1e-3) return y;
+      if (clear > bestClear) { bestClear = clear; best = y; }
+    }
+    return best;
+  }
+
   _animateDeath(bot, dt) {
     const m = bot.mesh;
     if (!m || bot.deathTime < 0) return;
@@ -4070,12 +4095,13 @@ export default class Bots {
     }
 
     if (bot.animator) {
-      m.position.copy(bot.pos);
-      m.rotation.set(0, bot.yaw, 0);
       if (!bot.deathPlayed) {
         bot.deathPlayed = true;
+        bot.deathYaw = this._corpseYaw(bot);
         bot.animator.die(Math.random(), bot.crouching ? 0.22 : 0.08);
       }
+      m.position.copy(bot.pos);
+      m.rotation.set(0, Number.isFinite(bot.deathYaw) ? bot.deathYaw : bot.yaw, 0);
       if (!bot.corpseSettled) {
         bot.mixer.update(dt);
         if (bot.animator.deathDone) bot.corpseSettled = true;

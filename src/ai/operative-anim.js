@@ -44,7 +44,7 @@ const TORSO_BONES = new Set(['spine001', 'spine002', 'spine003', 'neck', 'head']
 
 // Ground speed (in-game m/s) each locomotion clip covers at timeScale 1.
 // The GLB's measured values override these.
-const DEFAULT_SPEEDS = { Walk: 1.05, Jog: 3.4, Sprint: 4.1, CrouchWalk: 0.66 };
+const DEFAULT_SPEEDS = { Walk: 1.1, Jog: 5.6, Sprint: 5.4, CrouchWalk: 0.66 };
 
 const DEG = Math.PI / 180;
 const MAX_TWIST = 70 * DEG;
@@ -223,7 +223,10 @@ export class OperativeAnimator {
    * crouched soldier from popping upright before the fall.
    */
   die(seed = Math.random(), fade = 0.08) {
-    const names = Object.keys(this.set.death);
+    // Death_B (and its mirror) ends on the backpack with the legs in the air
+    // on this rig; it is kept only if nothing else is there.
+    const all = Object.keys(this.set.death);
+    const names = all.filter((n) => !/^Death_B/.test(n)).length ? all.filter((n) => !/^Death_B/.test(n)) : all;
     if (!names.length) return null;
     this._restoreClipPose();
     const name = names[Math.min(names.length - 1, Math.floor(seed * names.length))];
@@ -307,9 +310,11 @@ export class OperativeAnimator {
 
     // ---- legs --------------------------------------------------------------
     this.airTime = actor.onGround === false ? this.airTime + step : 0;
+    // Inferred only well above a run: bots move at 4.6 m/s and every one of
+    // them out of a fight played the sprint (and its carry pose) at that pace.
     const inferred = this.sprintHeld
-      ? speed > 3.4 && (actor.aimBlend ?? 1) < 0.35 && !(actor.burstLeft > 0)
-      : (speed > 4 && (actor.aimBlend ?? 1) < 0.2 && !(actor.burstLeft > 0));
+      ? speed > 5.0 && (actor.aimBlend ?? 1) < 0.35 && !(actor.burstLeft > 0)
+      : (speed > 5.5 && (actor.aimBlend ?? 1) < 0.2 && !(actor.burstLeft > 0));
     this.sprintHeld = inferred;
     const sprinting = !actor.crouching && (actor.sprinting === true || inferred || speed > 6);
     let lower;
@@ -317,7 +322,7 @@ export class OperativeAnimator {
     else if (actor.crouching) lower = moving ? 'CrouchWalk' : 'CrouchIdle';
     else if (!moving) lower = 'Idle';
     else if (sprinting && !this.backpedal) lower = 'Sprint';
-    else if (speed > (this.lowerName === 'Jog' ? 2.0 : 2.6)) lower = 'Jog';
+    else if (speed > (this.lowerName === 'Jog' ? 2.6 : 3.0)) lower = 'Jog';
     else lower = 'Walk';
     const legs = this._play('lower', lower, lower === 'JumpLoop' ? 0.12 : 0.2);
     if (legs) {
