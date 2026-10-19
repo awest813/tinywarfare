@@ -1064,11 +1064,15 @@ export default class ViewModel {
       const drop = smoothstep(0, 0.14, n) * (1 - smoothstep(0.72, 0.95, n));
       const j1 = bump(n, 0.3, 0.05);  // mag released
       const j2 = bump(n, 0.62, 0.05); // fresh mag seated
-      py -= 0.045 * drop + 0.012 * j1 - 0.008 * j2;
-      px += 0.014 * drop;
-      pz += 0.018 * drop;
-      rx -= 0.34 * drop + 0.05 * j2;
-      rz += 0.16 * drop + 0.04 * j1;
+      // Cant the gun toward the view with the mag well up, rather than nosing
+      // it down: the old 0.34 rad dip took a pistol's muzzle to 0.86 of the
+      // way down the screen and the rest of it out of frame for the whole
+      // reload — the player never saw it happen.
+      py -= 0.018 * drop + 0.012 * j1 - 0.008 * j2;
+      px -= 0.012 * drop;
+      pz += 0.012 * drop;
+      rx += 0.08 * drop - 0.05 * j2;
+      rz += 0.42 * drop + 0.05 * j1;
       // busy-hands wobble while low
       rz += Math.sin(n * 43) * 0.016 * drop * bump(n, 0.48, 0.22);
       magOut = smoothstep(0.22, 0.34, n) * (1 - smoothstep(0.5, 0.62, n));
