@@ -5,6 +5,8 @@ import Input from './core/input.js';
 import GameSettings, { setKeyboardLayoutMap } from './core/settings.js';
 import TouchControls, { shouldEnableTouchControls } from './core/touch-controls.js';
 import Gamepads from './core/gamepad.js';
+import { thirdPersonTemplate } from './gfx/weapons/registry.js';
+import { PROCEDURAL_WEAPON_IDS } from './gfx/weapons/catalogue.js';
 import World from './world/map.js';
 import { MaterialSystem } from './gfx/materials/index.js';
 import { PostChain } from './gfx/post/index.js';
@@ -279,6 +281,26 @@ game.gamepad = new Gamepads(game);
 game.multiplayer = new Multiplayer(game);
 game.killcam = new Killcam(game);
 loadingScreen?.setStage?.('Calibrating combat systems', 92);
+
+// Third-person guns are built the first time a soldier holds one: 150-300 ms
+// of modelling plus a merge, which landed mid-match as a ~100 ms freeze when a
+// bot first drew a gun nobody had carried yet. Build them in idle time instead
+// (the menu, freeze time, between rounds) one per idle slice, never live.
+{
+  const pending = [...PROCEDURAL_WEAPON_IDS];
+  const idle = globalThis.requestIdleCallback
+    ? (fn) => globalThis.requestIdleCallback(fn, { timeout: 3000 })
+    : (fn) => setTimeout(fn, 400);
+  const next = () => {
+    if (!pending.length) return;
+    const phase = game.state?.phase;
+    if (phase !== 'live' && phase !== 'planted' && game.materials) {
+      try { thirdPersonTemplate(pending.shift(), game.materials); } catch { /* built on demand instead */ }
+    }
+    idle(next);
+  };
+  idle(next);
+}
 
 // Compile every shader up front (see src/gfx/prewarm.js): at boot behind the
 // loading screen, after a map change (the light count, and so every program,

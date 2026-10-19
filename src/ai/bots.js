@@ -1490,6 +1490,9 @@ export default class Bots {
       return false;
     };
     const skinnedMeshes = [];
+    // The body's shadow is dropped at range (see _animateBot).
+    bot.shadowCasters = skinnedMeshes;
+    bot.castsShadow = true;
     inst.traverse((o) => {
       if (o.isMesh) {
         o.castShadow = true;
@@ -4066,7 +4069,17 @@ export default class Bots {
       // pitch, recoil, flinch and support-hand IK (see operative-anim.js).
       const family = CHAR_GUN_MESH[bot.weaponId];
       const camera = this.game && this.game.camera;
-      const near = !camera || camera.position.distanceToSquared(bot.pos) < IK_FAR_SQ;
+      const dist2 = camera ? camera.position.distanceToSquared(bot.pos) : 0;
+      const near = !camera || dist2 < IK_FAR_SQ;
+      // A soldier's body is ~23k triangles through the shadow pass. Past the
+      // preset's range its shadow is a few pixels: stop drawing it there.
+      // (castShadow only picks the shadow render list; no program changes.)
+      const shadowFar = this.game.gfx?.botShadowDistance ?? 45;
+      const cast = dist2 < shadowFar * shadowFar;
+      if (cast !== bot.castsShadow && bot.shadowCasters) {
+        bot.castsShadow = cast;
+        for (const mesh of bot.shadowCasters) mesh.castShadow = cast;
+      }
       // On its knees over the bomb: the plant and the defuse play the kneel.
       bot.kneeling = bot.isRemotePlayer
         ? this._humanKneeling(bot)

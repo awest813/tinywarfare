@@ -42,6 +42,8 @@ export const GRAPHICS_PROFILES = Object.freeze({
     precipitation: 1,
     radarInterval: 0.05,
     weaponShadows: true,
+    // m: a soldier's body stops casting past this (~23k tris a body).
+    botShadowDistance: 45,
   }),
   low: Object.freeze({
     id: 'low',
@@ -61,6 +63,8 @@ export const GRAPHICS_PROFILES = Object.freeze({
     precipitation: 0.5,
     radarInterval: 0.05,
     weaponShadows: true,
+    // m: a soldier's body stops casting past this (~23k tris a body).
+    botShadowDistance: 35,
   }),
   chromebook: Object.freeze({
     id: 'chromebook',
@@ -83,6 +87,8 @@ export const GRAPHICS_PROFILES = Object.freeze({
     // A held gun's shadow is a few texels in a 1024 map, but ~25k triangles
     // per soldier through the shadow pass a second time.
     weaponShadows: false,
+    // m: a soldier's body stops casting past this (~23k tris a body).
+    botShadowDistance: 25,
   }),
 });
 
