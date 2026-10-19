@@ -207,3 +207,27 @@ test('jumping into a chest-high ledge mantles on top; a wall stays a jump', () =
     }
   }
 });
+
+test('invert look flips pitch; toggle crouch latches on a press and sprint lets it go', () => {
+  const { game, held, input } = makeGame();
+  game.settings = { lookSensitivity: 1, invertY: false, crouchToggle: true, adsSensitivity: 1 };
+  let dy = 100;
+  input.consumeLook = () => { const out = { dx: 0, dy }; dy = 0; return out; };
+  run(game, 1 / 60);
+  const normal = game.player.pitch;
+  assert.ok(normal < 0, 'moving the mouse down looks down');
+  game.player.pitch = 0;
+  game.settings.invertY = true;
+  dy = 100;
+  run(game, 1 / 60);
+  assert.ok(Math.abs(game.player.pitch + normal) < 1e-9, 'inverted, the same move looks up as far');
+
+  run(game, 0.2);
+  held.add('control'); run(game, 0.05); held.delete('control'); run(game, 0.5);
+  assert.equal(game.player.crouching, true, 'one press latches the crouch');
+  held.add('control'); run(game, 0.05); held.delete('control'); run(game, 0.5);
+  assert.equal(game.player.crouching, false, 'a second press stands up');
+  held.add('control'); run(game, 0.05); held.delete('control'); run(game, 0.3);
+  held.add('shift'); held.add('w'); run(game, 0.5);
+  assert.equal(game.player.crouching, false, 'sprinting drops the latch');
+});

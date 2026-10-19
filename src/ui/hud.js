@@ -493,6 +493,12 @@ export default class HUD {
       showFps: $('hud-show-fps'),
       aimToggle: $('hud-aim-toggle'),
       aimToggleOutput: $('hud-aim-toggle-output'),
+      crouchToggle: $('hud-crouch-toggle'),
+      crouchToggleOutput: $('hud-crouch-toggle-output'),
+      invertY: $('hud-invert-y'),
+      invertYOutput: $('hud-invert-y-output'),
+      adsSensitivity: $('hud-ads-sensitivity'),
+      adsSensitivityOutput: $('hud-ads-sensitivity-output'),
       killcamSetting: $('hud-killcam-setting'),
       killcamSettingOutput: $('hud-killcam-setting-output'),
       showFpsOutput: $('hud-show-fps-output'),
@@ -882,6 +888,18 @@ export default class HUD {
       settings.setKillcam(event.currentTarget.checked);
       this._syncSettingsUi();
     });
+    this._el.crouchToggle?.addEventListener('change', (event) => {
+      settings.setCrouchToggle(event.currentTarget.checked);
+      this._syncSettingsUi();
+    });
+    this._el.invertY?.addEventListener('change', (event) => {
+      settings.setInvertY(event.currentTarget.checked);
+      this._syncSettingsUi();
+    });
+    this._el.adsSensitivity?.addEventListener('input', (event) => {
+      settings.setAdsSensitivity(event.currentTarget.value);
+      this._syncSettingsUi();
+    });
     this._el.aimToggle?.addEventListener('change', (event) => {
       settings.setAimToggle(event.currentTarget.checked);
       this.game.input?.clearAimLatch?.();
@@ -1008,6 +1026,15 @@ export default class HUD {
     if (this._el.showFps) this._el.showFps.checked = !!settings.showFps;
     if (this._el.aimToggle) this._el.aimToggle.checked = !!settings.aimToggle;
     if (this._el.aimToggleOutput) this._el.aimToggleOutput.textContent = settings.aimToggle ? 'ON' : 'OFF';
+    if (this._el.crouchToggle) this._el.crouchToggle.checked = !!settings.crouchToggle;
+    if (this._el.crouchToggleOutput) this._el.crouchToggleOutput.textContent = settings.crouchToggle ? 'ON' : 'OFF';
+    if (this._el.invertY) this._el.invertY.checked = !!settings.invertY;
+    if (this._el.invertYOutput) this._el.invertYOutput.textContent = settings.invertY ? 'ON' : 'OFF';
+    if (this._el.adsSensitivity) this._el.adsSensitivity.value = String(settings.adsSensitivity ?? 1);
+    if (this._el.adsSensitivityOutput) {
+      this._el.adsSensitivityOutput.value =
+        this._el.adsSensitivityOutput.textContent = Number(settings.adsSensitivity ?? 1).toFixed(2) + '×';
+    }
     if (this._el.killcamSetting) this._el.killcamSetting.checked = settings.killcam !== false;
     if (this._el.killcamSettingOutput) this._el.killcamSettingOutput.textContent = settings.killcam !== false ? 'ON' : 'OFF';
     if (this._el.showFpsOutput) this._el.showFpsOutput.textContent = settings.showFps ? 'ON' : 'OFF';
@@ -4900,6 +4927,20 @@ export default class HUD {
       '<output id="hud-aim-toggle-output" for="hud-aim-toggle">' + (settings?.aimToggle ? 'ON' : 'OFF') + '</output></span>' +
       '<small class="mn-setting-note">RIGHT CLICK AIMS IN AND OUT · SPRINT CANCELS</small>' +
       '<input id="hud-aim-toggle" type="checkbox"' + (settings?.aimToggle ? ' checked' : '') + '></label>' +
+      '<label class="mn-setting mn-setting-toggle mn-setting-mouse-only" for="hud-crouch-toggle"><span><strong>TOGGLE CROUCH</strong>' +
+      '<output id="hud-crouch-toggle-output" for="hud-crouch-toggle">' + (settings?.crouchToggle ? 'ON' : 'OFF') + '</output></span>' +
+      '<small class="mn-setting-note">CROUCH KEY OR CONTROLLER B PRESSES IN AND OUT · SPRINT CANCELS</small>' +
+      '<input id="hud-crouch-toggle" type="checkbox"' + (settings?.crouchToggle ? ' checked' : '') + '></label>' +
+      '<label class="mn-setting mn-setting-toggle" for="hud-invert-y"><span><strong>INVERT LOOK</strong>' +
+      '<output id="hud-invert-y-output" for="hud-invert-y">' + (settings?.invertY ? 'ON' : 'OFF') + '</output></span>' +
+      '<small class="mn-setting-note">PUSH UP TO LOOK DOWN · MOUSE, TOUCH AND CONTROLLER</small>' +
+      '<input id="hud-invert-y" type="checkbox"' + (settings?.invertY ? ' checked' : '') + '></label>' +
+      '<label class="mn-setting" for="hud-ads-sensitivity"><span><strong>AIM SENSITIVITY</strong>' +
+      '<output id="hud-ads-sensitivity-output" for="hud-ads-sensitivity">' +
+      Number(settings?.adsSensitivity ?? 1).toFixed(2) + '×</output></span>' +
+      '<input id="hud-ads-sensitivity" type="range" min="' + SETTINGS_LIMITS.adsSensitivity.min +
+      '" max="' + SETTINGS_LIMITS.adsSensitivity.max + '" step="' + SETTINGS_LIMITS.adsSensitivity.step +
+      '" value="' + Number(settings?.adsSensitivity ?? 1) + '"></label>' +
       '<label class="mn-setting mn-setting-toggle" for="hud-show-fps"><span><strong>SHOW FPS</strong>' +
       '<output id="hud-show-fps-output" for="hud-show-fps">' + (settings?.showFps ? 'ON' : 'OFF') + '</output></span>' +
       '<small class="mn-setting-note">FRAME RATE IN THE CORNER</small>' +

@@ -16,6 +16,9 @@ export const SETTINGS_LIMITS = Object.freeze({
   brightnessEv: Object.freeze({ min: -0.5, max: 0.5, step: 0.05, default: 0 }),
   volume: Object.freeze({ min: 0, max: 1, step: 0.05, default: 0.8 }),
   fov: Object.freeze({ min: 65, max: 100, step: 1, default: 74 }),
+  // Multiplier on look speed while aiming down sights or scoped (on top of
+  // the zoom compensation that keeps on-screen tracking speed constant).
+  adsSensitivity: Object.freeze({ min: 0.5, max: 1.5, step: 0.05, default: 1 }),
 });
 
 // Graphics preset (src/gfx/profiles.js): 'auto' picks by device (and steps
@@ -203,6 +206,9 @@ export default class GameSettings {
     this.showFps = false;
     this.killcam = true;
     this.aimToggle = false;
+    this.crouchToggle = false;
+    this.invertY = false;
+    this.adsSensitivity = SETTINGS_LIMITS.adsSensitivity.default;
     this.graphics = 'auto';
     // Set when Auto found High too slow on this device: start on Low.
     this.graphicsAutoFloor = '';
@@ -274,6 +280,32 @@ export default class GameSettings {
     if (next === this.aimToggle) return next;
     this.aimToggle = next;
     this._commit('aimToggle');
+    return next;
+  }
+
+  /** Crouch key (and a controller's B): hold to crouch (default) or press to toggle. */
+  setCrouchToggle(on) {
+    const next = !!on;
+    if (next === this.crouchToggle) return next;
+    this.crouchToggle = next;
+    this._commit('crouchToggle');
+    return next;
+  }
+
+  /** Invert vertical look for mouse, touch and controller. */
+  setInvertY(on) {
+    const next = !!on;
+    if (next === this.invertY) return next;
+    this.invertY = next;
+    this._commit('invertY');
+    return next;
+  }
+
+  setAdsSensitivity(value) {
+    const next = clampStep(value, SETTINGS_LIMITS.adsSensitivity);
+    if (next === this.adsSensitivity) return next;
+    this.adsSensitivity = next;
+    this._commit('adsSensitivity');
     return next;
   }
 
@@ -385,6 +417,9 @@ export default class GameSettings {
     this.showFps = false;
     this.killcam = true;
     this.aimToggle = false;
+    this.crouchToggle = false;
+    this.invertY = false;
+    this.adsSensitivity = SETTINGS_LIMITS.adsSensitivity.default;
     this.graphics = 'auto';
     this.graphicsAutoFloor = '';
     this.bindings = defaultBindings();
@@ -402,6 +437,9 @@ export default class GameSettings {
       showFps: this.showFps,
       killcam: this.killcam,
       aimToggle: this.aimToggle,
+      crouchToggle: this.crouchToggle,
+      invertY: this.invertY,
+      adsSensitivity: this.adsSensitivity,
       graphics: this.graphics,
       bindings: Object.freeze({ ...this.bindings }),
     });
@@ -425,6 +463,9 @@ export default class GameSettings {
       this.showFps = parsed.showFps === true;
       this.killcam = parsed.killcam !== false;
       this.aimToggle = parsed.aimToggle === true;
+      this.crouchToggle = parsed.crouchToggle === true;
+      this.invertY = parsed.invertY === true;
+      this.adsSensitivity = clampStep(parsed.adsSensitivity ?? SETTINGS_LIMITS.adsSensitivity.default, SETTINGS_LIMITS.adsSensitivity);
       this.graphics = GRAPHICS_OPTIONS.includes(parsed.graphics) ? parsed.graphics : 'auto';
       this.graphicsAutoFloor = ['low', 'chromebook'].includes(parsed.graphicsAutoFloor)
         ? parsed.graphicsAutoFloor
@@ -464,6 +505,9 @@ export default class GameSettings {
           showFps: this.showFps,
           killcam: this.killcam,
           aimToggle: this.aimToggle,
+          crouchToggle: this.crouchToggle,
+          invertY: this.invertY,
+          adsSensitivity: this.adsSensitivity,
           graphics: this.graphics,
           graphicsAutoFloor: this.graphicsAutoFloor,
           bindingsVersion: BINDINGS_VERSION,

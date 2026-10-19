@@ -461,3 +461,23 @@ test('wheel: one mouse notch is one step; a trackpad swipe is a step, not a doze
   for (let i = 0; i < 30; i++) wheel(10); // a 300 px two-finger swipe, back to back
   assert.ok(steps() <= 3, `a swipe takes at most a couple of steps (${steps() - 1})`);
 });
+
+test('invert look, aim sensitivity and toggle crouch persist and reset', () => {
+  const storage = new MemoryStorage();
+  const settings = new GameSettings(null, storage);
+  assert.equal(settings.invertY, false);
+  assert.equal(settings.crouchToggle, false);
+  assert.equal(settings.adsSensitivity, 1);
+  settings.setInvertY(true);
+  settings.setCrouchToggle(true);
+  assert.equal(settings.setAdsSensitivity(9), 1.5, 'clamped to its range');
+  settings.setAdsSensitivity(0.7);
+  const restored = new GameSettings(null, storage);
+  assert.equal(restored.invertY, true);
+  assert.equal(restored.crouchToggle, true);
+  assert.equal(restored.adsSensitivity, 0.7);
+  restored.reset();
+  assert.equal(restored.invertY, false);
+  assert.equal(restored.crouchToggle, false);
+  assert.equal(restored.adsSensitivity, 1);
+});

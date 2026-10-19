@@ -108,6 +108,9 @@ export default class Player {
     this._slideT = 0;
     this._slideCooldown = 0;
     this._crouchKeyPrev = false;
+    this._crouchLatch = false;       // toggle-crouch state
+    this._crouchRawPrev = false;
+    this._crouchShiftPrev = false;
     this.spawnProtection = 0;
     this.moveSpeed2D = 0;
     this.eyeHeight = P.EYE_STAND;
@@ -333,6 +336,7 @@ export default class Player {
     this.velocity.set(0, 0, 0);
     this.onGround = false;
     this.crouching = false;
+    this._crouchLatch = false;
     this.walking = false;
     this.sprinting = false;
     this.sliding = false;
@@ -467,11 +471,17 @@ export default class Player {
     // with it so the crosshair tracks at the same on-screen speed.
     if (weapons && typeof weapons.adsSensitivityScale === 'function') {
       sens *= weapons.adsSensitivityScale();
+      // The player's own aiming multiplier, faded in with the aim / scope.
+      const adsPref = Number(this.game.settings?.adsSensitivity);
+      if (Number.isFinite(adsPref) && adsPref !== 1) {
+        const aimed = typeof weapons.isScoped === 'function' && weapons.isScoped() ? 1 : (weapons.adsT || 0);
+        sens *= 1 + (adsPref - 1) * aimed;
+      }
     }
     if (this.stunned > 0) sens *= STUN_LOOK_SCALE;
 
     this.yaw -= look.dx * sens;
-    this.pitch -= look.dy * sens;
+    this.pitch -= look.dy * sens * (this.game.settings?.invertY ? -1 : 1);
     if (this.pitch > PITCH_CLAMP) this.pitch = PITCH_CLAMP;
     else if (this.pitch < -PITCH_CLAMP) this.pitch = -PITCH_CLAMP;
 
@@ -500,7 +510,20 @@ export default class Player {
       : 0;
 
     // -- crouch / walk intent --
-    const crouchKey = down('control');
+    // Toggle crouch (keyboard and controller): each press flips a latch, and
+    // starting to sprint drops it, like toggle aim. Touch keeps its own
+    // on-screen latch, which already holds the key.
+    const rawCrouch = down('control');
+    let crouchKey = rawCrouch;
+    if (game.settings?.crouchToggle && !input?.touchMode) {
+      if (rawCrouch && !this._crouchRawPrev) this._crouchLatch = !this._crouchLatch;
+      if (down('shift') && !this._crouchShiftPrev) this._crouchLatch = false;
+      crouchKey = !!this._crouchLatch;
+    } else {
+      this._crouchLatch = false;
+    }
+    this._crouchRawPrev = rawCrouch;
+    this._crouchShiftPrev = down('shift');
     // Crouch pressed out of a grounded sprint launches a slide.
     if (crouchKey && !this._crouchKeyPrev && this.sprinting && this.onGround &&
         !moveLocked && this._slideCooldown <= 0) {
