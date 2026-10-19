@@ -407,3 +407,57 @@ test('movement keys work by position on any keyboard layout, labelled in that la
   assert.equal(formatKeyLabel('a'), 'Q');
   assert.equal(formatKeyLabel('shift'), 'SHIFT');
 });
+
+test('saved bindings that can no longer fire fall back; Caps Lock cannot be bound; ISO keys bind by position', (t) => {
+  const storage = new MemoryStorage({
+    [SETTINGS_STORAGE_KEY]: JSON.stringify({
+      bindingsVersion: 2,
+      bindings: { moveForward: 'ц', buy: 'ö', reload: ';', jump: '[', use: 'f' },
+    }),
+  });
+  const settings = new GameSettings(null, storage);
+  assert.equal(settings.get('moveForward'), 'w', 'a layout character from before position binding falls back');
+  assert.equal(settings.get('buy'), 'b');
+  assert.equal(settings.get('reload'), ';', 'reachable custom keys are kept');
+  assert.equal(settings.get('jump'), '[');
+  assert.equal(settings.get('use'), 'f');
+  assert.equal(settings.rebind('crouch', 'CapsLock').rejected, true, 'Caps Lock is refused');
+
+  installInputGlobals(t);
+  const input = new Input({ events: eventBus(), settings: new GameSettings(null, new MemoryStorage()) });
+  assert.equal(input._normalizePhysicalKey({ code: 'IntlBackslash', key: '<' }), 'intlbackslash');
+  assert.equal(input._normalizePhysicalKey({ code: 'IntlBackslash', key: '>' }), 'intlbackslash',
+    'the same key under Shift is still the same key');
+  assert.equal(formatKeyLabel('intlbackslash'), '<');
+});
+
+test('mouse: a real fast flick survives the spike filter; a lone jump out of stillness does not', (t) => {
+  installInputGlobals(t);
+  const input = new Input({ events: eventBus(), debug: false });
+  input.locked = true;
+  const move = (x) => input._onMouseMove({ movementX: x, movementY: 0 });
+  // Lone spike from rest, well after locking.
+  move(2400);
+  assert.equal(input.consumeLook().dx, 0, 'a lone 2400-count jump is dropped');
+  // A flick: ramps through frames of 300, 700, 950, 950, 600 counts.
+  input._moveAt = -Infinity;
+  for (const x of [300, 700, 950, 950, 600]) move(x);
+  assert.equal(input.consumeLook().dx, 3500, 'every frame of the flick turns the view');
+  // Right after a lock even a ramped big event is dropped (Chrome's jump).
+  input._lockedAt = performance.now();
+  move(300); move(900);
+  assert.equal(input.consumeLook().dx, 300);
+});
+
+test('wheel: one mouse notch is one step; a trackpad swipe is a step, not a dozen', (t) => {
+  installInputGlobals(t);
+  const events = eventBus();
+  const input = new Input({ events, debug: false });
+  input.locked = true;
+  const wheel = (dy) => input._onWheel({ deltaY: dy, deltaMode: 0, preventDefault() {} });
+  const steps = () => events.emitted.filter((e) => e.name === 'input:wheel').length;
+  wheel(100);
+  assert.equal(steps(), 1, 'a notch steps once');
+  for (let i = 0; i < 30; i++) wheel(10); // a 300 px two-finger swipe, back to back
+  assert.ok(steps() <= 3, `a swipe takes at most a couple of steps (${steps() - 1})`);
+});

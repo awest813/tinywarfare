@@ -55,6 +55,8 @@ const DEFINITION_BY_ID = new Map(KEY_BINDING_DEFINITIONS.map((entry) => [entry.i
 const CANONICAL_KEYS = new Set(KEY_BINDING_DEFINITIONS.map((entry) => entry.canonicalKey));
 const FORBIDDEN_BINDINGS = new Set([
   'escape', 'meta', 'os', 'dead', 'unidentified', 'process', 'compose',
+  // macOS sends Caps Lock's keyup only when it turns off: a hold would latch.
+  'capslock',
 ]);
 
 function defaultStorage() {
@@ -99,6 +101,7 @@ export function setKeyboardLayoutMap(map) {
 const PUNCTUATION_CODES = Object.freeze({
   ';': 'Semicolon', "'": 'Quote', ',': 'Comma', '.': 'Period', '/': 'Slash', '\\': 'Backslash',
   '[': 'BracketLeft', ']': 'BracketRight', '-': 'Minus', '=': 'Equal', '`': 'Backquote',
+  intlbackslash: 'IntlBackslash', intlro: 'IntlRo', intlyen: 'IntlYen',
 });
 
 export function formatKeyLabel(value) {
@@ -129,6 +132,9 @@ export function formatKeyLabel(value) {
     arrowright: '→',
     pageup: 'PAGE UP',
     pagedown: 'PAGE DOWN',
+    intlbackslash: '<',
+    intlro: 'RO',
+    intlyen: '¥',
   };
   return labels[key] || key.toUpperCase();
 }
@@ -147,6 +153,17 @@ function defaultBindings() {
   );
 }
 
+// Every single character input.js can still produce: letters, digits and
+// punctuation are read by position (as their US unshifted character), so a
+// binding saved before that switch to a layout's own character ('ц' on
+// Russian, 'ö' on German) can never fire again. It falls back to its default
+// instead of leaving the action silently dead.
+const REACHABLE_CHAR = /^[a-z0-9 ;',./\\[\]\-=`]$/;
+
+function reachable(key) {
+  return key.length > 1 || REACHABLE_CHAR.test(key);
+}
+
 function sanitizeBindings(value) {
   const source = value && typeof value === 'object' ? value : {};
   const bindings = {};
@@ -157,7 +174,7 @@ function sanitizeBindings(value) {
   // malformed/duplicate entries without discarding the rest of the layout.
   for (const definition of KEY_BINDING_DEFINITIONS) {
     const requested = normalizePhysicalKey(source[definition.id] ?? definition.defaultKey);
-    if (canBindPhysicalKey(requested) && !used.has(requested)) {
+    if (canBindPhysicalKey(requested) && reachable(requested) && !used.has(requested)) {
       bindings[definition.id] = requested;
       used.add(requested);
     } else {

@@ -86,11 +86,18 @@ const MOVE_SPIKE_PX = 500;
 // One discrete notch (~100-120) always yields exactly one 'input:wheel'.
 const WHEEL_STEP = 25;
 const WHEEL_STALE_MS = 200;
+// Trackpad / smooth scrolling (per-event |delta| below SMOOTH_WHEEL_DELTA).
+const SMOOTH_WHEEL_DELTA = 50;
+const SMOOTH_WHEEL_STEP = 120;
+const SMOOTH_WHEEL_HOLD_MS = 220;
 
 /** Physical punctuation keys, by position, as their US unshifted character. */
 export const PUNCTUATION_BY_CODE = Object.freeze({
   Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/', Backslash: '\\',
   BracketLeft: '[', BracketRight: ']', Minus: '-', Equal: '=', Backquote: '`',
+  // ISO / JIS extra keys have no US character: named by position, so a key
+  // pressed as '<' and released under Shift as '>' is still one key.
+  IntlBackslash: 'intlbackslash', IntlRo: 'intlro', IntlYen: 'intlyen',
 });
 
 export default class Input {
@@ -118,6 +125,10 @@ export default class Input {
     this._wheelAcc = 0;
     this._wheelDir = 0;              // one-frame wheel state (cleared in update)
     this._wheelTime = 0;
+    this._wheelHoldUntil = 0;
+    this._lockedAt = -Infinity;      // performance.now() of the last real lock
+    this._moveAt = -Infinity;        // last mousemove (spike filter)
+    this._moveEma = 0;               // recent per-event motion (spike filter)
     this._warnedLockError = false;
     this._keyCapture = null;
 
@@ -495,7 +506,15 @@ export default class Input {
 
     // Auto-repeat guard: browser flag first, held-set second (synthetic
     // events dispatched by tests may omit `repeat` on held-key repeats).
-    if (e.repeat || this._down.has(key)) return;
+    if (this._down.has(key)) return;
+    if (e.repeat) {
+      // An auto-repeat proves the key is physically held: one held through a
+      // relock (W while the buy menu opened and closed) was cleared by the
+      // unlock and then ignored until pressed again. Restore it held, with
+      // no new press edge.
+      this._down.add(key);
+      return;
+    }
     const alreadyDown = this.isDown(key);
     this._down.add(key);
     if (alreadyDown) return;
@@ -640,10 +659,26 @@ export default class Input {
     if (!Number.isFinite(mx) || !Number.isFinite(my)) return;
 
     // Chromium occasionally reports a massive one-event spike when the OS
-    // cursor re-syncs; discarding beats a violent view snap. Debug mode
-    // skips the filter so tests may look around with one big delta.
-    if (!this.game.debug && (Math.abs(mx) > MOVE_SPIKE_PX || Math.abs(my) > MOVE_SPIKE_PX)) {
-      return;
+    // cursor re-syncs, nearly always just after the lock is taken;
+    // discarding beats a violent view snap. Debug mode skips the filter so
+    // tests may look around with one big delta.
+    //
+    // A fixed cap alone also ate real flicks: events are coalesced per frame
+    // and raw (unadjusted) counts are large, so a 0.1 s 180-degree flick at a
+    // low sensitivity is ~950 counts an event and every frame of it was
+    // dropped. Past the first moments of a lock, an event is only a spike if
+    // it also towers over the motion just before it; a flick ramps up.
+    if (!this.game.debug) {
+      const mag = Math.max(Math.abs(mx), Math.abs(my));
+      const now = performance.now();
+      if (now - this._moveAt > 100) this._moveEma = 0; // a new motion starts
+      this._moveAt = now;
+      const justLocked = now - this._lockedAt < 150;
+      const spike = mag > MOVE_SPIKE_PX && (justLocked || mag > 6 * this._moveEma + 120);
+      // Even a rejected event feeds the average: a flick's next frames then
+      // pass, while a lone re-sync jump out of stillness is still dropped.
+      this._moveEma = this._moveEma * 0.5 + mag * 0.5;
+      if (spike) return;
     }
 
     this._dx += mx;
@@ -664,11 +699,18 @@ export default class Input {
     if (now - this._wheelTime > WHEEL_STALE_MS) this._wheelAcc = 0;
     this._wheelTime = now;
 
+    // A mouse notch arrives as one large delta (~100); a trackpad sends a
+    // stream of small ones, momentum included. Measured that way a 300 px
+    // two-finger swipe was ~12 weapon steps landing anywhere, so smooth
+    // scrolling needs a longer travel per step and a pause between steps.
+    const smooth = Math.abs(dy) < SMOOTH_WHEEL_DELTA;
+    if (smooth && now < this._wheelHoldUntil) return;
     this._wheelAcc += dy;
-    if (Math.abs(this._wheelAcc) >= WHEEL_STEP) {
+    if (Math.abs(this._wheelAcc) >= (smooth ? SMOOTH_WHEEL_STEP : WHEEL_STEP)) {
       const dir = this._wheelAcc > 0 ? 1 : -1;
       this._wheelAcc = 0; // full reset: one notch == exactly one step
       this._wheelDir = dir;
+      if (smooth) this._wheelHoldUntil = now + SMOOTH_WHEEL_HOLD_MS;
       this.game.events.emit('input:wheel', { dir });
     }
   }
@@ -709,6 +751,8 @@ export default class Input {
     if (nowLocked) {
       const wasLocked = this.locked;
       this._virtualLock = false;
+      this._lockedAt = performance.now();
+      this._moveEma = 0;
       this._dx = 0;
       this._dy = 0;
       if (!wasLocked) {

@@ -153,6 +153,9 @@ export default class Player {
     game.events.on('grenade:throw', () => { this.spawnProtection = 0; });
     game.events.on('streak:activate', () => { this.spawnProtection = 0; });
     game.events.on('input:keydown', (p) => {
+      // Not while paused or unlocked: Space ticking a checkbox in the pause
+      // menu queued a jump that fired on the first frame after resuming.
+      if (game.paused || game.input?.locked === false) return;
       if (p && p.key === ' ' && this.alive) this._jumpQueued = JUMP_BUFFER;
     });
   }
