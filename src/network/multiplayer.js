@@ -2547,8 +2547,12 @@ export default class Multiplayer {
           data.to.y - data.from.y,
           data.to.z - data.from.z
         ).normalize();
+        const from = new THREE.Vector3(data.from.x, data.from.y, data.from.z);
         this.game.events.emit('bot:fire', {
-          origin: new THREE.Vector3(data.from.x, data.from.y, data.from.z),
+          origin: from,
+          // The tracer already starts at the muzzle; without this the flash
+          // was pushed another half metre out in front of the gun.
+          muzzle: from,
           dir: direction,
           weaponId: data.weaponId,
           suppressed: !!data.suppressed,

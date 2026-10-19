@@ -607,9 +607,11 @@ export default class Combat {
             Math.round((def.damage != null ? def.damage : 25)
               * this._falloff(def, dist) * zone * dmgScale)
           );
-          if (target.spawnProtection > 0) {
-            // Fresh spawns are immune: a glancing spark, never false blood.
-            ev.emit('fx:impact', { point: this._hitPos.clone(), normal: this._sDir.clone().negate(), surface: 'metal', pellet: this._pelletTracer || undefined });
+          if (target.spawnProtection > 0 || this._roundDecided()) {
+            // Fresh spawns (and everyone once the round is decided) take no
+            // damage: a glancing spark, never false blood, and no hole left
+            // hanging in the air where they stood.
+            ev.emit('fx:impact', { point: this._hitPos.clone(), normal: this._sDir.clone().negate(), surface: 'metal', pellet: this._pelletTracer || undefined, noDecal: true });
           } else {
             ev.emit('fx:blood', {
               point: this._hitPos.clone(),
@@ -724,9 +726,9 @@ export default class Combat {
         : base;
       const part = this._hitPartBest;
 
-      if (target.spawnProtection > 0) {
+      if (target.spawnProtection > 0 || this._roundDecided()) {
         // Same as a bullet on a fresh spawn: a glancing spark, never false blood.
-        ev.emit('fx:impact', { point: this._hitPos.clone(), normal: this._sDir.clone().negate(), surface: 'metal' });
+        ev.emit('fx:impact', { point: this._hitPos.clone(), normal: this._sDir.clone().negate(), surface: 'metal', noDecal: true });
       } else {
         ev.emit('fx:blood', {
           point: this._hitPos.clone(),
@@ -743,6 +745,7 @@ export default class Combat {
         point: this._wallPoint.clone(),
         normal: this._wallNormal.clone(),
         surface: wallSurface,
+        noDecal: true, // a knife leaves no bullet hole
       });
     }
   }

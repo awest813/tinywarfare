@@ -160,9 +160,12 @@ function makeFlashTexture() {
 }
 
 // 4) Bullet hole — dark pit, chipped gray rim, hairline cracks.
+// Two cells side by side: the bullet hole (u 0..0.5) and a blast scorch
+// (u 0.5..1). One decal mesh draws both; each quad picks its cell by UV.
 function makeHoleTexture() {
   const s = 64;
-  const c = makeCanvas(s);
+  const c = document.createElement('canvas');
+  c.width = s * 2; c.height = s;
   const ctx = c.getContext('2d');
   const rng = mulberry32(4242);
   const cx = s / 2, cy = s / 2;
@@ -204,6 +207,25 @@ function makeHoleTexture() {
   g.addColorStop(1, 'rgba(10,8,7,0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, s, s);
+  // Scorch: a soft sooty smudge with a mottled edge; no pit, no cracks (as a
+  // 2-4 m hole it read as a giant bullet hole).
+  const sx = s + s / 2;
+  g = ctx.createRadialGradient(sx, cy, 0, sx, cy, s * 0.47);
+  g.addColorStop(0, 'rgba(14,12,10,0.88)');
+  g.addColorStop(0.35, 'rgba(20,17,14,0.7)');
+  g.addColorStop(0.7, 'rgba(28,24,20,0.28)');
+  g.addColorStop(1, 'rgba(32,28,24,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(s, 0, s, s);
+  for (let i = 0; i < 26; i++) {
+    const ang = rng() * Math.PI * 2;
+    const d = s * (0.18 + rng() * 0.24);
+    const rr = s * (0.03 + rng() * 0.06);
+    ctx.fillStyle = 'rgba(18,15,12,' + (0.12 + rng() * 0.22).toFixed(2) + ')';
+    ctx.beginPath();
+    ctx.arc(sx + Math.cos(ang) * d, cy + Math.sin(ang) * d, rr, 0, Math.PI * 2);
+    ctx.fill();
+  }
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
@@ -516,7 +538,9 @@ export default class Effects {
       });
       const spr = new THREE.Sprite(mat);
       spr.visible = false;
-      spr.renderOrder = 8;
+      // Same order as the smoke puffs so three sorts them by distance: at 8
+      // every flash drew after (through) smoke, giving away who fired.
+      spr.renderOrder = 7;
       this.root.add(spr);
       this.bursts.push({
         sprite: spr, mat,
@@ -567,8 +591,8 @@ export default class Effects {
       for (let i = 0; i < DECAL_MAX; i++) {
         const u = i * 8;
         uvs[u] = 0; uvs[u + 1] = 0;
-        uvs[u + 2] = 1; uvs[u + 3] = 0;
-        uvs[u + 4] = 1; uvs[u + 5] = 1;
+        uvs[u + 2] = 0.5; uvs[u + 3] = 0;
+        uvs[u + 4] = 0.5; uvs[u + 5] = 1;
         uvs[u + 6] = 0; uvs[u + 7] = 1;
         const t = i * 6, v = i * 4;
         idx[t] = v; idx[t + 1] = v + 1; idx[t + 2] = v + 2;
@@ -580,7 +604,9 @@ export default class Effects {
       geo.setAttribute('color', this._decalColAttr);
       this._decalNrmAttr = new THREE.BufferAttribute(this._decalNrm, 3).setUsage(THREE.DynamicDrawUsage);
       geo.setAttribute('normal', this._decalNrmAttr);
-      geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+      this._decalUv = uvs;
+      this._decalUvAttr = new THREE.BufferAttribute(uvs, 2).setUsage(THREE.DynamicDrawUsage);
+      geo.setAttribute('uv', this._decalUvAttr);
       geo.setIndex(new THREE.BufferAttribute(idx, 1));
       geo.setDrawRange(0, 0);
       // Lit, not MeshBasic: an unlit hole kept its chipped-rim flecks at a
@@ -647,7 +673,7 @@ export default class Effects {
       });
       this.bombGlow = new THREE.Sprite(mat);
       this.bombGlow.visible = false;
-      this.bombGlow.renderOrder = 8;
+      this.bombGlow.renderOrder = 7;
       this.root.add(this.bombGlow);
     }
 
@@ -843,6 +869,9 @@ export default class Effects {
     }
 
     // --- bullet-hole decal ---
+    // Not for a glance off a spawn-protected body (the hole hung in the air
+    // where they stood) or a knife (no hole to leave).
+    if (p.noDecal) return;
     _va.set(px, py, pz);
     _vb.set(nx, ny, nz);
     if (surface === 'wood') this._placeDecal(_va, _vb, rand(0.05, 0.075), 0.75, 0.6, 0.45);
@@ -979,10 +1008,21 @@ export default class Effects {
     if (world && typeof world.raycast === 'function') {
       _va.set(px, py + 0.6, pz);
       const hit = world.raycast(_va, _DOWN, 5);
-      if (hit && hit.point) {
+      // Flat ground only, and no wider than the surface it lands on: on a
+      // crate top or a ledge the quad hung out over the edge.
+      const flat = hit && hit.point && (!hit.normal || hit.normal.y > 0.9);
+      if (flat) {
         _vb.set(hit.point.x, hit.point.y, hit.point.z);
         _vc.set(0, 1, 0);
-        this._placeDecal(_vb, _vc, clamp(radius * 0.16, 0.6, 1.9), 0.32, 0.28, 0.25);
+        let size = clamp(radius * 0.16, 0.6, 1.9);
+        for (let k = 0; k < 4 && size > 0.3; k++) {
+          const ox = k === 0 ? size : k === 1 ? -size : 0;
+          const oz = k === 2 ? size : k === 3 ? -size : 0;
+          _vd.set(_vb.x + ox * 0.8, _vb.y + 0.3, _vb.z + oz * 0.8);
+          const h = world.raycast(_vd, _DOWN, 0.6);
+          if (!h || !h.point || Math.abs(h.point.y - _vb.y) > 0.08) size *= 0.55;
+        }
+        if (size > 0.3) this._placeDecal(_vb, _vc, size, 0.32, 0.28, 0.25, true);
       }
     }
 
@@ -1178,6 +1218,7 @@ export default class Effects {
     e.vy = vy;
     e.expo = expo;
     e.rotSpeed = rotSpeed;
+    e.frame = this._renderFrame();
     if (e.mat.map !== tex) e.mat.map = tex;
     e.mat.color.setHex(colorHex);
     e.mat.opacity = alpha;
@@ -1228,9 +1269,19 @@ export default class Effects {
     e.life = life;
     e.peak = peak;
     e.expo = expo;
+    e.frame = this._renderFrame();
     e.light.position.set(x, y, z);
     if (dist > 0) e.light.distance = dist;
     e.light.intensity = peak;
+  }
+
+  /**
+   * Renders so far. Flashes hold their first value until a frame has drawn
+   * them: effects update in sub-steps before the render, and a 45 ms muzzle
+   * flash aged out unseen at 22 fps and showed at a third strength at 30.
+   */
+  _renderFrame() {
+    return this.game.renderer?.info?.render?.frame ?? -1;
   }
 
   _spawnShell() {
@@ -1292,8 +1343,14 @@ export default class Effects {
     return out;
   }
 
-  _placeDecal(p, n, size, r, g, b) {
+  _placeDecal(p, n, size, r, g, b, scorch = false) {
     const i = this._decalIdx % DECAL_MAX;
+    // Atlas cell: hole on the left half, scorch on the right.
+    const uv = this._decalUv, u = i * 8, u0 = scorch ? 0.5 : 0, u1 = u0 + 0.5;
+    if (uv[u] !== u0) {
+      uv[u] = u0; uv[u + 2] = u1; uv[u + 4] = u1; uv[u + 6] = u0;
+      this._decalUvAttr.needsUpdate = true;
+    }
     this._decalIdx++;
     this._decalCount = Math.min(this._decalCount + 1, DECAL_MAX);
 
@@ -1343,7 +1400,9 @@ export default class Effects {
     const sky = w && w.sky;
     if (!sky) return DAY_LIGHT;
     let e = 0;
-    for (const l of [sky.sunLight, sky.moonLight]) if (l && l.visible) e += 0.5 * l.intensity;
+    const sun = sky.sunLight, moon = sky.moonLight;
+    if (sun && sun.visible) e += 0.5 * sun.intensity;
+    if (moon && moon.visible) e += 0.5 * moon.intensity;
     if (w._bounce) e += w._bounce.intensity;
     if (w._interior) e += w._interior.intensity;
     return e;
@@ -1503,9 +1562,11 @@ export default class Effects {
     }
 
     // ---- burst sprites ----
+    const frame = this._renderFrame();
     for (let i = 0; i < BURST_MAX; i++) {
       const e = this.bursts[i];
       if (!e.active) continue;
+      if (e.frame === frame && frame >= 0) continue; // not drawn yet
       e.t += dt;
       if (e.t >= e.life) {
         e.active = false;
@@ -1558,6 +1619,7 @@ export default class Effects {
         if (e.light.intensity !== 0) e.light.intensity = 0;
         continue;
       }
+      if (e.frame === frame && frame >= 0) continue; // not drawn yet
       e.t += dt;
       const k = clamp01(e.t / e.life);
       e.light.intensity = e.peak * Math.pow(1 - k, e.expo);
