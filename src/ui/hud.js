@@ -2395,7 +2395,12 @@ export default class HUD {
     this._cache.spectatorKey = null;
     this._endUnranked = false;
     this._enemyFire.length = 0;
-    for (const w of this._wedges) w.ttl = 0;
+    for (const w of this._wedges) {
+      // The update loop only hides a wedge as its ttl runs out, so one still
+      // showing at the reset would stay on screen.
+      w.ttl = 0;
+      if (w.visible) { w.visible = false; w.el.style.opacity = '0'; }
+    }
     if (this._el.death) this._el.death.style.display = 'none';
     if (this._el.deathFx) this._el.deathFx.style.opacity = '0';
     this._deathFxOpacity = 0;
@@ -3565,8 +3570,15 @@ export default class HUD {
     const p = this.game.player;
     const cfg = (this.game.config && this.game.config.MATCH) || {};
 
-    const planting = plantProg > 0 && phase === 'live';
-    const show = (prog > 0 && phase === 'planted') || planting;
+    // Online the bomb state reaches every client: the bar is only for the
+    // soldier doing it. The host stores its own defuse as 'player' and a
+    // remote one by name; the carrier is the planter.
+    const mp = this.game.multiplayer;
+    const online = !!mp?.active;
+    const myPlant = !online || (!!p?.networkId && bomb.carrierId === p.networkId);
+    const myDefuse = !online || (mp.isHost ? bomb.defusingBy === 'player' : bomb.defusingBy === mp.localName);
+    const planting = plantProg > 0 && phase === 'live' && myPlant;
+    const show = (prog > 0 && phase === 'planted' && myDefuse) || planting;
     if (show !== c.defuseVis) {
       c.defuseVis = show;
       if (this._el.defuse) this._el.defuse.style.display = show ? 'block' : 'none';
@@ -3578,7 +3590,9 @@ export default class HUD {
     }
     if (show) {
       const hasKit = !!(p && p.hasKit);
-      const need = planting ? (cfg.PLANT_TIME || 3.2) : (hasKit ? (cfg.DEFUSE_TIME_KIT || 5) : (cfg.DEFUSE_TIME || 10));
+      const need = planting
+        ? (bomb.plantTime || cfg.PLANT_TIME || 3.2)
+        : (bomb.defuseTime || (hasKit ? (cfg.DEFUSE_TIME_KIT || 5) : (cfg.DEFUSE_TIME || 10)));
       const frac = clamp((planting ? plantProg : prog) / need, 0, 1);
       // Written on change only: a textContent write replaces the text node
       // (and restyles) even when the string is the same.

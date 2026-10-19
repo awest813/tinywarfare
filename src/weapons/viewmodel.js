@@ -747,15 +747,18 @@ export default class ViewModel {
       ev.on('grenade:throw', () => this._onThrow());
       ev.on('player:land', (p) => this._onLand(p));
       // A respawn teleports the view: without this the yaw jump reads as a
-      // violent look-sway on the first frame alive.
-      ev.on('player:respawn', () => {
+      // violent look-sway on the first frame alive. A round reset snaps the
+      // view to the spawn facing the same way.
+      const resetLook = () => {
         this._haveLook = false;
         this._yawVel = 0;
         this._pitchVel = 0;
         // Frozen while dead: a death mid-sprint would respawn in sprint carry.
         this._sprint = 0;
         this._wallK = 0;
-      });
+      };
+      ev.on('player:respawn', resetLook);
+      ev.on('round:start', resetLook);
       ev.on('profile:changed', (p) => this.applyProfileAppearance(p?.characterId));
     }
   }

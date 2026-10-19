@@ -1124,26 +1124,33 @@ export default class AudioSys {
     this._tone(grp, t + 0.02, { f: 1150, type: 'square', vol: 0.1, a: 0.001, dur: 0.02, lp: 2400 });
   }
 
-  _onReloadStart(p) {
+  _onReloadStart(p, elapsed = 0) {
     this._cancelReload();
+    this._reloadInfo = p || null;
     const grp = this._direct(0.4, null, true);
     if (!grp) return;
     const id = p && p.id;
     const dur = (p && p.duration) || 2.4;
     const heavy = id === 'awp' || id === 'lmg' ? 0.62 : id === 'shotgun' ? 0.72
       : (id === 'ak47' || id === 'm4a1') ? 0.8 : id === 'mp5' ? 0.95 : 1.12;
-    const t = this._t();
+    // Resumed after a pause: only the beats still ahead, on the same marks.
+    const t = this._t() - elapsed;
+    const ahead = (at) => at >= elapsed;
 
     // mag release click
-    this._mech(grp, t + dur * 0.12, 1500 * heavy, 0.5);
+    if (ahead(dur * 0.12)) this._mech(grp, t + dur * 0.12, 1500 * heavy, 0.5);
     // mag slides out
-    this._noiseHit(grp, t + dur * 0.34, { type: 'bandpass', f: 900 * heavy, fEnd: 420 * heavy, slideDur: 0.1, q: 1.2, dur: 0.11, vol: 0.35, a: 0.01 });
+    if (ahead(dur * 0.34)) this._noiseHit(grp, t + dur * 0.34, { type: 'bandpass', f: 900 * heavy, fEnd: 420 * heavy, slideDur: 0.1, q: 1.2, dur: 0.11, vol: 0.35, a: 0.01 });
     // mag in — heavier thunk
-    this._mech(grp, t + dur * 0.62, 800 * heavy, 0.6);
-    this._tone(grp, t + dur * 0.62, { f: 210 * heavy, vol: 0.35, a: 0.003, dur: 0.07, end: 130 * heavy });
+    if (ahead(dur * 0.62)) {
+      this._mech(grp, t + dur * 0.62, 800 * heavy, 0.6);
+      this._tone(grp, t + dur * 0.62, { f: 210 * heavy, vol: 0.35, a: 0.003, dur: 0.07, end: 130 * heavy });
+    }
     // slide / bolt: two crisp ticks
-    this._mech(grp, t + dur * 0.86, 1250 * heavy, 0.55);
-    this._mech(grp, t + dur * 0.86 + 0.07, 1650 * heavy, 0.45);
+    if (ahead(dur * 0.86)) {
+      this._mech(grp, t + dur * 0.86, 1250 * heavy, 0.55);
+      this._mech(grp, t + dur * 0.86 + 0.07, 1650 * heavy, 0.45);
+    }
 
     // Remember sources so a weapon switch can cancel the tail of the foley.
     for (let i = 0; i < grp.srcs.length; i++) this._reloadSrcs.push(grp.srcs[i]);
@@ -1157,6 +1164,12 @@ export default class AudioSys {
     g.cancelScheduledValues(now);
     g.setValueAtTime(g.value, now);
     g.linearRampToValueAtTime(on ? 0.32 : 1, now + (on ? 0.25 : 0.4));
+  }
+
+  _resumeReload() {
+    const w = this.game.weapons;
+    if (!this._reloadInfo || !w || w._state !== 'reloading') return;
+    this._onReloadStart(this._reloadInfo, Math.max(0, w._stateT || 0));
   }
 
   _cancelReload() {
@@ -2014,6 +2027,10 @@ export default class AudioSys {
     const paused = !!this.game.paused;
     if (paused !== this._pauseDucked && this.pauseGain) {
       this._pauseDucked = paused;
+      // Reload foley is scheduled ahead on the audio clock, but the reload
+      // itself freezes with the pause: stop it, then voice what is left.
+      if (paused) this._cancelReload();
+      else this._resumeReload();
       const g = this.pauseGain.gain;
       g.cancelScheduledValues(now);
       g.setValueAtTime(g.value, now);
@@ -2060,7 +2077,9 @@ export default class AudioSys {
         const f = this._defTickAlt ? 1650 : 1250;
         const by = st.bomb.defusingBy;
         const mp = this.game.multiplayer;
-        const mine = by === 'player' || (mp && mp.localId && by === mp.localId);
+        // Offline and on the host the local defuser is 'player'; the host
+        // names remote defusers, so on a client 'player' is the host.
+        const mine = mp?.active && !mp.isHost ? by === mp.localName : by === 'player';
         if (mine) {
           const grp = this._direct(0.16);
           if (grp) this._mech(grp, now + 0.002, f, 0.8);
