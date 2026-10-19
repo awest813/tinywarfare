@@ -2222,6 +2222,13 @@ export default class HUD {
         this._setSettingsOpen(false);
         return;
       }
+      // Settings opened from the pause overlay close the same way.
+      if (this._pauseSettingsOpen && (e.key || '').toLowerCase() === 'escape') {
+        e.preventDefault();
+        this._setPauseSettingsOpen(false);
+        this._el.pauseSettings?.focus?.({ preventScroll: true });
+        return;
+      }
       // PLAY ONLINE collapses like the other panels close, but not from inside
       // a room, where the panel is the lobby.
       if (this._onlineOpen && (e.key || '').toLowerCase() === 'escape' &&
@@ -2326,6 +2333,7 @@ export default class HUD {
   // --------------------------------------------------------------------------
 
   _onPhaseChange(phase) {
+    const prevPhase = this._cache.phase;
     this._cache.phase = phase;
     // The settings copy depends on the phase (RELOAD NOW only from the menu).
     this._syncSettingsUi();
@@ -2363,6 +2371,14 @@ export default class HUD {
 
     if (!inGame && this._buyOpen) this._setBuyOpen(false, false);
     if (phase === 'menu') {
+      // Quitting leaves focus on a button that just hid; land keyboard and
+      // pad players on PLAY instead of the top of the page.
+      const doc = globalThis.document;
+      const active = doc?.activeElement;
+      if (doc && prevPhase && prevPhase !== 'menu' &&
+          (!active || active === doc.body || !active.offsetParent)) {
+        el.start?.focus?.({ preventScroll: true });
+      }
       this._deathKiller = '';
       this._cache.dead = null;
       this._cache.dying = null;
@@ -6033,8 +6049,9 @@ html.touch-device .kc-row { padding-right: 104px; }
 .mn-map-art i:nth-child(1) { left:-5%; height:38%; }
 .mn-map-art i:nth-child(2) { left:30%; height:62%; background:var(--map-b); }
 .mn-map-art i:nth-child(3) { right:-8%; height:46%; }
-.mn-map-copy { display:flex; min-width:0; align-items:baseline; justify-content:space-between; gap:6px; padding:6px 8px 7px; }
-/* The name wins the space: at 844 px "Frostline" was cut to "Frost…" so its tag could fit. */
+.mn-map-copy { display:flex; flex-wrap:wrap; min-width:0; align-items:baseline; justify-content:space-between; gap:0 6px; padding:6px 8px 7px; }
+/* The name wins the space: at 844 px "Frostline" was cut to "Frost…" so its tag could fit.
+   A tag that no longer fits beside it wraps under it instead of truncating. */
 .mn-map-copy strong { flex:0 0 auto; max-width:100%; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12.5px; font-weight:900; letter-spacing:.06em; color:#f0f4e9; }
 .mn-map-copy span { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:10px; font-weight:900; letter-spacing:.1em; text-transform:uppercase; color:var(--map-a); }
 .mn-map > b { display:none; position:absolute; right:4px; top:4px; width:15px; height:15px; text-align:center; line-height:15px; background:var(--map-a); color:#101510; font-size:10px; }

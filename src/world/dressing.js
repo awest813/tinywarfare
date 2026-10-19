@@ -3986,9 +3986,11 @@ function dressSnowCaps(d, world, masses, theme) {
     if (blocked) continue;
     const thick = rng.range(0.05, 0.12);
     // On a deck the cap stops short of the coping's outer lip, so the stone
-    // edge still reads under it.
-    const sx = coped ? s.x + 0.2 : s.x * 0.99;
-    const sz = coped ? s.z + 0.2 : s.z * 0.99;
+    // edge still reads under it. Elsewhere it stays just inside the edge (off
+    // any wall it meets) but by at most 1.5 cm: 1 % of a 19 m bomb-site pad
+    // left a 10 cm bare metal lip that read as a black crack in the snow.
+    const sx = coped ? s.x + 0.2 : Math.max(s.x * 0.99, s.x - 0.03);
+    const sz = coped ? s.z + 0.2 : Math.max(s.z * 0.99, s.z - 0.03);
     d.box('snow', p.x, top + thick / 2, p.z, sx, thick, sz, {
       bevel: 0.02, masks: [0.1, 0, 0],
     });

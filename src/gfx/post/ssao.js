@@ -574,10 +574,15 @@ export class Ssao {
     // renderer.render() re-renders the shadow map on every call, and this pass
     // does not read it. Suppressing it for the prepass and letting the beauty
     // pass rebuild it is what takes the prepass from 0.50 ms to 0.30 ms.
+    // needsUpdate is held off too: with a shadow interval above 1 the frame
+    // loop raises it, and spending it here would draw the shadow map with the
+    // cutouts hidden and leave the beauty pass without a redraw.
     const shadowAuto = renderer.shadowMap.autoUpdate;
+    const shadowNeeds = renderer.shadowMap.needsUpdate;
     const prevAutoClear = renderer.autoClear;
     const prevOverride = scene.overrideMaterial;
     renderer.shadowMap.autoUpdate = false;
+    renderer.shadowMap.needsUpdate = false;
     renderer.autoClear = false;
     scene.overrideMaterial = this.depthMaterial;
     renderer.setRenderTarget(this.depthRt);
@@ -587,6 +592,7 @@ export class Ssao {
     renderer.render(scene, camera);
     scene.overrideMaterial = prevOverride;
     renderer.shadowMap.autoUpdate = shadowAuto;
+    renderer.shadowMap.needsUpdate = shadowNeeds;
     renderer.autoClear = prevAutoClear;
     for (const o of hidden) o.visible = true;
     hidden.length = 0;

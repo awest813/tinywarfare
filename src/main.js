@@ -244,7 +244,14 @@ const applyFov = () => {
   CONFIG.PLAYER.FOV = game.settings.fov;
   const weapons = game.weapons;
   if (!weapons) { camera.fov = CONFIG.PLAYER.FOV; camera.updateProjectionMatrix(); }
-  else if (!(weapons.scopeLevel > 0)) weapons._fovTarget = CONFIG.PLAYER.FOV; // eases there
+  else if (!(weapons.scopeLevel > 0)) {
+    weapons._fovTarget = CONFIG.PLAYER.FOV; // eases there
+    // Weapons don't update while paused, so show the slider's value now.
+    if (game.paused && !(weapons.adsT > 0)) {
+      weapons._fovCurrent = camera.fov = CONFIG.PLAYER.FOV;
+      camera.updateProjectionMatrix();
+    }
+  }
 };
 applyFov();
 game.events.on('settings:changed', applyFov);
@@ -341,12 +348,18 @@ if (TRAILER) {
     .catch((err) => console.warn('[trailer] failed to load:', err));
 }
 
+let _sizedW = 0, _sizedH = 0, _sizedRatio = 0;
 function resizeRenderer() {
   const { width, height } = layoutViewportSize();
   syncViewportCss({ width, height });
+  const ratio = targetPixelRatio(width, height);
+  // window and visualViewport both fire, and the mobile keyboard and toolbar
+  // fire often; resizing the canvas reallocates and clears it every time.
+  if (width === _sizedW && height === _sizedH && ratio === _sizedRatio) return;
+  _sizedW = width; _sizedH = height; _sizedRatio = ratio;
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
-  renderer.setPixelRatio(targetPixelRatio(width, height));
+  renderer.setPixelRatio(ratio);
   renderer.setSize(width, height);
   // Reads the drawing buffer size back off the renderer, so it stays correct
   // when the pixel ratio changes without the CSS size changing.
