@@ -213,11 +213,16 @@ function makeHoleTexture() {
 // GPU point-particle pool. One THREE.Points per pool; per-particle size/color/
 // alpha via custom attributes. drawRange trims to alive count.
 // ---------------------------------------------------------------------------
+// Light on a matte surface in daylight (half the 4.6 sun + 0.75 sky fill +
+// 0.64 ambient on Dustyard / Frostline); unlit particles are authored for it.
+const DAY_LIGHT = 3.66;
+
 function buildPointsMaterial(texture, blending) {
   return new THREE.ShaderMaterial({
     uniforms: {
       uTex: { value: texture },
       uScale: { value: 400 },
+      uLit: { value: 1 },
     },
     vertexShader: [
       'attribute float aSize;',
@@ -233,12 +238,13 @@ function buildPointsMaterial(texture, blending) {
     ].join('\n'),
     fragmentShader: [
       'uniform sampler2D uTex;',
+      'uniform float uLit;',
       'varying vec4 vColor;',
       'void main() {',
       '  vec4 t = texture2D(uTex, gl_PointCoord);',
       '  float a = t.a * vColor.a;',
       '  if (a < 0.004) discard;',
-      '  gl_FragColor = vec4(vColor.rgb * t.rgb, a);',
+      '  gl_FragColor = vec4(vColor.rgb * t.rgb * uLit, a);',
       '}',
     ].join('\n'),
     blending: blending,
@@ -522,6 +528,7 @@ export default class Effects {
     // --- big billboard puffs (smoke grenade clusters + explosion smoke) --
     this.puffSprites = [];
     this._puffIdx = 0;
+    this._litK = 1; // see update(): unlit smoke and dust against the exposure
     for (let i = 0; i < PUFF_MAX; i++) {
       const mat = new THREE.SpriteMaterial({
         map: this.texPuff,
@@ -1206,7 +1213,8 @@ export default class Effects {
     e.size0 = o.size0; e.size1 = o.size1;
     e.fadeIn = o.fadeIn; e.fadeOut = o.fadeOut; e.alphaMax = o.alphaMax;
     e.spin = o.spin;
-    e.mat.color.setRGB(o.r, o.g, o.b);
+    e.r = o.r; e.g = o.g; e.b = o.b;
+    e.mat.color.setRGB(o.r * this._litK, o.g * this._litK, o.b * this._litK);
     e.mat.opacity = 0;
     e.mat.rotation = Math.random() * Math.PI * 2;
     e.sprite.scale.set(o.size0, o.size0, 1);
@@ -1329,6 +1337,18 @@ export default class Effects {
   // =========================================================================
   // Per-frame update — advances every pool; zero allocations.
   // =========================================================================
+  /** Rough light on a matte surface: half the key light plus fill and ambient. */
+  _ambientLight() {
+    const w = this.game.world;
+    const sky = w && w.sky;
+    if (!sky) return DAY_LIGHT;
+    let e = 0;
+    for (const l of [sky.sunLight, sky.moonLight]) if (l && l.visible) e += 0.5 * l.intensity;
+    if (w._bounce) e += w._bounce.intensity;
+    if (w._interior) e += w._interior.intensity;
+    return e;
+  }
+
   update(dt) {
     if (!(dt > 0)) return;
     const g = this.game;
@@ -1341,6 +1361,18 @@ export default class Effects {
       this.bits.material.uniforms.uScale.value = uScale;
       this.puffs.material.uniforms.uScale.value = uScale;
     }
+
+    // Smoke, dust, debris and blood mist are unlit and normal-blended, so they
+    // ignored how much light the scene has: on Neon (moonlight, exposure 3.7x)
+    // a smoke grenade was a glowing white blob and every impact a white dot.
+    // Shade them like a matte surface instead: the light a wall would get
+    // (half the sun or moon, plus the sky fill and ambient), against a
+    // daylight map's, so they read the same as before by day and as dim as
+    // the walls at night. Flashes, sparks and tracers are light sources
+    // (additive) and keep their full value.
+    this._litK = Math.min(1, Math.max(0.05, this._ambientLight() / DAY_LIGHT));
+    this.bits.material.uniforms.uLit.value = this._litK;
+    this.puffs.material.uniforms.uLit.value = this._litK;
 
     // ---- pending player muzzle flashes (viewmodel has updated by now) ----
     while (this._pendingPlayerFlash > 0) {
@@ -1494,6 +1526,7 @@ export default class Effects {
     for (let i = 0; i < PUFF_MAX; i++) {
       const e = this.puffSprites[i];
       if (!e.active) continue;
+      e.mat.color.setRGB(e.r * this._litK, e.g * this._litK, e.b * this._litK);
       e.t += dt;
       if (e.t >= e.life) {
         e.active = false;
