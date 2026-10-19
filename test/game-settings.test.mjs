@@ -491,3 +491,11 @@ test('numpad + and * bindings survive a reload', () => {
   assert.equal(restored.get('weapon4'), '+');
   assert.equal(restored.get('streak1'), '*');
 });
+
+test('graphics: effects density steps down with the preset', async () => {
+  const { GRAPHICS_PROFILES } = await import('../src/gfx/profiles.js');
+  const { high, low, chromebook } = GRAPHICS_PROFILES;
+  assert.equal(high.fxScale, 1);
+  assert.ok(low.fxScale < high.fxScale && chromebook.fxScale < low.fxScale);
+  assert.ok(chromebook.fxScale >= 0.25, 'effects never thin to nothing');
+});

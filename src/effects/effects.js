@@ -277,7 +277,15 @@ function buildPointsMaterial(texture, blending) {
 }
 
 class PointPool {
-  constructor(parent, texture, capacity, blending, fadePow) {
+  /**
+   * `density` (0..1, the preset's fxScale) thins spawns evenly, every Nth
+   * one kept, and sizes the pool to match: fewer big soft sprites is most of
+   * the fill cost on a weak GPU.
+   */
+  constructor(parent, texture, capacity, blending, fadePow, density = 1) {
+    this.density = density;
+    this._keep = 0;
+    capacity = Math.max(16, Math.round(capacity * density));
     this.cap = capacity;
     this.count = 0;
     this.fadePow = fadePow;
@@ -313,6 +321,11 @@ class PointPool {
   }
 
   spawn(px, py, pz, vx, vy, vz, life, size, r, g, b, alpha, gravity, drag, grow) {
+    if (this.density < 1) {
+      this._keep += this.density;
+      if (this._keep < 1) return;
+      this._keep -= 1;
+    }
     let i;
     if (this.count < this.cap) i = this.count++;
     else { i = this._steal % this.cap; this._steal++; }
@@ -432,11 +445,13 @@ export default class Effects {
 
     // --- point-particle systems ------------------------------------------
     // Additive hot sparks (metal hits, muzzle spits, explosions).
-    this.sparks = new PointPool(this.root, this.texSpark, 256, THREE.AdditiveBlending, 1.1);
+    // The preset's effects density (src/gfx/profiles.js fxScale).
+    const fx = Math.min(1, Math.max(0.25, Number(game.gfx?.fxScale) || 1));
+    this.sparks = new PointPool(this.root, this.texSpark, 256, THREE.AdditiveBlending, 1.1, fx);
     // Hard debris bits (concrete chunks, wood chips, blood drops).
-    this.bits = new PointPool(this.root, this.texSpark, 256, THREE.NormalBlending, 1.4);
+    this.bits = new PointPool(this.root, this.texSpark, 256, THREE.NormalBlending, 1.4, fx);
     // Soft dust puffs (impact dust, blood mist, muzzle wisps, ground dust).
-    this.puffs = new PointPool(this.root, this.texPuff, 192, THREE.NormalBlending, 1.6);
+    this.puffs = new PointPool(this.root, this.texPuff, 192, THREE.NormalBlending, 1.6, fx);
 
     // --- spark streak meshes ---------------------------------------------
     this.streaks = [];
@@ -499,7 +514,9 @@ export default class Effects {
     {
       const geo = new THREE.BoxGeometry(0.026, 0.011, 0.011);
       this._shellGeo = geo;
-      for (let i = 0; i < SHELL_MAX; i++) {
+      // Each casing is its own draw call: a low preset keeps fewer on the floor.
+      const shellMax = Math.max(8, Math.round(SHELL_MAX * fx));
+      for (let i = 0; i < shellMax; i++) {
         const mat = new THREE.MeshStandardMaterial({
           color: 0xc09032,
           metalness: 0.75,
@@ -1297,7 +1314,7 @@ export default class Effects {
     _vd.set(0, 0, -1).applyQuaternion(cam.quaternion);  // forward
     _va.addScaledVector(_vd, -0.12).addScaledVector(_vb, 0.03);
 
-    const e = this.shells[this._shellIdx % SHELL_MAX];
+    const e = this.shells[this._shellIdx % this.shells.length];
     this._shellIdx++;
     e.active = true;
     e.resting = false;
@@ -1524,7 +1541,7 @@ export default class Effects {
     }
 
     // ---- brass shells ----
-    for (let i = 0; i < SHELL_MAX; i++) {
+    for (let i = 0; i < this.shells.length; i++) {
       const e = this.shells[i];
       if (!e.active) continue;
       e.t += dt;
@@ -1664,7 +1681,7 @@ export default class Effects {
       e.active = false;
       e.mesh.visible = false;
     }
-    for (let i = 0; i < SHELL_MAX; i++) {
+    for (let i = 0; i < this.shells.length; i++) {
       const e = this.shells[i];
       e.active = false;
       e.mesh.visible = false;

@@ -44,6 +44,9 @@ export const GRAPHICS_PROFILES = Object.freeze({
     weaponShadows: true,
     // m: a soldier's body stops casting past this (~23k tris a body).
     botShadowDistance: 45,
+    // Effects density: particle spawns and pool sizes, and shell casings
+    // left on the floor. Smoke-grenade cover is gameplay and never scales.
+    fxScale: 1,
   }),
   low: Object.freeze({
     id: 'low',
@@ -65,6 +68,7 @@ export const GRAPHICS_PROFILES = Object.freeze({
     weaponShadows: true,
     // m: a soldier's body stops casting past this (~23k tris a body).
     botShadowDistance: 35,
+    fxScale: 0.75,
   }),
   chromebook: Object.freeze({
     id: 'chromebook',
@@ -89,6 +93,7 @@ export const GRAPHICS_PROFILES = Object.freeze({
     weaponShadows: false,
     // m: a soldier's body stops casting past this (~23k tris a body).
     botShadowDistance: 25,
+    fxScale: 0.5,
   }),
 });
 
