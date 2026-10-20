@@ -168,12 +168,21 @@ the pixel ratio at 1, then remembers the next lighter preset for its next
 visit (High, then Low, then Chromebook). Picking a preset by hand clears that
 memory.
 
-### A Medium preset (phase 4)
+### Medium preset (built, first cut)
 
-The gap between High and Low is large: Low loses bloom and SSAO and keeps
-the expensive material layers. Medium would be the post chain without SSAO,
-FXAA instead of MSAA, a 2048 shadow map, 1024 textures and parallax limited
-to 8 steps. It needs the per-layer switches from phase 2 first.
+Medium is the post chain and bloom without SSAO (no second geometry pass),
+a 2048 soft shadow map, pixel ratio capped at 1.25, a 1024 sky re-baked
+every second, 75% precipitation and 85% effects density. Auto now picks
+Medium wherever it used to pick High; High is only used when chosen. Low's
+pixel-ratio cap went from 1.5 to 1.25. Limiting parallax to 8 steps still
+needs the per-layer switches from phase 2.
+
+### Render scale (built)
+
+Settings > Picture > Render scale: Auto (the far-left notch: the preset's
+own scale) or 50-100% in 5% steps, applied live (only the drawing buffer is
+resized). On Auto, auto-graphics adds a third step after the pixel-ratio
+cap: render scale 75%, before it remembers the next lighter preset.
 
 ## Settings
 

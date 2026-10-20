@@ -3,8 +3,9 @@
 //
 // Auto graphics: a device that cannot hold ~40 fps during a match steps down,
 // one step per stretch of slow seconds: first the ambient-occlusion passes,
-// then a 1.0 pixel ratio. If it is still slow after that, the next visit
-// starts on the next lighter preset (High -> Low -> Chromebook), since the
+// then a 1.0 pixel ratio, then a lower render scale (unless the player set
+// one). If it is still slow after that, the next visit starts on the next
+// lighter preset (High -> Medium -> Low -> Chromebook), since the
 // texture budget, shading and set dressing are chosen at load. Only while the
 // Graphics setting is Auto.
 // ============================================================================
@@ -16,7 +17,8 @@ export const AUTO_GRAPHICS_SLOW_SECONDS = 6;
 
 /**
  * hooks: disableSsao() -> bool (true if it had AO to drop), capPixelRatio()
- * -> false when it had nothing left to lower, rememberFloor(preset),
+ * -> false when it had nothing left to lower, lowerRenderScale() -> the same
+ * (optional), rememberFloor(preset),
  * notify(text). Call update() every frame; it acts on the once-a-second fps
  * reading. `game.gfxPreset` is the preset this visit started on.
  */
@@ -48,6 +50,11 @@ export function createAutoGraphics(game, settings, hooks) {
           hooks.notify('GRAPHICS LOWERED FOR A SMOOTHER GAME');
           return;
         }
+        this.step = 3;
+      }
+      if (this.step === 3 && hooks.lowerRenderScale && hooks.lowerRenderScale() !== false) {
+        hooks.notify('RESOLUTION LOWERED FOR A SMOOTHER GAME');
+        return;
       }
       this.done = true;
       hooks.rememberFloor(floor);

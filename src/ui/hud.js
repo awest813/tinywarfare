@@ -21,7 +21,7 @@ import {
 import { hostile, hostileTeams, isFfa } from '../game/hostility.js';
 import { resolveHumanPlayerName } from '../player/profile.js';
 import { serviceOffline } from '../network/endpoints.js';
-import { GRAPHICS_DETAILS, GRAPHICS_LABELS, GRAPHICS_SUMMARIES } from '../gfx/profiles.js';
+import { GRAPHICS_DETAILS, GRAPHICS_LABELS, GRAPHICS_SUMMARIES, RENDER_SCALE_LIMITS } from '../gfx/profiles.js';
 import {
   KEY_BINDING_DEFINITIONS,
   SETTINGS_LIMITS,
@@ -239,6 +239,21 @@ function brightnessLabel(value) {
   const n = Number(value) || 0;
   if (!n) return 'DEFAULT';
   return (n > 0 ? '+' : '') + n.toFixed(2) + ' EV';
+}
+
+// The render-scale slider's leftmost notch, one step below 50%, is Auto.
+function renderScaleSliderMin() {
+  return Number((RENDER_SCALE_LIMITS.min - RENDER_SCALE_LIMITS.step).toFixed(2));
+}
+
+function renderScaleSliderValue(value) {
+  const n = Number(value) || 0;
+  return n > 0 ? n : renderScaleSliderMin();
+}
+
+function renderScaleLabel(value) {
+  const n = Number(value) || 0;
+  return n > 0 ? Math.round(n * 100) + '%' : 'AUTO';
 }
 
 // ============================================================================
@@ -509,6 +524,8 @@ export default class HUD {
       killcamSetting: $('hud-killcam-setting'),
       killcamSettingOutput: $('hud-killcam-setting-output'),
       showFpsOutput: $('hud-show-fps-output'),
+      renderScale: $('hud-render-scale'),
+      renderScaleOutput: $('hud-render-scale-output'),
       graphics: $('hud-graphics'),
       graphicsNote: $('hud-graphics-note'),
       graphicsDetail: $('hud-graphics-detail'),
@@ -902,6 +919,10 @@ export default class HUD {
         });
       }
     }
+    this._el.renderScale?.addEventListener('input', (event) => {
+      settings.setRenderScale(event.currentTarget.value);
+      this._syncSettingsUi();
+    });
     this._el.graphicsReload?.addEventListener('click', () => globalThis.location?.reload?.());
     this._el.killcamSetting?.addEventListener('change', (event) => {
       settings.setKillcam(event.currentTarget.checked);
@@ -1057,6 +1078,10 @@ export default class HUD {
     if (this._el.killcamSetting) this._el.killcamSetting.checked = settings.killcam !== false;
     if (this._el.killcamSettingOutput) this._el.killcamSettingOutput.textContent = settings.killcam !== false ? 'ON' : 'OFF';
     if (this._el.showFpsOutput) this._el.showFpsOutput.textContent = settings.showFps ? 'ON' : 'OFF';
+    if (this._el.renderScale) this._el.renderScale.value = String(renderScaleSliderValue(settings.renderScale));
+    if (this._el.renderScaleOutput) {
+      this._el.renderScaleOutput.value = this._el.renderScaleOutput.textContent = renderScaleLabel(settings.renderScale);
+    }
     if (this._el.graphics) {
       // The preset is chosen at load: name what is running, and say so once
       // the cards no longer match it.
@@ -5038,6 +5063,12 @@ export default class HUD {
       '</div>' +
       '<small class="mn-setting-note" id="hud-graphics-detail">' + esc(GRAPHICS_DETAILS[settings?.graphics || 'auto']) + '</small>' +
       '<button id="hud-graphics-reload" class="mn-graphics-reload" type="button" hidden>RELOAD NOW</button></div>' +
+      '<label class="mn-setting" for="hud-render-scale"><span><strong>RENDER SCALE</strong>' +
+      '<output id="hud-render-scale-output" for="hud-render-scale">' + renderScaleLabel(settings?.renderScale) + '</output></span>' +
+      '<small class="mn-setting-note">LOWER RUNS FASTER · APPLIES NOW · FAR LEFT LETS THE PRESET DECIDE</small>' +
+      '<input id="hud-render-scale" type="range" min="' + renderScaleSliderMin() +
+      '" max="' + RENDER_SCALE_LIMITS.max + '" step="' + RENDER_SCALE_LIMITS.step +
+      '" value="' + renderScaleSliderValue(settings?.renderScale) + '"></label>' +
       '</div></section>' +
       '<section class="mn-settings-group" aria-labelledby="hud-settings-sound">' +
       '<h3 id="hud-settings-sound">SOUND</h3>' +
@@ -6818,9 +6849,9 @@ html.touch-device #hud-streaks { display: none; }
   outline: 2px solid var(--olive-bright) !important; outline-offset: -4px !important;
 }
 
-.mn-graphics-row { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
+.mn-graphics-row { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:6px; }
 @media (max-width: 520px) {
-  .mn-graphics-row { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .mn-graphics-row { grid-template-columns:repeat(3,minmax(0,1fr)); }
 }
 .mn-graphics-row button {
   appearance:none; display:flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:2px;

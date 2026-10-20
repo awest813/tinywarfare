@@ -11,7 +11,7 @@ import World from './world/map.js';
 import { MaterialSystem } from './gfx/materials/index.js';
 import { PostChain } from './gfx/post/index.js';
 import { createAutoGraphics } from './gfx/auto-graphics.js';
-import { graphicsProfile, isChromeOS, probeGpuName } from './gfx/profiles.js';
+import { AUTO_RENDER_SCALE_FLOOR, graphicsProfile, isChromeOS, probeGpuName } from './gfx/profiles.js';
 import { prewarmShaders } from './gfx/prewarm.js';
 import { installBilinearShadows } from './gfx/shadow-bilinear.js';
 import Player from './player/player.js';
@@ -107,8 +107,17 @@ function syncViewportCss(layout) {
   root.setProperty('--app-top', `${visible.top}px`);
 }
 
-// Auto graphics can cap the pixel ratio mid-match on a slow device.
+// Auto graphics can cap the pixel ratio, then lower an Auto render scale,
+// mid-match on a slow device.
 let pixelRatioCap = Infinity;
+let autoRenderScale = GFX.renderScale;
+
+// Settings > Picture > Render scale: 0 leaves it to the preset (and auto
+// graphics); anything else pins that fraction of the display resolution.
+function renderScale() {
+  const pinned = settings.renderScale;
+  return pinned > 0 ? pinned : autoRenderScale;
+}
 
 function targetPixelRatio(width, height) {
   return Math.min(pixelRatioCap, deviceTargetPixelRatio(width, height));
@@ -121,9 +130,9 @@ function deviceTargetPixelRatio(width, height) {
   // phone output crisp without asking large tablets to shade several million
   // pixels every frame. The preset can cap it lower and render below native
   // resolution (Chromebook: 0.8, upscaled by the browser; the HUD is HTML
-  // and stays sharp).
+  // and stays sharp), and so can the Render scale setting.
   const deviceCap = !TOUCH_DEVICE ? 1.5 : width * height > 1_000_000 ? 1.25 : 1.5;
-  return Math.min(device, deviceCap, GFX.maxPixelRatio) * GFX.renderScale;
+  return Math.min(device, deviceCap, GFX.maxPixelRatio) * renderScale();
 }
 
 const initialViewport = layoutViewportSize();
@@ -224,7 +233,7 @@ const POST_PARAM = SEARCH.get('post');
 const POST_AA = ['msaa', 'fxaa', 'none'].includes(POST_PARAM) ? POST_PARAM : 'auto';
 game.post =
   POST_PARAM !== 'off' && game.gfxQuality !== 'low' && PostChain.supported(renderer)
-    ? new PostChain(game, { aa: POST_AA, ssao: SEARCH.get('ssao') !== 'off' })
+    ? new PostChain(game, { aa: POST_AA, ssao: GFX.ssao !== false && SEARCH.get('ssao') !== 'off' })
     : null;
 
 // Construction order per SPEC.md — later modules may hold references to earlier ones.
@@ -367,6 +376,10 @@ function resizeRenderer() {
 }
 
 window.addEventListener('resize', resizeRenderer, { passive: true });
+// Render scale applies live: only the drawing buffer is resized.
+game.events.on('settings:changed', ({ kind }) => {
+  if (kind === 'renderScale' || kind === 'reset') resizeRenderer();
+});
 
 // Auto graphics (src/gfx/auto-graphics.js): step down on a slow device.
 const autoGraphics = createAutoGraphics(game, settings, {
@@ -374,6 +387,12 @@ const autoGraphics = createAutoGraphics(game, settings, {
   capPixelRatio: () => {
     if (renderer.getPixelRatio() <= 1) return false;
     pixelRatioCap = 1;
+    resizeRenderer();
+    return true;
+  },
+  lowerRenderScale: () => {
+    if (settings.renderScale > 0 || autoRenderScale <= AUTO_RENDER_SCALE_FLOOR) return false;
+    autoRenderScale = AUTO_RENDER_SCALE_FLOOR;
     resizeRenderer();
     return true;
   },

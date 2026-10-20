@@ -29,7 +29,7 @@ test('a slow match steps graphics down one stage at a time', () => {
   seconds(25, AUTO_GRAPHICS_SLOW_SECONDS);
   assert.deepEqual(calls.filter((c) => !c.startsWith('notice')), ['ssao', 'pixels']);
   seconds(25, AUTO_GRAPHICS_SLOW_SECONDS);
-  assert.deepEqual(calls.filter((c) => !c.startsWith('notice')), ['ssao', 'pixels', 'low']);
+  assert.deepEqual(calls.filter((c) => !c.startsWith('notice')), ['ssao', 'pixels', 'medium']);
   seconds(25, AUTO_GRAPHICS_SLOW_SECONDS * 3);
   assert.equal(calls.filter((c) => !c.startsWith('notice')).length, 3, 'and then stops');
 });
@@ -67,4 +67,23 @@ test('a slow device on Low is remembered for the Chromebook preset; Chromebook i
   const bottom = rig({ preset: 'chromebook' });
   bottom.seconds(10, 60);
   assert.deepEqual(bottom.calls, []);
+});
+
+test('an Auto render scale is lowered after the pixel ratio, before the preset', () => {
+  const calls = [];
+  const game = { gfxPreset: 'medium', fps: 60, state: { phase: 'live' } };
+  let scaled = false;
+  const auto = createAutoGraphics(game, { graphics: 'auto' }, {
+    disableSsao: () => false,
+    capPixelRatio: () => false,
+    lowerRenderScale: () => { if (scaled) return false; scaled = true; calls.push('scale'); return true; },
+    rememberFloor: (floor) => calls.push(floor),
+    notify: () => {},
+  });
+  let tick = 0;
+  const seconds = (fps, n) => { for (let i = 0; i < n; i++) { game.fps = fps + (++tick) * 1e-6; auto.update(); } };
+  seconds(25, AUTO_GRAPHICS_SLOW_SECONDS);
+  assert.deepEqual(calls, ['scale']);
+  seconds(25, AUTO_GRAPHICS_SLOW_SECONDS);
+  assert.deepEqual(calls, ['scale', 'low']);
 });

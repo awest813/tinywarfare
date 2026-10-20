@@ -7,6 +7,7 @@ import {
   autoGraphicsPreset,
   graphicsProfile,
   lighterPreset,
+  normalizeRenderScale,
 } from '../gfx/profiles.js';
 
 export const SETTINGS_STORAGE_KEY = 'tiny-strike-settings-v1';
@@ -213,6 +214,8 @@ export default class GameSettings {
     this.graphics = 'auto';
     // Set when Auto found High too slow on this device: start on Low.
     this.graphicsAutoFloor = '';
+    // 0 is Auto (the preset's scale); otherwise 0.5-1 of the display resolution.
+    this.renderScale = 0;
     this.bindings = defaultBindings();
     this._physicalToCanonical = new Map();
     this._load();
@@ -328,7 +331,16 @@ export default class GameSettings {
     return next;
   }
 
-  /** 'auto' | 'high' | 'low' | 'chromebook' (applies on the next load). */
+  /** 0 (Auto: the preset decides) or 0.5-1 of the display resolution. Live. */
+  setRenderScale(value) {
+    const next = normalizeRenderScale(value);
+    if (next === this.renderScale) return next;
+    this.renderScale = next;
+    this._commit('renderScale');
+    return next;
+  }
+
+  /** 'auto' | 'high' | 'medium' | 'low' | 'chromebook' (applies on the next load). */
   setGraphics(value) {
     const next = GRAPHICS_OPTIONS.includes(value) ? value : 'auto';
     if (next === this.graphics) return next;
@@ -423,6 +435,7 @@ export default class GameSettings {
     this.adsSensitivity = SETTINGS_LIMITS.adsSensitivity.default;
     this.graphics = 'auto';
     this.graphicsAutoFloor = '';
+    this.renderScale = 0;
     this.bindings = defaultBindings();
     this._rebuildLookup();
     this._commit('reset');
@@ -442,6 +455,7 @@ export default class GameSettings {
       invertY: this.invertY,
       adsSensitivity: this.adsSensitivity,
       graphics: this.graphics,
+      renderScale: this.renderScale,
       bindings: Object.freeze({ ...this.bindings }),
     });
   }
@@ -468,7 +482,8 @@ export default class GameSettings {
       this.invertY = parsed.invertY === true;
       this.adsSensitivity = clampStep(parsed.adsSensitivity ?? SETTINGS_LIMITS.adsSensitivity.default, SETTINGS_LIMITS.adsSensitivity);
       this.graphics = GRAPHICS_OPTIONS.includes(parsed.graphics) ? parsed.graphics : 'auto';
-      this.graphicsAutoFloor = ['low', 'chromebook'].includes(parsed.graphicsAutoFloor)
+      this.renderScale = normalizeRenderScale(parsed.renderScale ?? 0);
+      this.graphicsAutoFloor = ['medium', 'low', 'chromebook'].includes(parsed.graphicsAutoFloor)
         ? parsed.graphicsAutoFloor
         : parsed.graphicsAutoLow === true ? 'low' : '';
       const stored = parsed.bindings && typeof parsed.bindings === 'object' ? { ...parsed.bindings } : parsed.bindings;
@@ -511,6 +526,7 @@ export default class GameSettings {
           adsSensitivity: this.adsSensitivity,
           graphics: this.graphics,
           graphicsAutoFloor: this.graphicsAutoFloor,
+          renderScale: this.renderScale,
           bindingsVersion: BINDINGS_VERSION,
           bindings: this.bindings,
         }));
