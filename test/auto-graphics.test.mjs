@@ -87,3 +87,19 @@ test('an Auto render scale is lowered after the pixel ratio, before the preset',
   seconds(25, AUTO_GRAPHICS_SLOW_SECONDS);
   assert.deepEqual(calls, ['scale', 'low']);
 });
+
+test('a frame-rate cap below the threshold never reads as a slow device', () => {
+  const calls = [];
+  const game = { gfxPreset: 'medium', fps: 60, state: { phase: 'live' } };
+  const auto = createAutoGraphics(game, { graphics: 'auto', fpsCap: 30 }, {
+    disableSsao: () => { calls.push('ssao'); return true; },
+    capPixelRatio: () => true,
+    rememberFloor: () => {},
+    notify: () => {},
+  });
+  let tick = 0;
+  for (let i = 0; i < 30; i++) { game.fps = 30 + (++tick) * 1e-6; auto.update(); }
+  assert.deepEqual(calls, []);
+  for (let i = 0; i < AUTO_GRAPHICS_SLOW_SECONDS; i++) { game.fps = 20 + (++tick) * 1e-6; auto.update(); }
+  assert.deepEqual(calls, ['ssao'], 'well under the cap is still slow');
+});

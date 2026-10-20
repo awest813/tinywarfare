@@ -203,6 +203,8 @@ game.materials = new MaterialSystem({
   renderer,
   quality: game.gfxQuality,
   lite: GFX.liteShading,
+  parallaxSteps: GFX.parallaxSteps,
+  parallaxRange: GFX.parallaxRange,
   anisotropy: Math.min(GFX.liteShading ? 4 : 8, renderer.capabilities.getMaxAnisotropy()),
 });
 // The map's surface textures are baked on the GPU, one program per surface.
@@ -230,7 +232,7 @@ const surfacePrograms = game.materials.precompile().catch(() => false);
 // ?ssao=off  keep the HDR chain but drop the AO passes (A/B the term)
 const SEARCH = new URLSearchParams(location.search);
 const POST_PARAM = SEARCH.get('post');
-const POST_AA = ['msaa', 'fxaa', 'none'].includes(POST_PARAM) ? POST_PARAM : 'auto';
+const POST_AA = ['msaa', 'fxaa', 'none'].includes(POST_PARAM) ? POST_PARAM : GFX.postAa || 'auto';
 game.post =
   POST_PARAM !== 'off' && game.gfxQuality !== 'low' && PostChain.supported(renderer)
     ? new PostChain(game, { aa: POST_AA, ssao: GFX.ssao !== false && SEARCH.get('ssao') !== 'off' })
@@ -476,7 +478,19 @@ function runSystem(key, dt) {
   }
 }
 
-renderer.setAnimationLoop(() => {
+// Settings > Picture > Frame rate cap: display refreshes are skipped until a
+// frame is due. The overshoot carries over, so the average holds the cap
+// even when it does not divide the refresh rate, and a little slack keeps a
+// 60 cap on a 60 Hz display from dropping frames to timestamp jitter.
+let lastFrameAt = -Infinity;
+renderer.setAnimationLoop((now) => {
+  const cap = settings.fpsCap;
+  if (cap > 0) {
+    const interval = 1000 / cap;
+    const elapsed = now - lastFrameAt;
+    if (elapsed < interval - Math.min(2, interval * 0.1)) return;
+    lastFrameAt = elapsed < interval * 3 ? now - Math.min(interval * 0.5, Math.max(0, elapsed - interval)) : now;
+  }
   const rawDt = clock.getDelta();
 
   frames++;

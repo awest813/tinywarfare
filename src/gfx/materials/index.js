@@ -28,6 +28,17 @@ import { bakeMasks, setMask } from './masks.js';
  * weather, …) plus `three` for raw THREE material properties and `bake` to
  * force a distinct texture bake (a different paint colour, for example).
  */
+/**
+ * Caps a surface's parallax march at `steps` height steps and scales its fade
+ * distances by `range` (in place). Both are uniforms: no extra programs.
+ */
+export function applyParallaxBudget(p, steps = Infinity, range = 1) {
+  if (!(p.parallax > 0)) return p;
+  if (steps < p.parallaxLayers) p.parallaxLayers = steps;
+  if (range < 1) p.parallaxFade = p.parallaxFade.map((d) => d * range);
+  return p;
+}
+
 export class MaterialSystem {
   static id = 'materials';
 
@@ -57,6 +68,13 @@ export class MaterialSystem {
      * material's sheen and anisotropic lobes.
      */
     this._lite = !!opts.lite;
+    /**
+     * Parallax budget (Medium and Low): a cap on the height steps a pixel
+     * marches, and a fraction of each surface's fade distances. Uniforms only,
+     * so no extra shader programs.
+     */
+    this._parallaxSteps = opts.parallaxSteps > 0 ? opts.parallaxSteps : Infinity;
+    this._parallaxRange = opts.parallaxRange > 0 ? Math.min(1, opts.parallaxRange) : 1;
     this._anisotropy = opts.anisotropy ?? 8;
     /** seconds since the last bake, for the scratch-target release below */
     this._idle = 0;
@@ -205,6 +223,7 @@ export class MaterialSystem {
     p.groundY = opts.groundY ?? this._groundY;
 
     const threeProps = { ...(def.three ?? {}), ...(opts.three ?? {}) };
+    applyParallaxBudget(p, this._parallaxSteps, this._parallaxRange);
     if (this._lite) {
       p.parallax = 0;
       p.detile = 0;

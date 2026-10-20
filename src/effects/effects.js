@@ -672,11 +672,21 @@ export default class Effects {
     // Hidden for the whole session, so no shader ever changes light count.
     const fxLights = game.gfx?.fxLights !== false;
     if (!fxLights) for (const l of this.lights) l.light.visible = false;
+    // Medium and Low: explosions and flashbangs share one light (each light
+    // is a loop in every lit pixel, all match long, flashing or not).
+    this._lightSlot = [0, 1, 2, 3, 4];
+    this._sharedFxLight = (game.gfx?.fxLightSlots ?? 5) < 5;
+    if (this._sharedFxLight) {
+      this._lightSlot = [L_MUZZLE_PLAYER, L_MUZZLE_BOT, L_EXPLO_A, L_EXPLO_A, L_EXPLO_A];
+      this.lights[L_EXPLO_B].light.visible = false;
+      this.lights[L_FLASHBANG].light.visible = false;
+    }
 
     // --- bomb light + glow sprite ----------------------------------------
     this.bombLight = new THREE.PointLight(0xff2a1a, 0, 11, 2);
     this.bombLight.castShadow = false;
-    this.bombLight.visible = fxLights;
+    // Shown only in Search & Destroy (Rounds._syncBombLights).
+    this.bombLight.visible = false;
     this.root.add(this.bombLight);
     this._bombBeat = 0;
     {
@@ -1281,7 +1291,10 @@ export default class Effects {
   }
 
   _flashLight(idx, x, y, z, peak, life, expo, dist) {
-    const e = this.lights[idx];
+    const slot = this._lightSlot[idx];
+    const e = this.lights[slot];
+    // The shared slot keeps whichever flash is brighter right now.
+    if (this._sharedFxLight && slot === L_EXPLO_A && e.light.intensity > peak) return;
     e.t = 0;
     e.life = life;
     e.peak = peak;

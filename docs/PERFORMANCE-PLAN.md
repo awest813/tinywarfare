@@ -137,7 +137,7 @@ gameplay (`src/world/dressing.js:4226`).
 | Render scale | 1.0, pixel ratio up to 1.5 | 1.0, up to 1.5 | 0.8, pixel ratio 1 |
 | HDR post, bloom, SSAO | on | off | off |
 | Antialiasing | MSAA in the post chain | canvas MSAA | none |
-| Shadow map | 3072, soft PCF (16 taps), every frame | 2048, soft PCF, every frame | 1024, bilinear (4 taps), every other frame |
+| Shadow map | 3072, soft PCF (16 taps), every frame | 2048, soft PCF, every other frame | 1024, bilinear (4 taps), every other frame |
 | Texture sets | 1024 | 512 | 512 |
 | Material layers | all | all | no parallax, de-tiling, macro relief, sheen, anisotropy |
 | Anisotropic filtering | 8x | 8x | 4x |
@@ -184,20 +184,42 @@ own scale) or 50-100% in 5% steps, applied live (only the drawing buffer is
 resized). On Auto, auto-graphics adds a third step after the pixel-ratio
 cap: render scale 75%, before it remembers the next lighter preset.
 
+### Per-pixel budget pass (built)
+
+A CPU audit (8 bots, live match, rendering stubbed out) put every system
+together at about 0.6 ms a frame, the bots' animation and thinking the
+largest at about 0.2 ms each, so the frame is GPU-bound and this pass
+targets per-pixel cost:
+
+- **Dead lights removed.** Map lamps authored at intensity 0 (six on Neon
+  Foundry) are hidden on every preset; they lit nothing but were a loop
+  iteration in every lit pixel. The two C4 lights exist only in Search &
+  Destroy (set at match start, before the shader pre-warm).
+- **Effect light slots.** Medium and Low share one light among explosions
+  and flashbangs (3 effect lights instead of 5); the brighter flash wins.
+- **Parallax budget.** Medium caps the march at 12 height steps and runs it
+  to 70% of each surface's fade distance; Low 8 steps and 50%. Uniforms
+  only, no new programs.
+- **Shadows** are redrawn every other frame on Medium and Low (they were
+  already on phones and Chromebook).
+- **Medium antialiasing** is FXAA, skipping the resolve of a 4x
+  multisampled half-float target.
+- **Frame rate cap** (Settings > Picture): none, 30, 60 or 120. Auto
+  graphics does not count a capped frame rate as a slow device.
+
 ## Settings
 
-Today: one **Graphics** select (Auto / High / Low / Chromebook / Low-power).
-It shows what Auto picked ("AUTO · USING LOW POWER") and, when
-the choice changes, "APPLIES AFTER RELOAD" with a RELOAD NOW button on the
-main menu.
+Today: a **Graphics** row (Auto / High / Medium / Low / Low power), which
+shows what Auto picked ("AUTO · USING LOW POWER") and, when the choice
+changes, "APPLIES AFTER RELOAD" with a RELOAD NOW button on the main menu;
+a live **Render scale** slider (Auto, 50-100%); and a live **Frame rate
+cap** (none / 30 / 60 / 120).
 
 Proposed **Advanced graphics** panel (phase 3), each control overriding the
 preset and marked "custom" once touched:
 
 | Control | Values | Applies |
 |---|---|---|
-| Render scale | 50-100% in 5% steps, plus Auto (dynamic) | live |
-| Frame rate cap | 30 / 60 / unlimited | live |
 | Shadows | Off / Low (1024 bilinear) / Medium (2048) / High (3072 soft) | on reload |
 | Lighting effects | muzzle and explosion lights on/off | on reload |
 | Surface detail | Low (lite layers) / High | on reload |

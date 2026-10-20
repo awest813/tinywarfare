@@ -25,6 +25,7 @@ import { GRAPHICS_DETAILS, GRAPHICS_LABELS, GRAPHICS_SUMMARIES, RENDER_SCALE_LIM
 import {
   KEY_BINDING_DEFINITIONS,
   SETTINGS_LIMITS,
+  FPS_CAP_OPTIONS,
   bindingDefinition,
   formatKeyLabel,
 } from '../core/settings.js';
@@ -524,6 +525,7 @@ export default class HUD {
       killcamSetting: $('hud-killcam-setting'),
       killcamSettingOutput: $('hud-killcam-setting-output'),
       showFpsOutput: $('hud-show-fps-output'),
+      fpsCap: $('hud-fps-cap'),
       renderScale: $('hud-render-scale'),
       renderScaleOutput: $('hud-render-scale-output'),
       graphics: $('hud-graphics'),
@@ -919,6 +921,10 @@ export default class HUD {
         });
       }
     }
+    this._el.fpsCap?.addEventListener('change', (event) => {
+      settings.setFpsCap(event.currentTarget.value);
+      this._syncSettingsUi();
+    });
     this._el.renderScale?.addEventListener('input', (event) => {
       settings.setRenderScale(event.currentTarget.value);
       this._syncSettingsUi();
@@ -1078,6 +1084,7 @@ export default class HUD {
     if (this._el.killcamSetting) this._el.killcamSetting.checked = settings.killcam !== false;
     if (this._el.killcamSettingOutput) this._el.killcamSettingOutput.textContent = settings.killcam !== false ? 'ON' : 'OFF';
     if (this._el.showFpsOutput) this._el.showFpsOutput.textContent = settings.showFps ? 'ON' : 'OFF';
+    if (this._el.fpsCap) this._el.fpsCap.value = String(settings.fpsCap || 0);
     if (this._el.renderScale) this._el.renderScale.value = String(renderScaleSliderValue(settings.renderScale));
     if (this._el.renderScaleOutput) {
       this._el.renderScaleOutput.value = this._el.renderScaleOutput.textContent = renderScaleLabel(settings.renderScale);
@@ -5069,6 +5076,11 @@ export default class HUD {
       '<input id="hud-render-scale" type="range" min="' + renderScaleSliderMin() +
       '" max="' + RENDER_SCALE_LIMITS.max + '" step="' + RENDER_SCALE_LIMITS.step +
       '" value="' + renderScaleSliderValue(settings?.renderScale) + '"></label>' +
+      '<label class="mn-setting mn-setting-toggle" for="hud-fps-cap"><span><strong>FRAME RATE CAP</strong></span>' +
+      '<small class="mn-setting-note">A STEADY CAP RUNS SMOOTHER, COOLER AND QUIETER</small>' +
+      '<select id="hud-fps-cap">' + FPS_CAP_OPTIONS.map((n) =>
+        '<option value="' + n + '"' + ((settings?.fpsCap || 0) === n ? ' selected' : '') + '>' +
+        (n > 0 ? n + ' FPS' : 'NONE') + '</option>').join('') + '</select></label>' +
       '</div></section>' +
       '<section class="mn-settings-group" aria-labelledby="hud-settings-sound">' +
       '<h3 id="hud-settings-sound">SOUND</h3>' +

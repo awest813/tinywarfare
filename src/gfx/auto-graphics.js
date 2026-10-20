@@ -36,7 +36,9 @@ export function createAutoGraphics(game, settings, hooks) {
       if (phase !== 'live' && phase !== 'planted') { this.slow = 0; return; }
       if (game.fps === this.lastFps) return;
       this.lastFps = game.fps;
-      this.slow = game.fps < AUTO_GRAPHICS_MIN_FPS ? this.slow + 1 : 0;
+      // A frame-rate cap below the threshold is a choice, not a slow device.
+      const cap = settings.fpsCap > 0 ? settings.fpsCap * 0.85 : Infinity;
+      this.slow = game.fps < Math.min(AUTO_GRAPHICS_MIN_FPS, cap) ? this.slow + 1 : 0;
       if (this.slow < AUTO_GRAPHICS_SLOW_SECONDS) return;
       this.slow = 0;
       this.step++;
