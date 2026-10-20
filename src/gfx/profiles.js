@@ -102,7 +102,23 @@ export const GRAPHICS_LABELS = Object.freeze({
   auto: 'AUTO',
   high: 'HIGH',
   low: 'LOW',
-  chromebook: 'CHROMEBOOK / LOW-POWER',
+  chromebook: 'LOW POWER',
+});
+
+/** One line under the name on each graphics card. */
+export const GRAPHICS_SUMMARIES = Object.freeze({
+  auto: 'THIS DEVICE',
+  high: 'FULL DETAIL',
+  low: 'LIGHTER',
+  chromebook: 'SMOOTHEST',
+});
+
+/** What the selected preset changes, shown under the cards. */
+export const GRAPHICS_DETAILS = Object.freeze({
+  auto: 'MATCHES THIS DEVICE · STEPS DOWN IF A MATCH RUNS SLOW',
+  high: 'FULL LIGHTING · SOFT SHADOWS · BLOOM AND AMBIENT OCCLUSION',
+  low: 'LIGHTER SHADOWS · NO POST EFFECTS · THE WORLD STAYS THE SAME',
+  chromebook: 'SIMPLEST LIGHTING AND SURFACES · FOR A WEAK GPU',
 });
 
 // Low-power parts on a laptop or desktop: ARM Mali and PowerVR, Adreno below

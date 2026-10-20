@@ -21,7 +21,7 @@ import {
 import { hostile, hostileTeams, isFfa } from '../game/hostility.js';
 import { resolveHumanPlayerName } from '../player/profile.js';
 import { serviceOffline } from '../network/endpoints.js';
-import { GRAPHICS_LABELS } from '../gfx/profiles.js';
+import { GRAPHICS_DETAILS, GRAPHICS_LABELS, GRAPHICS_SUMMARIES } from '../gfx/profiles.js';
 import {
   KEY_BINDING_DEFINITIONS,
   SETTINGS_LIMITS,
@@ -232,6 +232,13 @@ const FALLBACK_RB = { minX: -52, maxX: 52, minZ: -42, maxZ: 42 };
 function esc(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** 0 is the authored picture; anything else is exposure compensation. */
+function brightnessLabel(value) {
+  const n = Number(value) || 0;
+  if (!n) return 'DEFAULT';
+  return (n > 0 ? '+' : '') + n.toFixed(2) + ' EV';
 }
 
 // ============================================================================
@@ -504,6 +511,7 @@ export default class HUD {
       showFpsOutput: $('hud-show-fps-output'),
       graphics: $('hud-graphics'),
       graphicsNote: $('hud-graphics-note'),
+      graphicsDetail: $('hud-graphics-detail'),
       graphicsReload: $('hud-graphics-reload'),
       brightnessOutput: $('hud-brightness-output'),
       settingsReset: $('hud-settings-reset'),
@@ -885,11 +893,15 @@ export default class HUD {
       settings.setAnnouncer(event.currentTarget.checked);
       this._syncSettingsUi();
     });
-    this._el.graphics?.addEventListener('change', (event) => {
-      settings.setGraphics(event.currentTarget.value);
-      this._graphicsChanged = true;
-      this._syncSettingsUi();
-    });
+    if (this._el.graphics) {
+      for (const button of this._el.graphics.querySelectorAll('[data-graphics]')) {
+        button.addEventListener('click', () => {
+          settings.setGraphics(button.dataset.graphics);
+          this._graphicsChanged = true;
+          this._syncSettingsUi();
+        });
+      }
+    }
     this._el.graphicsReload?.addEventListener('click', () => globalThis.location?.reload?.());
     this._el.killcamSetting?.addEventListener('change', (event) => {
       settings.setKillcam(event.currentTarget.checked);
@@ -1045,19 +1057,34 @@ export default class HUD {
     if (this._el.killcamSetting) this._el.killcamSetting.checked = settings.killcam !== false;
     if (this._el.killcamSettingOutput) this._el.killcamSettingOutput.textContent = settings.killcam !== false ? 'ON' : 'OFF';
     if (this._el.showFpsOutput) this._el.showFpsOutput.textContent = settings.showFps ? 'ON' : 'OFF';
-    if (this._el.graphics) this._el.graphics.value = settings.graphics || 'auto';
-    if (this._el.graphicsNote) {
-      // The preset is chosen at load: say so once it no longer matches, and
-      // say what Auto picked for this device.
+    if (this._el.graphics) {
+      // The preset is chosen at load: name what is running, and say so once
+      // the cards no longer match it.
+      const picked = settings.graphics || 'auto';
       const current = this.game?.gfxPreset;
       const wanted = typeof settings.graphicsPreset === 'function'
         ? settings.graphicsPreset(this.game?.gfxDevice || {}) : current;
       const pending = !!(this._graphicsChanged && current && wanted !== current);
-      this._el.graphicsNote.textContent = pending
-        ? 'APPLIES AFTER RELOAD'
-        : settings.graphics === 'auto' && current
-          ? 'AUTO · USING ' + (GRAPHICS_LABELS[current] || current.toUpperCase())
-          : 'IN USE';
+      const presetName = (id) => GRAPHICS_LABELS[id] || String(id || '').toUpperCase();
+      for (const button of this._el.graphics.querySelectorAll('[data-graphics]')) {
+        const on = button.dataset.graphics === picked;
+        button.classList.toggle('selected', on);
+        button.setAttribute('aria-pressed', on ? 'true' : 'false');
+      }
+      if (this._el.graphicsNote) {
+        this._el.graphicsNote.textContent = pending
+          ? 'APPLIES AFTER RELOAD'
+          : picked === 'auto' && current
+            ? 'AUTO · USING ' + presetName(current)
+            : presetName(picked) + ' · IN USE';
+      }
+      if (this._el.graphicsDetail) {
+        const detail = GRAPHICS_DETAILS[picked] || '';
+        const resolved = picked === 'auto' ? (pending ? (wanted || current) : current) : '';
+        this._el.graphicsDetail.textContent = resolved
+          ? (pending ? 'RELOAD STARTS ON ' : 'THIS DEVICE IS ON ') + presetName(resolved) + ' · ' + detail
+          : detail;
+      }
       // Reloading mid-match would end it: only offered from the main menu.
       if (this._el.graphicsReload) {
         this._el.graphicsReload.hidden = !pending || this.game?.state?.phase !== 'menu';
@@ -1071,8 +1098,7 @@ export default class HUD {
     if (this._el.fov) this._el.fov.value = String(settings.fov);
     if (this._el.fovOutput) this._el.fovOutput.value = this._el.fovOutput.textContent = settings.fov + '°';
     if (this._el.brightnessOutput) {
-      const value = Number(settings.brightnessEv);
-      const label = (value > 0 ? '+' : '') + value.toFixed(2) + ' EV';
+      const label = brightnessLabel(settings.brightnessEv);
       this._el.brightnessOutput.value = this._el.brightnessOutput.textContent = label;
     }
     if (this._el.buyHintKey) this._el.buyHintKey.textContent = this._bindingLabel('buy');
@@ -4676,6 +4702,9 @@ export default class HUD {
       ? Math.round(raw) + ' FPS · ' + Math.round(1000 / raw) + ' MS'
       : raw > 0 ? '<1 FPS' : '— FPS';
     const r = this.game.perfOverlay && this.game.renderer;
+    if (!r && this.game.gfxPreset) {
+      text += ' · ' + (GRAPHICS_LABELS[this.game.gfxPreset] || String(this.game.gfxPreset).toUpperCase());
+    }
     if (r) {
       text += ' · ' + String(this.game.gfxPreset || '').toUpperCase() +
         ' · ' + r.info.render.calls + ' CALLS · ' + Math.round(r.info.render.triangles / 1000) + 'K TRIS · ' +
@@ -4988,8 +5017,8 @@ export default class HUD {
       '<h3 id="hud-settings-picture">PICTURE</h3>' +
       '<div class="mn-settings-tuning">' +
       '<label class="mn-setting" for="hud-brightness"><span><strong>BRIGHTNESS</strong>' +
-      '<output id="hud-brightness-output" for="hud-brightness">' +
-      (brightnessEv > 0 ? '+' : '') + brightnessEv.toFixed(2) + ' EV</output></span>' +
+      '<output id="hud-brightness-output" for="hud-brightness">' + brightnessLabel(brightnessEv) + '</output></span>' +
+      '<small class="mn-setting-note">0 IS THE DESIGNED PICTURE</small>' +
       '<input id="hud-brightness" type="range" min="' + SETTINGS_LIMITS.brightnessEv.min +
       '" max="' + SETTINGS_LIMITS.brightnessEv.max + '" step="' + SETTINGS_LIMITS.brightnessEv.step +
       '" value="' + brightnessEv + '"></label>' +
@@ -4997,13 +5026,18 @@ export default class HUD {
       '<output id="hud-show-fps-output" for="hud-show-fps">' + (settings?.showFps ? 'ON' : 'OFF') + '</output></span>' +
       '<small class="mn-setting-note">FRAME RATE IN THE CORNER</small>' +
       '<input id="hud-show-fps" type="checkbox"' + (settings?.showFps ? ' checked' : '') + '></label>' +
-      '<label class="mn-setting mn-setting-toggle mn-setting-wide" for="hud-graphics"><span><strong>GRAPHICS</strong>' +
+      '<div class="mn-setting mn-setting-wide"><span><strong id="hud-graphics-label">GRAPHICS</strong>' +
       '<output id="hud-graphics-note">AUTO ADJUSTS TO YOUR DEVICE</output></span>' +
-      '<select id="hud-graphics">' +
-      Object.entries(GRAPHICS_LABELS).map(([id, label]) =>
-        '<option value="' + id + '"' + ((settings?.graphics || 'auto') === id ? ' selected' : '') + '>' + label + '</option>').join('') +
-      '</select>' +
-      '<button id="hud-graphics-reload" class="mn-graphics-reload" type="button" hidden>RELOAD NOW</button></label>' +
+      '<div class="mn-graphics-row" id="hud-graphics" role="radiogroup" aria-labelledby="hud-graphics-label">' +
+      Object.entries(GRAPHICS_LABELS).map(([id, label]) => {
+        const on = (settings?.graphics || 'auto') === id;
+        return '<button type="button" data-graphics="' + id + '" aria-pressed="' + (on ? 'true' : 'false') +
+          '" class="' + (on ? 'selected' : '') + '" aria-label="' + esc(label + '. ' + GRAPHICS_DETAILS[id]) + '">' +
+          '<strong>' + esc(label) + '</strong><span>' + esc(GRAPHICS_SUMMARIES[id]) + '</span></button>';
+      }).join('') +
+      '</div>' +
+      '<small class="mn-setting-note" id="hud-graphics-detail">' + esc(GRAPHICS_DETAILS[settings?.graphics || 'auto']) + '</small>' +
+      '<button id="hud-graphics-reload" class="mn-graphics-reload" type="button" hidden>RELOAD NOW</button></div>' +
       '</div></section>' +
       '<section class="mn-settings-group" aria-labelledby="hud-settings-sound">' +
       '<h3 id="hud-settings-sound">SOUND</h3>' +
@@ -6784,6 +6818,25 @@ html.touch-device #hud-streaks { display: none; }
   outline: 2px solid var(--olive-bright) !important; outline-offset: -4px !important;
 }
 
+.mn-graphics-row { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
+@media (max-width: 520px) {
+  .mn-graphics-row { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+.mn-graphics-row button {
+  appearance:none; display:flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:2px;
+  min-width:0; min-height:44px; padding:7px 8px 8px; font:inherit; text-align:left; cursor:pointer; color:#dfe8d2;
+  background:rgba(8,13,8,.72); border:1px solid rgba(154,178,107,.22);
+}
+.mn-graphics-row strong { max-width:100%; font-size:11px; font-weight:900; letter-spacing:.08em; line-height:1.15; }
+.mn-graphics-row span {
+  max-width:100%; font-size:9px; font-weight:800; letter-spacing:.06em; line-height:1.25; color:var(--olive-dim);
+}
+.mn-graphics-row button:hover { border-color:var(--olive); }
+.mn-graphics-row button.selected {
+  border-color:var(--olive-bright); background:rgba(154,178,107,.16);
+  box-shadow:inset 3px 0 0 var(--olive-bright), inset 0 0 0 1px var(--olive);
+}
+.mn-graphics-row button.selected span { color:var(--olive-bright); }
 .mn-graphics-reload {
   justify-self: start; padding: 5px 10px; cursor: pointer; font: inherit; font-size: 10px; font-weight: 900;
   letter-spacing: .14em; color: #0a0e08; background: var(--olive-bright); border: 0;
