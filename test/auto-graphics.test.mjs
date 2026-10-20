@@ -63,7 +63,7 @@ test('a slow device on Low is remembered for the Chromebook preset; Chromebook i
   const low = rig({ preset: 'low', hasSsao: false, pixelsLeft: false });
   low.seconds(25, AUTO_GRAPHICS_SLOW_SECONDS);
   assert.deepEqual(low.calls.filter((c) => !c.startsWith('notice')), ['ssao', 'pixels', 'chromebook']);
-  assert.ok(low.calls.includes('notice:NEXT TIME THE GAME STARTS ON CHROMEBOOK / LOW-POWER GRAPHICS'));
+  assert.ok(low.calls.includes('notice:NEXT TIME THE GAME STARTS ON LOW POWER GRAPHICS'));
   const bottom = rig({ preset: 'chromebook' });
   bottom.seconds(10, 60);
   assert.deepEqual(bottom.calls, []);

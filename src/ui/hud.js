@@ -21,7 +21,7 @@ import {
 import { hostile, hostileTeams, isFfa } from '../game/hostility.js';
 import { resolveHumanPlayerName } from '../player/profile.js';
 import { serviceOffline } from '../network/endpoints.js';
-import { GRAPHICS_LABELS } from '../gfx/profiles.js';
+import { GRAPHICS_DETAILS, GRAPHICS_LABELS, GRAPHICS_SUMMARIES } from '../gfx/profiles.js';
 import {
   KEY_BINDING_DEFINITIONS,
   SETTINGS_LIMITS,
@@ -232,6 +232,13 @@ const FALLBACK_RB = { minX: -52, maxX: 52, minZ: -42, maxZ: 42 };
 function esc(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** 0 is the authored picture; anything else is exposure compensation. */
+function brightnessLabel(value) {
+  const n = Number(value) || 0;
+  if (!n) return 'DEFAULT';
+  return (n > 0 ? '+' : '') + n.toFixed(2) + ' EV';
 }
 
 // ============================================================================
@@ -504,6 +511,7 @@ export default class HUD {
       showFpsOutput: $('hud-show-fps-output'),
       graphics: $('hud-graphics'),
       graphicsNote: $('hud-graphics-note'),
+      graphicsDetail: $('hud-graphics-detail'),
       graphicsReload: $('hud-graphics-reload'),
       brightnessOutput: $('hud-brightness-output'),
       settingsReset: $('hud-settings-reset'),
@@ -589,6 +597,7 @@ export default class HUD {
       restart: $('hud-restart'),
       endMenu: $('hud-end-menu'),
       pauseMenu: $('hud-pause-menu'),
+      pauseResume: $('hud-pause-resume'),
       pauseSettings: $('hud-pause-settings'),
       pauseHowto: $('hud-pause-howto'),
       pausePanel: $('hud-pause-panel'),
@@ -664,6 +673,12 @@ export default class HUD {
         this._returnToMenu();
       });
     }
+    this._el.pauseResume?.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (this.game.input && typeof this.game.input.requestLock === 'function') {
+        this.game.input.requestLock();
+      }
+    });
     this._el.pauseSettings?.addEventListener('click', (event) => {
       event.stopPropagation();
       this._setPauseSettingsOpen(!this._pauseSettingsOpen);
@@ -878,11 +893,15 @@ export default class HUD {
       settings.setAnnouncer(event.currentTarget.checked);
       this._syncSettingsUi();
     });
-    this._el.graphics?.addEventListener('change', (event) => {
-      settings.setGraphics(event.currentTarget.value);
-      this._graphicsChanged = true;
-      this._syncSettingsUi();
-    });
+    if (this._el.graphics) {
+      for (const button of this._el.graphics.querySelectorAll('[data-graphics]')) {
+        button.addEventListener('click', () => {
+          settings.setGraphics(button.dataset.graphics);
+          this._graphicsChanged = true;
+          this._syncSettingsUi();
+        });
+      }
+    }
     this._el.graphicsReload?.addEventListener('click', () => globalThis.location?.reload?.());
     this._el.killcamSetting?.addEventListener('change', (event) => {
       settings.setKillcam(event.currentTarget.checked);
@@ -1038,19 +1057,34 @@ export default class HUD {
     if (this._el.killcamSetting) this._el.killcamSetting.checked = settings.killcam !== false;
     if (this._el.killcamSettingOutput) this._el.killcamSettingOutput.textContent = settings.killcam !== false ? 'ON' : 'OFF';
     if (this._el.showFpsOutput) this._el.showFpsOutput.textContent = settings.showFps ? 'ON' : 'OFF';
-    if (this._el.graphics) this._el.graphics.value = settings.graphics || 'auto';
-    if (this._el.graphicsNote) {
-      // The preset is chosen at load: say so once it no longer matches, and
-      // say what Auto picked for this device.
+    if (this._el.graphics) {
+      // The preset is chosen at load: name what is running, and say so once
+      // the cards no longer match it.
+      const picked = settings.graphics || 'auto';
       const current = this.game?.gfxPreset;
       const wanted = typeof settings.graphicsPreset === 'function'
         ? settings.graphicsPreset(this.game?.gfxDevice || {}) : current;
       const pending = !!(this._graphicsChanged && current && wanted !== current);
-      this._el.graphicsNote.textContent = pending
-        ? 'APPLIES AFTER RELOAD'
-        : settings.graphics === 'auto' && current
-          ? 'AUTO · USING ' + (GRAPHICS_LABELS[current] || current.toUpperCase())
-          : 'IN USE';
+      const presetName = (id) => GRAPHICS_LABELS[id] || String(id || '').toUpperCase();
+      for (const button of this._el.graphics.querySelectorAll('[data-graphics]')) {
+        const on = button.dataset.graphics === picked;
+        button.classList.toggle('selected', on);
+        button.setAttribute('aria-pressed', on ? 'true' : 'false');
+      }
+      if (this._el.graphicsNote) {
+        this._el.graphicsNote.textContent = pending
+          ? 'APPLIES AFTER RELOAD'
+          : picked === 'auto' && current
+            ? 'AUTO · USING ' + presetName(current)
+            : presetName(picked) + ' · IN USE';
+      }
+      if (this._el.graphicsDetail) {
+        const detail = GRAPHICS_DETAILS[picked] || '';
+        const resolved = picked === 'auto' ? (pending ? (wanted || current) : current) : '';
+        this._el.graphicsDetail.textContent = resolved
+          ? (pending ? 'RELOAD STARTS ON ' : 'THIS DEVICE IS ON ') + presetName(resolved) + ' · ' + detail
+          : detail;
+      }
       // Reloading mid-match would end it: only offered from the main menu.
       if (this._el.graphicsReload) {
         this._el.graphicsReload.hidden = !pending || this.game?.state?.phase !== 'menu';
@@ -1064,8 +1098,7 @@ export default class HUD {
     if (this._el.fov) this._el.fov.value = String(settings.fov);
     if (this._el.fovOutput) this._el.fovOutput.value = this._el.fovOutput.textContent = settings.fov + '°';
     if (this._el.brightnessOutput) {
-      const value = Number(settings.brightnessEv);
-      const label = (value > 0 ? '+' : '') + value.toFixed(2) + ' EV';
+      const label = brightnessLabel(settings.brightnessEv);
       this._el.brightnessOutput.value = this._el.brightnessOutput.textContent = label;
     }
     if (this._el.buyHintKey) this._el.buyHintKey.textContent = this._bindingLabel('buy');
@@ -4155,11 +4188,20 @@ export default class HUD {
           const sub = this._el.pause.querySelector('.pause-sub');
           if (main) main.textContent = online ? resume : 'PAUSED';
           if (sub) sub.textContent = online ? 'THE MATCH IS STILL RUNNING' : resume;
+          if (this._el.pauseResume) this._el.pauseResume.textContent = online ? 'RETURN TO MATCH' : 'RESUME';
         } else {
           this._setPauseSettingsOpen(false);
           this._setHowToOpen(false);
         }
         this._el.pause.style.display = show ? 'flex' : 'none';
+        // Keyboard and a controller land on RESUME. A click on the backdrop
+        // still resumes, and an open settings panel keeps its own focus.
+        if (show && this._el.pauseResume) {
+          const active = globalThis.document?.activeElement;
+          if (!active || !this._el.pause.contains?.(active)) {
+            this._el.pauseResume.focus?.({ preventScroll: true });
+          }
+        }
       }
     }
   }
@@ -4660,6 +4702,9 @@ export default class HUD {
       ? Math.round(raw) + ' FPS · ' + Math.round(1000 / raw) + ' MS'
       : raw > 0 ? '<1 FPS' : '— FPS';
     const r = this.game.perfOverlay && this.game.renderer;
+    if (!r && this.game.gfxPreset) {
+      text += ' · ' + (GRAPHICS_LABELS[this.game.gfxPreset] || String(this.game.gfxPreset).toUpperCase());
+    }
     if (r) {
       text += ' · ' + String(this.game.gfxPreset || '').toUpperCase() +
         ' · ' + r.info.render.calls + ' CALLS · ' + Math.round(r.info.render.triangles / 1000) + 'K TRIS · ' +
@@ -4839,14 +4884,15 @@ export default class HUD {
       '<div id="hud-progression-toasts" role="status" aria-live="polite" aria-atomic="false"></div>' +
 
       // ------------------------------------------------ pause overlay
-      '<div id="hud-pause"><div class="pause-inner">' +
-      '<div class="pause-main">PAUSED</div>' +
-      '<div class="pause-sub">CLICK TO RESUME</div>' +
+      '<div id="hud-pause" role="dialog" aria-modal="true" aria-labelledby="hud-pause-title"><div class="pause-inner">' +
+      '<div class="pause-main" id="hud-pause-title">PAUSED</div>' +
+      '<button id="hud-pause-resume" class="pause-resume" type="button">RESUME</button>' +
       '<div class="pause-actions">' +
       '<button id="hud-pause-settings" class="pause-menu" type="button" aria-expanded="false" aria-controls="hud-pause-panel">SETTINGS</button>' +
       '<button id="hud-pause-howto" class="pause-menu" type="button">HOW TO PLAY</button>' +
       '<button id="hud-pause-menu" class="pause-menu" type="button">QUIT TO MAIN MENU</button>' +
       '</div>' +
+      '<div class="pause-sub">CLICK TO RESUME</div>' +
       '<div id="hud-pause-panel" hidden></div>' +
       '</div></div>' +
 
@@ -4892,13 +4938,15 @@ export default class HUD {
       '<section class="mn-mode-picker" id="hud-mode-picker" aria-label="Choose a game mode">' +
       '<div class="mn-section-head">MODE</div>' +
       '<div class="mn-mode-row">' + Object.values(GAME_MODES).map((mode) =>
-        '<button type="button" class="mn-mode" data-mode-id="' + mode.id + '" aria-pressed="false">' +
-        '<strong>' + mode.label + '</strong><span>' + mode.detail + '</span></button>').join('') +
+        '<button type="button" class="mn-mode" data-mode-id="' + mode.id + '" aria-pressed="false" aria-label="' +
+        esc(mode.label + '. ' + mode.detail) + '">' +
+        '<strong>' + esc(mode.label) + '</strong><span>' + esc(mode.detail) + '</span></button>').join('') +
       '</div>' +
       '<div class="mn-section-head mn-sub-head">BOTS</div>' +
       '<div class="mn-mode-row mn-skill-row" id="hud-bot-skill">' + Object.values(BOT_SKILLS).map((skill) =>
-        '<button type="button" class="mn-mode" data-bot-skill="' + skill.id + '" aria-pressed="false">' +
-        '<strong>' + skill.label + '</strong><span>' + skill.detail + '</span></button>').join('') +
+        '<button type="button" class="mn-mode" data-bot-skill="' + skill.id + '" aria-pressed="false" aria-label="' +
+        esc(skill.label + '. ' + skill.detail) + '">' +
+        '<strong>' + esc(skill.label) + '</strong><span>' + esc(skill.detail) + '</span></button>').join('') +
       '</div></section>' +
       '<section class="mn-class-picker" id="hud-class-picker" aria-label="Choose a class" hidden>' +
       '<div class="mn-section-head">CLASS<span class="mn-rank" id="hud-rank-chip"></span>' +
@@ -4910,9 +4958,9 @@ export default class HUD {
       '<small id="hud-streak-detail"></small></div>' +
       '<div class="mn-class-editor" id="hud-class-editor" hidden>' +
       '<label>NAME<input id="hud-class-name" maxlength="16" autocomplete="off" spellcheck="false"></label>' +
-      '<label>PRIMARY<select id="hud-class-primary" data-slot="primary"></select></label>' +
-      '<label>ATTACHMENT<select id="hud-class-attachment" data-slot="attachment"></select>' +
+      '<label>PRIMARY<select id="hud-class-primary" data-slot="primary"></select>' +
       '<small id="hud-class-weapon-progress" class="mn-weapon-progress"></small></label>' +
+      '<label>ATTACHMENT<select id="hud-class-attachment" data-slot="attachment"></select></label>' +
       '<label>SECONDARY<select id="hud-class-secondary" data-slot="secondary"></select></label>' +
       '<label>LETHAL<select id="hud-class-lethal" data-slot="lethal"></select></label>' +
       '<label>TACTICAL<select id="hud-class-tactical" data-slot="tactical"></select></label>' +
@@ -4922,7 +4970,7 @@ export default class HUD {
       '<button type="button" id="hud-class-reset">RESET CLASS</button>' +
       '</div></section>' +
       '<div class="mn-actions">' +
-      '<button id="hud-start"><span class="btn-main">PLAY VS BOTS</span>' +
+      '<button id="hud-start" type="button"><span class="btn-main">PLAY VS BOTS</span>' +
       '<span class="btn-sub" id="hud-start-sub">INSTANT SOLO MATCH</span></button>' +
       '</div>' +
       '<div class="mn-quick" role="group" aria-label="More options">' +
@@ -4935,6 +4983,9 @@ export default class HUD {
       '</div>' +
       '<section class="mn-settings" id="hud-menu-settings" role="region" aria-labelledby="hud-settings-open" hidden>' +
       '<div class="mn-settings-title"><strong>GAME SETTINGS</strong><span>CHANGES SAVE ON THIS DEVICE</span></div>' +
+      '<div class="mn-settings-groups">' +
+      '<section class="mn-settings-group" aria-labelledby="hud-settings-look">' +
+      '<h3 id="hud-settings-look">LOOK</h3>' +
       '<div class="mn-settings-tuning">' +
       '<label class="mn-setting" for="hud-look-sensitivity"><span><strong>LOOK SENSITIVITY</strong>' +
       '<output id="hud-look-sensitivity-output" for="hud-look-sensitivity">' +
@@ -4942,60 +4993,77 @@ export default class HUD {
       '<input id="hud-look-sensitivity" type="range" min="' + SETTINGS_LIMITS.lookSensitivity.min +
       '" max="' + SETTINGS_LIMITS.lookSensitivity.max + '" step="' + SETTINGS_LIMITS.lookSensitivity.step +
       '" value="' + lookSensitivity + '"></label>' +
-      '<label class="mn-setting" for="hud-brightness"><span><strong>BRIGHTNESS</strong>' +
-      '<output id="hud-brightness-output" for="hud-brightness">' +
-      (brightnessEv > 0 ? '+' : '') + brightnessEv.toFixed(2) + ' EV</output></span>' +
-      '<input id="hud-brightness" type="range" min="' + SETTINGS_LIMITS.brightnessEv.min +
-      '" max="' + SETTINGS_LIMITS.brightnessEv.max + '" step="' + SETTINGS_LIMITS.brightnessEv.step +
-      '" value="' + brightnessEv + '"></label>' +
-      '<label class="mn-setting" for="hud-volume"><span><strong>VOLUME</strong>' +
-      '<output id="hud-volume-output" for="hud-volume">' + Math.round(volume * 100) + '%</output></span>' +
-      '<input id="hud-volume" type="range" min="' + SETTINGS_LIMITS.volume.min +
-      '" max="' + SETTINGS_LIMITS.volume.max + '" step="' + SETTINGS_LIMITS.volume.step +
-      '" value="' + volume + '"></label>' +
-      '<label class="mn-setting" for="hud-fov"><span><strong>FIELD OF VIEW</strong>' +
-      '<output id="hud-fov-output" for="hud-fov">' + fov + '°</output></span>' +
-      '<input id="hud-fov" type="range" min="' + SETTINGS_LIMITS.fov.min +
-      '" max="' + SETTINGS_LIMITS.fov.max + '" step="' + SETTINGS_LIMITS.fov.step +
-      '" value="' + fov + '"></label>' +
-      '<label class="mn-setting mn-setting-toggle" for="hud-graphics"><span><strong>GRAPHICS</strong>' +
-      '<output id="hud-graphics-note">AUTO ADJUSTS TO YOUR DEVICE</output></span>' +
-      '<select id="hud-graphics">' +
-      Object.entries(GRAPHICS_LABELS).map(([id, label]) =>
-        '<option value="' + id + '"' + ((settings?.graphics || 'auto') === id ? ' selected' : '') + '>' + label + '</option>').join('') +
-      '</select>' +
-      '<button id="hud-graphics-reload" class="mn-graphics-reload" type="button" hidden>RELOAD NOW</button></label>' +
-      '<label class="mn-setting mn-setting-toggle" for="hud-announcer"><span><strong>ANNOUNCER VOICE</strong>' +
-      '<output id="hud-announcer-output" for="hud-announcer">' + (settings?.announcer === false ? 'OFF' : 'ON') + '</output></span>' +
-      '<small class="mn-setting-note">SPOKEN MATCH CALLOUTS</small>' +
-      '<input id="hud-announcer" type="checkbox"' + (settings?.announcer === false ? '' : ' checked') + '></label>' +
-      '<label class="mn-setting mn-setting-toggle" for="hud-killcam-setting"><span><strong>KILLCAM</strong>' +
-      '<output id="hud-killcam-setting-output" for="hud-killcam-setting">' + (settings?.killcam === false ? 'OFF' : 'ON') + '</output></span>' +
-      '<small class="mn-setting-note">REPLAY HOW YOU DIED · <span class="mn-note-desk">JUMP OR CLICK SKIPS</span><span class="mn-note-touch">NEXT SKIPS</span></small>' +
-      '<input id="hud-killcam-setting" type="checkbox"' + (settings?.killcam === false ? '' : ' checked') + '></label>' +
-      '<label class="mn-setting mn-setting-toggle mn-setting-mouse-only" for="hud-aim-toggle"><span><strong>TOGGLE AIM</strong>' +
-      '<output id="hud-aim-toggle-output" for="hud-aim-toggle">' + (settings?.aimToggle ? 'ON' : 'OFF') + '</output></span>' +
-      '<small class="mn-setting-note">RIGHT CLICK AIMS IN AND OUT · SPRINT CANCELS</small>' +
-      '<input id="hud-aim-toggle" type="checkbox"' + (settings?.aimToggle ? ' checked' : '') + '></label>' +
-      '<label class="mn-setting mn-setting-toggle mn-setting-mouse-only" for="hud-crouch-toggle"><span><strong>TOGGLE CROUCH</strong>' +
-      '<output id="hud-crouch-toggle-output" for="hud-crouch-toggle">' + (settings?.crouchToggle ? 'ON' : 'OFF') + '</output></span>' +
-      '<small class="mn-setting-note">CROUCH KEY OR CONTROLLER B PRESSES IN AND OUT · SPRINT CANCELS</small>' +
-      '<input id="hud-crouch-toggle" type="checkbox"' + (settings?.crouchToggle ? ' checked' : '') + '></label>' +
-      '<label class="mn-setting mn-setting-toggle" for="hud-invert-y"><span><strong>INVERT LOOK</strong>' +
-      '<output id="hud-invert-y-output" for="hud-invert-y">' + (settings?.invertY ? 'ON' : 'OFF') + '</output></span>' +
-      '<small class="mn-setting-note">PUSH UP TO LOOK DOWN · MOUSE, TOUCH AND CONTROLLER</small>' +
-      '<input id="hud-invert-y" type="checkbox"' + (settings?.invertY ? ' checked' : '') + '></label>' +
       '<label class="mn-setting" for="hud-ads-sensitivity"><span><strong>AIM SENSITIVITY</strong>' +
       '<output id="hud-ads-sensitivity-output" for="hud-ads-sensitivity">' +
       Number(settings?.adsSensitivity ?? 1).toFixed(2) + '×</output></span>' +
       '<input id="hud-ads-sensitivity" type="range" min="' + SETTINGS_LIMITS.adsSensitivity.min +
       '" max="' + SETTINGS_LIMITS.adsSensitivity.max + '" step="' + SETTINGS_LIMITS.adsSensitivity.step +
       '" value="' + Number(settings?.adsSensitivity ?? 1) + '"></label>' +
+      '<label class="mn-setting" for="hud-fov"><span><strong>FIELD OF VIEW</strong>' +
+      '<output id="hud-fov-output" for="hud-fov">' + fov + '°</output></span>' +
+      '<input id="hud-fov" type="range" min="' + SETTINGS_LIMITS.fov.min +
+      '" max="' + SETTINGS_LIMITS.fov.max + '" step="' + SETTINGS_LIMITS.fov.step +
+      '" value="' + fov + '"></label>' +
+      '<label class="mn-setting mn-setting-toggle" for="hud-invert-y"><span><strong>INVERT LOOK</strong>' +
+      '<output id="hud-invert-y-output" for="hud-invert-y">' + (settings?.invertY ? 'ON' : 'OFF') + '</output></span>' +
+      '<small class="mn-setting-note">PUSH UP TO LOOK DOWN · MOUSE, TOUCH AND CONTROLLER</small>' +
+      '<input id="hud-invert-y" type="checkbox"' + (settings?.invertY ? ' checked' : '') + '></label>' +
+      '<label class="mn-setting mn-setting-toggle mn-setting-mouse-only" for="hud-aim-toggle"><span><strong>TOGGLE AIM</strong>' +
+      '<output id="hud-aim-toggle-output" for="hud-aim-toggle">' + (settings?.aimToggle ? 'ON' : 'OFF') + '</output></span>' +
+      '<small class="mn-setting-note">RIGHT CLICK AIMS IN AND OUT · SPRINT CANCELS</small>' +
+      '<input id="hud-aim-toggle" type="checkbox"' + (settings?.aimToggle ? ' checked' : '') + '></label>' +
+      '</div></section>' +
+      '<section class="mn-settings-group" aria-labelledby="hud-settings-picture">' +
+      '<h3 id="hud-settings-picture">PICTURE</h3>' +
+      '<div class="mn-settings-tuning">' +
+      '<label class="mn-setting" for="hud-brightness"><span><strong>BRIGHTNESS</strong>' +
+      '<output id="hud-brightness-output" for="hud-brightness">' + brightnessLabel(brightnessEv) + '</output></span>' +
+      '<small class="mn-setting-note">0 IS THE DESIGNED PICTURE</small>' +
+      '<input id="hud-brightness" type="range" min="' + SETTINGS_LIMITS.brightnessEv.min +
+      '" max="' + SETTINGS_LIMITS.brightnessEv.max + '" step="' + SETTINGS_LIMITS.brightnessEv.step +
+      '" value="' + brightnessEv + '"></label>' +
       '<label class="mn-setting mn-setting-toggle" for="hud-show-fps"><span><strong>SHOW FPS</strong>' +
       '<output id="hud-show-fps-output" for="hud-show-fps">' + (settings?.showFps ? 'ON' : 'OFF') + '</output></span>' +
       '<small class="mn-setting-note">FRAME RATE IN THE CORNER</small>' +
       '<input id="hud-show-fps" type="checkbox"' + (settings?.showFps ? ' checked' : '') + '></label>' +
+      '<div class="mn-setting mn-setting-wide"><span><strong id="hud-graphics-label">GRAPHICS</strong>' +
+      '<output id="hud-graphics-note">AUTO ADJUSTS TO YOUR DEVICE</output></span>' +
+      '<div class="mn-graphics-row" id="hud-graphics" role="radiogroup" aria-labelledby="hud-graphics-label">' +
+      Object.entries(GRAPHICS_LABELS).map(([id, label]) => {
+        const on = (settings?.graphics || 'auto') === id;
+        return '<button type="button" data-graphics="' + id + '" aria-pressed="' + (on ? 'true' : 'false') +
+          '" class="' + (on ? 'selected' : '') + '" aria-label="' + esc(label + '. ' + GRAPHICS_DETAILS[id]) + '">' +
+          '<strong>' + esc(label) + '</strong><span>' + esc(GRAPHICS_SUMMARIES[id]) + '</span></button>';
+      }).join('') +
       '</div>' +
+      '<small class="mn-setting-note" id="hud-graphics-detail">' + esc(GRAPHICS_DETAILS[settings?.graphics || 'auto']) + '</small>' +
+      '<button id="hud-graphics-reload" class="mn-graphics-reload" type="button" hidden>RELOAD NOW</button></div>' +
+      '</div></section>' +
+      '<section class="mn-settings-group" aria-labelledby="hud-settings-sound">' +
+      '<h3 id="hud-settings-sound">SOUND</h3>' +
+      '<div class="mn-settings-tuning">' +
+      '<label class="mn-setting" for="hud-volume"><span><strong>VOLUME</strong>' +
+      '<output id="hud-volume-output" for="hud-volume">' + Math.round(volume * 100) + '%</output></span>' +
+      '<input id="hud-volume" type="range" min="' + SETTINGS_LIMITS.volume.min +
+      '" max="' + SETTINGS_LIMITS.volume.max + '" step="' + SETTINGS_LIMITS.volume.step +
+      '" value="' + volume + '"></label>' +
+      '<label class="mn-setting mn-setting-toggle" for="hud-announcer"><span><strong>ANNOUNCER VOICE</strong>' +
+      '<output id="hud-announcer-output" for="hud-announcer">' + (settings?.announcer === false ? 'OFF' : 'ON') + '</output></span>' +
+      '<small class="mn-setting-note">SPOKEN MATCH CALLOUTS</small>' +
+      '<input id="hud-announcer" type="checkbox"' + (settings?.announcer === false ? '' : ' checked') + '></label>' +
+      '</div></section>' +
+      '<section class="mn-settings-group" aria-labelledby="hud-settings-match">' +
+      '<h3 id="hud-settings-match">MATCH</h3>' +
+      '<div class="mn-settings-tuning">' +
+      '<label class="mn-setting mn-setting-toggle" for="hud-killcam-setting"><span><strong>KILLCAM</strong>' +
+      '<output id="hud-killcam-setting-output" for="hud-killcam-setting">' + (settings?.killcam === false ? 'OFF' : 'ON') + '</output></span>' +
+      '<small class="mn-setting-note">REPLAY HOW YOU DIED · <span class="mn-note-desk">JUMP OR CLICK SKIPS</span><span class="mn-note-touch">NEXT SKIPS</span></small>' +
+      '<input id="hud-killcam-setting" type="checkbox"' + (settings?.killcam === false ? '' : ' checked') + '></label>' +
+      '<label class="mn-setting mn-setting-toggle mn-setting-mouse-only" for="hud-crouch-toggle"><span><strong>TOGGLE CROUCH</strong>' +
+      '<output id="hud-crouch-toggle-output" for="hud-crouch-toggle">' + (settings?.crouchToggle ? 'ON' : 'OFF') + '</output></span>' +
+      '<small class="mn-setting-note">CROUCH KEY OR CONTROLLER B PRESSES IN AND OUT · SPRINT CANCELS</small>' +
+      '<input id="hud-crouch-toggle" type="checkbox"' + (settings?.crouchToggle ? ' checked' : '') + '></label>' +
+      '</div></section></div>' +
       '<section class="mn-bindings-section" aria-labelledby="hud-bindings-title">' +
       '<div class="mn-bindings-head"><strong id="hud-bindings-title">KEY BINDINGS</strong>' +
       '<span>SELECT AN ACTION, THEN PRESS A KEY</span></div>' +
@@ -5020,8 +5088,8 @@ export default class HUD {
       '<span id="hud-leaderboard-character">VANGUARD</span></span>' +
       '<button class="lb-profile-edit hud-profile-open" type="button">EDIT PROFILE</button></div>' +
       '<div class="lb-tabs" role="tablist" aria-label="Leaderboard category">' +
-      '<button type="button" data-leaderboard-category="humans" role="tab">HUMANS</button>' +
-      '<button type="button" data-leaderboard-category="bots" role="tab">BOTS</button>' +
+      '<button type="button" data-leaderboard-category="humans" role="tab" aria-selected="false">HUMANS</button>' +
+      '<button type="button" data-leaderboard-category="bots" role="tab" aria-selected="false">BOTS</button>' +
       '<button type="button" data-leaderboard-category="overall" class="active" role="tab" aria-selected="true">OVERALL</button>' +
       '</div><button id="hud-leaderboard-refresh" type="button">↻ REFRESH</button></div>' +
       '<div class="lb-self-card" id="hud-leaderboard-self"><span><small>YOUR OVERALL RANK</small><strong>UNRANKED</strong></span>' +
@@ -5879,11 +5947,6 @@ html.touch-device .kc-row { padding-right: 104px; }
   html:not(.touch-device) #hud-top { left: auto; right: 8px; transform: none; }
   html:not(.touch-device) #hud-money { left: 18px; bottom: 80px; }
 }
-/* A very narrow window: mode and bot-skill buttons keep their names only (the
-   descriptions shrank to stray glyphs). */
-@media (max-width: 480px) {
-  [data-mode-id] span, [data-bot-skill] span { display: none; }
-}
 @media (max-width: 480px) {
   #hud-buy-cats { grid-template-columns: 1fr; }
   .buy-title { letter-spacing: .2em; }
@@ -5901,9 +5964,21 @@ html.touch-device .kc-row { padding-right: 104px; }
 }
 .pause-inner { text-align: center; margin: auto; }
 #hud-pause.with-panel { background: rgba(3, 4, 2, 0.9); }
-.pause-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 26px; }
+.pause-resume {
+  display: block; margin: 18px auto 0; min-width: min(280px, 100%); min-height: 44px; padding: 12px 28px 11px;
+  font: inherit; font-size: 15px; font-weight: 900; letter-spacing: .28em; text-indent: .28em;
+  color: var(--olive-bright); cursor: pointer;
+  background: linear-gradient(180deg, rgba(154, 178, 107, 0.28), rgba(154, 178, 107, 0.1));
+  border: 1px solid var(--olive);
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+}
+.pause-resume:hover, .pause-resume:focus-visible {
+  background: linear-gradient(180deg, rgba(154, 178, 107, 0.42), rgba(154, 178, 107, 0.18));
+}
+.pause-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 14px; }
 .pause-actions .pause-menu { margin-top: 0; }
-#hud-pause-panel { margin: 14px auto 0; width: min(560px, 92vw); text-align: left; cursor: default; }
+#hud-pause-panel { margin: 14px auto 0; width: min(920px, 94vw); text-align: left; cursor: default; }
+#hud-pause.with-panel .pause-inner { width: min(960px, 96vw); }
 #hud-pause-panel[hidden] { display: none; }
 #hud-pause-panel .mn-settings { width: 100%; margin: 0; }
 #hud-howto {
@@ -5939,7 +6014,7 @@ html.touch-device .kc-row { padding-right: 104px; }
   text-shadow: 0 0 20px rgba(154, 178, 107, 0.4), 0 2px 2px #000;
   animation: hud-blink 1s step-end infinite alternate;
 }
-.pause-sub { font-size: 11px; letter-spacing: .3em; color: var(--olive-dim); margin-top: 12px; }
+.pause-sub { font-size: 11px; letter-spacing: .3em; color: var(--olive-dim); margin-top: 14px; }
 .pause-menu, .end-menu-link {
   margin-top: 26px; padding: 9px 18px; background: rgba(8, 11, 6, 0.7);
   border: 1px solid rgba(154, 178, 107, 0.35); color: var(--olive-dim);
@@ -6102,29 +6177,40 @@ html.touch-device .kc-row { padding-right: 104px; }
 .mn-class:hover { border-color:var(--olive); }
 .mn-class:focus-visible { outline:2px solid var(--olive-bright); outline-offset:2px; }
 .mn-class.selected { border-color:var(--olive-bright); background:rgba(154,178,107,.16); box-shadow:inset 0 0 0 1px var(--olive); }
-.mn-class-editor { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; align-items:end; margin-top:8px; padding:9px;
+.mn-class-editor { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; align-items:start; margin-top:8px; padding:9px;
   background:rgba(8,13,8,.72); border:1px solid rgba(154,178,107,.22); }
 .mn-class-editor label { display:flex; flex-direction:column; gap:4px; font-size:10px; font-weight:900; letter-spacing:.18em; color:var(--olive-dim); }
 .mn-class-editor input, .mn-class-editor select { min-width:0; height:30px; padding:0 6px; font:inherit; font-size:12px; font-weight:900;
   letter-spacing:.06em; color:#eef5e5; background:#080d08; border:1px solid rgba(154,178,107,.38); }
 .mn-class-editor input:focus-visible, .mn-class-editor select:focus-visible { outline:2px solid var(--olive-bright); outline-offset:1px; }
-#hud-class-perk-detail { grid-column:1 / span 3; margin:0; font-size:10px; letter-spacing:.08em; color:var(--olive); }
-.mn-mode-row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px 8px; }
+#hud-class-perk-detail { grid-column:1 / span 3; margin:0; align-self:center; font-size:10px; letter-spacing:.08em; line-height:1.4; color:var(--olive); }
+#hud-class-reset { justify-self:end; align-self:center; }
+.mn-mode-row { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px 8px; }
 .mn-mode {
-  appearance:none; display:flex; align-items:baseline; justify-content:space-between; gap:10px; min-width:0;
-  padding:9px 12px; font-family:inherit; text-align:left; cursor:pointer; color:#dfe8d2;
+  appearance:none; display:flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:3px;
+  min-width:0; min-height:52px; padding:8px 12px 9px; font-family:inherit; text-align:left; cursor:pointer; color:#dfe8d2;
   background:rgba(8,13,8,.72); border:1px solid rgba(154,178,107,.22);
   clip-path:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px);
   transition:border-color .12s,background .12s;
 }
-.mn-mode strong { font-size:12.5px; font-weight:900; letter-spacing:.12em; white-space:nowrap; }
-.mn-mode span { font-size:10px; font-weight:900; letter-spacing:.12em; color:var(--olive-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.mn-mode strong { max-width:100%; font-size:12.5px; font-weight:900; letter-spacing:.1em; line-height:1.15; }
+.mn-mode span {
+  max-width:100%; font-size:10px; font-weight:800; letter-spacing:.08em; line-height:1.3; color:var(--olive-dim);
+}
 .mn-mode:hover { border-color:var(--olive); }
 .mn-mode:focus-visible { outline:2px solid var(--olive-bright); outline-offset:2px; }
-.mn-mode.selected { border-color:var(--olive-bright); background:rgba(154,178,107,.16); box-shadow:inset 0 0 0 1px var(--olive); }
+.mn-mode.selected {
+  border-color:var(--olive-bright); background:rgba(154,178,107,.16);
+  box-shadow:inset 3px 0 0 var(--olive-bright), inset 0 0 0 1px var(--olive);
+}
 .mn-mode.selected span { color:var(--olive-bright); }
 .mn-sub-head { margin-top:8px; }
 .mn-skill-row { grid-template-columns:repeat(3,minmax(0,1fr)); }
+/* Below this the three-up cards crush "SEARCH & DESTROY" and the rule line. */
+@media (max-width: 760px) {
+  .mn-mode-row { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .mn-skill-row { grid-template-columns:repeat(3,minmax(0,1fr)); }
+}
 /* ---------- primary action + quiet secondary row ---------- */
 .mn-actions,.end-actions { position:relative; display:flex; align-items:stretch; justify-content:center; gap:10px; }
 #hud-start, #hud-restart, #hud-end-leaderboard {
@@ -6183,7 +6269,7 @@ html.touch-device .kc-row { padding-right: 104px; }
 .mn-sr { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
 /* ---------- collapsed sections ---------- */
 #hud-menu:not(.mn-online-open) #mp-panel { display:none; }
-.mn-weapon-progress { display:block; margin-top:3px; font-size:10px; font-weight:800; letter-spacing:.08em; color:var(--olive); }
+.mn-weapon-progress { display:block; margin-top:2px; font-size:10px; font-weight:800; letter-spacing:.06em; line-height:1.35; color:var(--olive); }
 #hud-menu.mn-room-guest [aria-disabled="true"] { pointer-events:none; opacity:.55; }
 #hud-menu.mn-room-guest #hud-map-picker::before { content:'HOST PICKS'; display:block; margin-bottom:4px; font-size:10px;
   font-weight:900; letter-spacing:.22em; color:var(--olive); }
@@ -6205,7 +6291,11 @@ html.touch-device .kc-row { padding-right: 104px; }
 .mn-settings-title span,.mn-bindings-head span {
   font-size:10px; font-weight:800; letter-spacing:.14em; color:var(--olive-dim);
 }
+.mn-settings-groups { display:grid; gap:14px; }
+.mn-settings-group { min-width:0; display:grid; gap:8px; align-content:start; }
+.mn-settings-group h3 { font-size:10px; font-weight:900; letter-spacing:.28em; color:var(--olive-dim); }
 .mn-settings-tuning { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.mn-setting-wide { grid-column:1 / -1; }
 .mn-setting {
   min-width:0; display:grid; gap:8px; padding:10px 12px;
   background:rgba(0,0,0,.22); border:1px solid rgba(154,178,107,.16);
@@ -6518,6 +6608,7 @@ html.touch-device .mn-id { min-height:52px; }
 @media (max-width: 620px) {
   #hud-menu { padding-inline:12px; }
   .mn-title { font-size:40px; }
+  .mn-op { letter-spacing:.28em; text-indent:.28em; }
   .mn-career,.mn-map-picker,.mn-mode-picker,.mn-class-picker { width:100%; }
   .mn-class-row,.mn-class-editor { grid-template-columns:repeat(2,minmax(0,1fr)); }
   #hud-class-perk-detail { grid-column:1 / -1; }
@@ -6565,6 +6656,10 @@ html.touch-device .mn-id { min-height:52px; }
   .profile-actions button { min-width:0; flex:1; }
   .end-inner { width:94vw; padding:28px 18px 24px; }
   .end-rewards { width:100%; }
+}
+@media (max-width: 520px) {
+  .mn-settings-tuning { grid-template-columns:1fr; }
+  .mn-setting-wide { grid-column:auto; }
 }
 @media (max-height: 680px) and (min-width: 621px) {
   #hud-menu { padding-top:10px; gap:8px; }
@@ -6723,6 +6818,25 @@ html.touch-device #hud-streaks { display: none; }
   outline: 2px solid var(--olive-bright) !important; outline-offset: -4px !important;
 }
 
+.mn-graphics-row { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
+@media (max-width: 520px) {
+  .mn-graphics-row { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+.mn-graphics-row button {
+  appearance:none; display:flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:2px;
+  min-width:0; min-height:44px; padding:7px 8px 8px; font:inherit; text-align:left; cursor:pointer; color:#dfe8d2;
+  background:rgba(8,13,8,.72); border:1px solid rgba(154,178,107,.22);
+}
+.mn-graphics-row strong { max-width:100%; font-size:11px; font-weight:900; letter-spacing:.08em; line-height:1.15; }
+.mn-graphics-row span {
+  max-width:100%; font-size:9px; font-weight:800; letter-spacing:.06em; line-height:1.25; color:var(--olive-dim);
+}
+.mn-graphics-row button:hover { border-color:var(--olive); }
+.mn-graphics-row button.selected {
+  border-color:var(--olive-bright); background:rgba(154,178,107,.16);
+  box-shadow:inset 3px 0 0 var(--olive-bright), inset 0 0 0 1px var(--olive);
+}
+.mn-graphics-row button.selected span { color:var(--olive-bright); }
 .mn-graphics-reload {
   justify-self: start; padding: 5px 10px; cursor: pointer; font: inherit; font-size: 10px; font-weight: 900;
   letter-spacing: .14em; color: #0a0e08; background: var(--olive-bright); border: 0;

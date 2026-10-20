@@ -178,7 +178,7 @@ to 8 steps. It needs the per-layer switches from phase 2 first.
 ## Settings
 
 Today: one **Graphics** select (Auto / High / Low / Chromebook / Low-power).
-It shows what Auto picked ("AUTO · USING CHROMEBOOK / LOW-POWER") and, when
+It shows what Auto picked ("AUTO · USING LOW POWER") and, when
 the choice changes, "APPLIES AFTER RELOAD" with a RELOAD NOW button on the
 main menu.
 
