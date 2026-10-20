@@ -13,21 +13,27 @@
 // material shader. Map layout, props and cover are identical on every preset:
 // they are gameplay.
 //
+// Medium sits between them: the HDR chain and bloom without the ambient-
+// occlusion pass (a second full geometry submit), a 2048 shadow map, a 1.25
+// pixel-ratio cap and a slower sky re-bake. It is what Auto picks for a
+// desktop: High is a deliberate choice for a strong GPU.
+//
 // Auto picks: a software renderer gets Chromebook; a phone or tablet Low; a
 // Chromebook (unless its GPU is an Iris Xe / Radeon Vega class part) or a
 // laptop with a known low-power GPU, Chromebook; a desktop with an older
-// Intel HD/UHD part Low; everything else High. A device that cannot hold
+// Intel HD/UHD part Low; everything else Medium. A device that cannot hold
 // the frame rate is stepped down at runtime by auto-graphics, which
 // remembers the floor for the next visit.
 // ============================================================================
 
-export const GRAPHICS_PRESETS = Object.freeze(['high', 'low', 'chromebook']);
+export const GRAPHICS_PRESETS = Object.freeze(['high', 'medium', 'low', 'chromebook']);
 
 export const GRAPHICS_PROFILES = Object.freeze({
   high: Object.freeze({
     id: 'high',
     tier: 'high',
     post: true,
+    ssao: true,
     msaa: true,
     maxPixelRatio: 1.5,
     renderScale: 1,
@@ -36,8 +42,18 @@ export const GRAPHICS_PROFILES = Object.freeze({
     shadowInterval: 1,
     skyEquirect: 2048,
     skyRefresh: 0.4,
+    // Antialiasing in the post chain: 'auto' probes for HDR MSAA; FXAA skips
+    // resolving a multisampled half-float target.
+    postAa: 'auto',
+    // Parallax occlusion: most height steps per pixel, and how far out (as a
+    // fraction of each surface's own fade distance) it runs at all.
+    parallaxSteps: 48,
+    parallaxRange: 1,
     liteShading: false,
     fxLights: true,
+    // Effect point lights kept: 5 is player muzzle, bot muzzle, two explosions
+    // and the flashbang; 3 shares one slot among explosions and flashbangs.
+    fxLightSlots: 5,
     mapLights: true,
     precipitation: 1,
     radarInterval: 0.05,
@@ -48,20 +64,51 @@ export const GRAPHICS_PROFILES = Object.freeze({
     // left on the floor. Smoke-grenade cover is gameplay and never scales.
     fxScale: 1,
   }),
+  medium: Object.freeze({
+    id: 'medium',
+    tier: 'high',
+    post: true,
+    ssao: false,
+    msaa: true,
+    maxPixelRatio: 1.25,
+    renderScale: 1,
+    shadowMapSize: 2048,
+    shadowFilter: 'soft',
+    shadowInterval: 2,
+    skyEquirect: 1024,
+    skyRefresh: 1,
+    postAa: 'fxaa',
+    parallaxSteps: 12,
+    parallaxRange: 0.7,
+    liteShading: false,
+    fxLights: true,
+    fxLightSlots: 3,
+    mapLights: true,
+    precipitation: 0.75,
+    radarInterval: 0.05,
+    weaponShadows: true,
+    // m: a soldier's body stops casting past this (~23k tris a body).
+    botShadowDistance: 35,
+    fxScale: 0.85,
+  }),
   low: Object.freeze({
     id: 'low',
     tier: 'low',
     post: false,
+    ssao: false,
     msaa: true,
-    maxPixelRatio: 1.5,
+    maxPixelRatio: 1.25,
     renderScale: 1,
     shadowMapSize: 2048,
     shadowFilter: 'soft',
-    shadowInterval: 1,
+    shadowInterval: 2,
     skyEquirect: 512,
     skyRefresh: 0.8,
+    parallaxSteps: 8,
+    parallaxRange: 0.5,
     liteShading: false,
     fxLights: true,
+    fxLightSlots: 3,
     mapLights: true,
     precipitation: 0.5,
     radarInterval: 0.05,
@@ -74,6 +121,7 @@ export const GRAPHICS_PROFILES = Object.freeze({
     id: 'chromebook',
     tier: 'low',
     post: false,
+    ssao: false,
     msaa: false,
     maxPixelRatio: 1,
     renderScale: 0.8,
@@ -101,6 +149,7 @@ export const GRAPHICS_PROFILES = Object.freeze({
 export const GRAPHICS_LABELS = Object.freeze({
   auto: 'AUTO',
   high: 'HIGH',
+  medium: 'MEDIUM',
   low: 'LOW',
   chromebook: 'LOW POWER',
 });
@@ -109,6 +158,7 @@ export const GRAPHICS_LABELS = Object.freeze({
 export const GRAPHICS_SUMMARIES = Object.freeze({
   auto: 'THIS DEVICE',
   high: 'FULL DETAIL',
+  medium: 'BALANCED',
   low: 'LIGHTER',
   chromebook: 'SMOOTHEST',
 });
@@ -116,7 +166,8 @@ export const GRAPHICS_SUMMARIES = Object.freeze({
 /** What the selected preset changes, shown under the cards. */
 export const GRAPHICS_DETAILS = Object.freeze({
   auto: 'MATCHES THIS DEVICE · STEPS DOWN IF A MATCH RUNS SLOW',
-  high: 'FULL LIGHTING · SOFT SHADOWS · BLOOM AND AMBIENT OCCLUSION',
+  high: 'FULL LIGHTING · SOFT SHADOWS · BLOOM AND AMBIENT OCCLUSION · FOR A STRONG GPU',
+  medium: 'BLOOM · LIGHTER SHADOWS · NO AMBIENT OCCLUSION',
   low: 'LIGHTER SHADOWS · NO POST EFFECTS · THE WORLD STAYS THE SAME',
   chromebook: 'SIMPLEST LIGHTING AND SURFACES · FOR A WEAK GPU',
 });
@@ -159,6 +210,23 @@ export function probeGpuName(doc = globalThis.document) {
   }
 }
 
+// Render scale (Settings > Picture): 0 is Auto (the preset's own scale, and
+// auto-graphics may lower it mid-match); otherwise a fixed fraction of the
+// display resolution. Applies live: only the drawing buffer changes.
+export const RENDER_SCALE_LIMITS = Object.freeze({ min: 0.5, max: 1, step: 0.05, auto: 0 });
+// What auto-graphics drops an Auto render scale to on a device still slow
+// after the pixel-ratio cap.
+export const AUTO_RENDER_SCALE_FLOOR = 0.75;
+
+/** A stored or slider render scale: 0 (Auto) or 0.5-1 in 5% steps. */
+export function normalizeRenderScale(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < RENDER_SCALE_LIMITS.min - 0.001) return RENDER_SCALE_LIMITS.auto;
+  const { min, max, step } = RENDER_SCALE_LIMITS;
+  const steps = Math.round((Math.min(max, n) - min) / step);
+  return Number((min + steps * step).toFixed(2));
+}
+
 /** The preset Auto starts from on this device, before any runtime step-down. */
 export function autoGraphicsPreset({ touch = false, chromeOS = false, gpu = '' } = {}) {
   const name = String(gpu || '');
@@ -167,12 +235,12 @@ export function autoGraphicsPreset({ touch = false, chromeOS = false, gpu = '' }
   // a Chromebook first.
   if (chromeOS) {
     if (WEAK_GPU.test(name) || !STRONG_INTEGRATED.test(name)) return 'chromebook';
-    return touch ? 'low' : 'high';
+    return touch ? 'low' : 'medium';
   }
   if (touch) return 'low';
   if (WEAK_GPU.test(name)) return 'chromebook';
   if (OLD_INTEL.test(name) && !STRONG_INTEGRATED.test(name)) return 'low';
-  return 'high';
+  return 'medium';
 }
 
 const ORDER = GRAPHICS_PRESETS;

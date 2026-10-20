@@ -106,7 +106,8 @@ export default class Rounds {
     this._bombLight = new THREE.PointLight(0xff3a22, 0, 6, 2);
     this._bombLight.castShadow = false;
     // Chromebook preset: no scene lights from effects (the LED still glows).
-    this._bombLight.visible = game.gfx?.fxLights !== false;
+    // Only Search & Destroy has a bomb: see _syncBombLights.
+    this._bombLight.visible = false;
     if (game.scene && typeof game.scene.add === 'function') game.scene.add(this._bombLight);
     this._bombInScene = false;
     this._bombDefusedVisual = false;
@@ -561,6 +562,7 @@ export default class Rounds {
     // Online rooms play the mode their host picked; solo plays the menu pick.
     const mp = this.game.multiplayer;
     s.mode = normalizeModeId(mp && mp.active ? mp.gameMode : this.game.selectedMode);
+    this._syncBombLights(s.mode);
     // A map can be out of a mode's rotation (Frostline in S&D); a saved pick
     // or a ?map= link must not start the match there.
     const world = this.game.world;
@@ -1030,6 +1032,19 @@ export default class Rounds {
       scene.add(group);
       this._bombInScene = true;
     }
+  }
+
+  /**
+   * The C4's two lights (this LED and the effects' pulse) exist only in
+   * Search & Destroy. Every visible light is a loop in every lit pixel, so the
+   * respawn modes leave them out. Set at match start, before the shader
+   * pre-warm that 'ui:start' runs, so the count never changes mid-match.
+   */
+  _syncBombLights(mode) {
+    const on = mode === 'sd' && this.game.gfx?.fxLights !== false;
+    if (this._bombLight) this._bombLight.visible = on;
+    const fxBomb = this.game.effects?.bombLight;
+    if (fxBomb) fxBomb.visible = on;
   }
 
   _removeBombMesh() {

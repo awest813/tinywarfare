@@ -176,6 +176,12 @@ export default class World {
     // Their light comes back as a flat warm floor on the interior ambient
     // (no per-light cost), or night maps go nearly black.
     this._lampFill = null;
+    // Lamps authored at intensity 0 (Neon Foundry's rig carries six) light
+    // nothing but still cost a loop in every lit pixel: hidden on every preset.
+    // Map lamps never change intensity after load.
+    this.environment.traverse((o) => {
+      if (o.isPointLight && !(o.intensity > 0.01)) o.visible = false;
+    });
     if (this.game.gfx?.mapLights === false) {
       // Weighted by each lamp's power: dark rig lamps (intensity 0) add
       // nothing, and a dim lamp counts less than a bright one.

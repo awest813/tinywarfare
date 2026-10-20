@@ -317,9 +317,10 @@ test('graphics: auto picks by device, remembers a slow one, and a pick overrides
   const store = new Map();
   const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
   const settings = new GameSettings(null, storage);
-  assert.deepEqual(GRAPHICS_OPTIONS, ['auto', 'high', 'low', 'chromebook']);
+  assert.deepEqual(GRAPHICS_OPTIONS, ['auto', 'high', 'medium', 'low', 'chromebook']);
   assert.equal(settings.graphics, 'auto');
-  assert.equal(settings.graphicsQuality(false), 'high', 'a desktop starts on High');
+  assert.equal(settings.graphicsQuality(false), 'high', 'a desktop starts on the high tier');
+  assert.equal(settings.graphicsPreset(false), 'medium', '...on Medium: High is a deliberate pick');
   assert.equal(settings.graphicsQuality(true), 'low', 'a phone starts on Low');
   settings.setGraphicsAutoFloor('low');
   assert.equal(new GameSettings(null, storage).graphicsQuality(false), 'low', 'a slow desktop is remembered');
@@ -345,9 +346,9 @@ test('graphics: Chromebook preset, device detection, and the remembered floor', 
   const rtx = { gpu: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)' };
   assert.equal(settings.graphicsPreset(mali), 'chromebook');
   assert.equal(settings.graphicsPreset(n100), 'chromebook');
-  assert.equal(settings.graphicsPreset(irisCrOS), 'high', 'a Chromebook Plus starts on High and steps down if it must');
+  assert.equal(settings.graphicsPreset(irisCrOS), 'medium', 'a Chromebook Plus starts on Medium and steps down if it must');
   assert.equal(settings.graphicsPreset(uhdWin), 'low');
-  assert.equal(settings.graphicsPreset(rtx), 'high');
+  assert.equal(settings.graphicsPreset(rtx), 'medium');
   assert.equal(settings.graphicsPreset({ gpu: 'Google SwiftShader' }), 'chromebook', 'software rendering');
   assert.equal(settings.graphicsPreset({ touch: true }), 'low');
   assert.equal(settings.graphicsQuality(mali), 'low', 'Chromebook runs the Low tier underneath');
@@ -369,11 +370,28 @@ test('graphics: Auto classifies weak Chromebooks, Chromebook tablets and phones'
   const cros = (gpu, touch = false) => autoGraphicsPreset({ chromeOS: true, touch, gpu });
   assert.equal(cros('ANGLE (AMD, AMD Radeon R5 Graphics (STONEY), OpenGL ES 3.2)'), 'chromebook', 'Stoney Ridge');
   assert.equal(cros('ANGLE (Qualcomm, Adreno (TM) 618, OpenGL ES 3.2)'), 'chromebook', 'Snapdragon 7c');
-  assert.equal(cros('ANGLE (AMD, AMD Radeon(TM) Graphics (renoir), OpenGL ES 3.2)'), 'high', 'Ryzen Vega');
+  assert.equal(cros('ANGLE (AMD, AMD Radeon(TM) Graphics (renoir), OpenGL ES 3.2)'), 'medium', 'Ryzen Vega');
   assert.equal(cros('ANGLE (ARM, Mali-G52 MC2, OpenGL ES 3.2)', true), 'chromebook', 'a Chromebook tablet is a Chromebook first');
   assert.equal(autoGraphicsPreset({ touch: true, gpu: 'ANGLE (ARM, Mali-G710, OpenGL ES 3.2)' }), 'low', 'a Mali flagship phone stays on Low');
-  assert.equal(autoGraphicsPreset({ gpu: 'ANGLE (Intel, Intel(R) Arc(TM) A770 Graphics Direct3D11)' }), 'high');
-  assert.equal(autoGraphicsPreset({ gpu: 'Research Graphics Adapter' }), 'high', 'no accidental "arc" match');
+  assert.equal(autoGraphicsPreset({ gpu: 'ANGLE (Intel, Intel(R) Arc(TM) A770 Graphics Direct3D11)' }), 'medium');
+  assert.equal(autoGraphicsPreset({ gpu: 'Research Graphics Adapter' }), 'medium', 'no accidental "arc" match');
+});
+
+test('render scale: Auto by default, 50-100% in 5% steps, saved and reset', async () => {
+  const { default: GameSettings } = await import('../src/core/settings.js');
+  const store = new Map();
+  const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+  const settings = new GameSettings(null, storage);
+  assert.equal(settings.renderScale, 0, 'Auto');
+  assert.equal(settings.setRenderScale(0.72), 0.7);
+  assert.equal(settings.setRenderScale(2), 1);
+  assert.equal(settings.setRenderScale(0.45), 0, 'below 50% is Auto');
+  assert.equal(settings.setRenderScale('nonsense'), 0);
+  settings.setRenderScale(0.65);
+  assert.equal(new GameSettings(null, storage).renderScale, 0.65);
+  assert.equal(settings.snapshot().renderScale, 0.65);
+  settings.reset();
+  assert.equal(settings.renderScale, 0);
 });
 
 test('graphics: ChromeOS detection reads client hints, then the user agent', async () => {
@@ -494,7 +512,9 @@ test('numpad + and * bindings survive a reload', () => {
 
 test('graphics: effects density steps down with the preset', async () => {
   const { GRAPHICS_PROFILES } = await import('../src/gfx/profiles.js');
-  const { high, low, chromebook } = GRAPHICS_PROFILES;
+  const { high, medium, low, chromebook } = GRAPHICS_PROFILES;
+  assert.ok(medium.fxScale < high.fxScale && low.fxScale < medium.fxScale);
+  assert.ok(medium.post && !medium.ssao && medium.shadowMapSize < high.shadowMapSize, 'Medium: bloom, no AO, lighter shadows');
   assert.equal(high.fxScale, 1);
   assert.ok(low.fxScale < high.fxScale && chromebook.fxScale < low.fxScale);
   assert.ok(chromebook.fxScale >= 0.25, 'effects never thin to nothing');
