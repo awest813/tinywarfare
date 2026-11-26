@@ -152,6 +152,7 @@ test('input remaps hardware before gameplay while semantic touch actions stay fi
   const game = { debug: false, canvas: {}, events };
   game.settings = new GameSettings(game, null);
   const input = new Input(game);
+  input.locked = true;
   assert.equal(globalThis.window.listenerOptions.get('keydown')[0].capture, true);
   game.input = input;
 
@@ -178,6 +179,7 @@ test('the digit row survives Shift and Cmd release never leaves keys held', (t) 
   const game = { debug: false, canvas: {}, events };
   game.settings = new GameSettings(game, null);
   const input = new Input(game);
+  input.locked = true;
   game.input = input;
 
   input._onKeyDown({ key: '1', code: 'Digit1', repeat: false });
@@ -193,6 +195,52 @@ test('the digit row survives Shift and Cmd release never leaves keys held', (t) 
   input._onKeyDown({ key: 'Meta', code: 'MetaLeft', repeat: false, metaKey: true });
   input._onKeyUp({ key: 'Meta', code: 'MetaLeft' });
   assert.equal(input.isDown('w'), false, 'releasing Cmd drops keys whose keyup macOS swallows');
+});
+
+test('hardware keys do not drive the match while the pointer is released', (t) => {
+  installInputGlobals(t);
+  const events = eventBus();
+  const game = { debug: false, canvas: {}, events, state: { buyOpen: false }, hud: { buyOpen: false } };
+  game.settings = new GameSettings(game, null);
+  const input = new Input(game);
+  game.input = input;
+  const presses = (key) => events.emitted.filter((entry) =>
+    entry.name === 'input:keydown' && entry.detail.key === key).length;
+
+  input._onKeyDown({ key: 'w', code: 'KeyW', repeat: false });
+  input._onKeyDown({ key: 'e', code: 'KeyE', repeat: false });
+  input._onKeyDown({ key: '5', code: 'Digit5', repeat: false });
+  input._onKeyDown({ key: 'Tab', code: 'Tab', repeat: false });
+  assert.equal(input.isDown('w'), false, 'pause does not walk you');
+  assert.equal(input.isDown('e'), false, 'pause does not plant or defuse');
+  assert.equal(input.isDown('5'), false, 'pause does not call a streak');
+  assert.equal(input.isDown('tab'), false, 'pause does not open the scoreboard');
+  assert.equal(presses('w') + presses('e') + presses('5') + presses('tab'), 0);
+
+  game.state.buyOpen = true;
+  input._onKeyDown({ key: 'b', code: 'KeyB', repeat: false });
+  input._onKeyDown({ key: 'b', code: 'KeyB', repeat: true });
+  assert.equal(presses('b'), 1, 'the buy key still closes the buy menu, once');
+  assert.equal(input.isDown('w'), false);
+  input._onKeyUp({ key: 'b', code: 'KeyB' });
+  assert.equal(game.settings.rebind('buy', 'k').changed, true);
+  input._onKeyDown({ key: 'k', code: 'KeyK', repeat: false });
+  assert.equal(presses('b'), 2, 'a remapped buy key still closes the menu');
+  input._onKeyUp({ key: 'k', code: 'KeyK' });
+  input._onKeyDown({ key: 'b', code: 'KeyB', repeat: false });
+  assert.equal(presses('b'), 2, 'the key it left behind does not');
+
+  input.locked = true;
+  input._onKeyDown({ key: 'w', code: 'KeyW', repeat: false });
+  assert.equal(input.isDown('w'), true);
+  input._releaseHardwareKeys();
+  input.locked = false;
+  input._onKeyDown({ key: 'w', code: 'KeyW', repeat: true });
+  assert.equal(input.isDown('w'), false, 'a key held across the menu does not walk while it is open');
+  input.locked = true;
+  input._onKeyDown({ key: 'w', code: 'KeyW', repeat: true });
+  assert.equal(input.isDown('w'), true, 'holding W through the menu resumes on relock');
+  assert.equal(presses('w'), 1, 'the restored hold is not a new press');
 });
 
 test('key capture consumes the assignment, Escape cancels, and Tab navigates while unlocked', (t) => {
@@ -407,6 +455,7 @@ test('movement keys work by position on any keyboard layout, labelled in that la
   const game = { debug: false, canvas: {}, events };
   game.settings = new GameSettings(game, null);
   const input = new Input(game);
+  input.locked = true;
   game.input = input;
   // Russian layout: the W key types 'ц'.
   input._onKeyDown({ key: 'ц', code: 'KeyW', repeat: false });

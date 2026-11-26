@@ -56,7 +56,7 @@ passing), and boots cleanly in a headless browser with no console errors.
 
 | Finding | Where | Why deferred |
 |---|---|---|
-| Keyboard still drives gameplay after Esc releases the pointer | `src/core/input.js:483` | Touch play uses a virtual lock, and the buy menu runs unlocked; needs care |
+| ~~Keyboard still drives gameplay after Esc releases the pointer~~ | `src/core/input.js` | Fixed: hardware keys stay out of gameplay while the pointer is released. The buy key still closes the buy menu; touch and controllers keep their virtual lock |
 | Shots follow the camera, so view punch and shake move bullets | `src/weapons/weapons.js:635` | Deliberate CS-style aim punch; revisit when ADS lands |
 | Wall penetration can skip a player standing between two thin walls | `src/combat/combat.js:474` | Rare |
 | ~~No per-message rate limit on the Node server's sockets~~ | `server.mjs` | Fixed in the release pass: a per-connection message budget, depth limit and guarded dispatch on both servers |
