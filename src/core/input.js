@@ -47,6 +47,10 @@
 //  - Tab / space / quote / slash / arrows / alt are suppressed while locked so
 //    the page never scrolls or opens quick-find mid-firefight. Unlocked Tab is
 //    left alone so menu and Settings controls remain keyboard-accessible.
+//  - While the pointer is released, hardware keys stay out of gameplay: the
+//    pause screen, settings, the end screen, and text fields. The buy menu is
+//    the exception — its key still closes it. Touch and a controller play
+//    through the virtual lock, so their controls keep working.
 //  - contextmenu over the canvas (or while locked) is suppressed so RMB
 //    aiming never pops a menu.
 //  - Pointer-lock is requested with { unadjustedMovement: true } for raw,
@@ -504,6 +508,15 @@ export default class Input {
     }
     if (key === null) return;
 
+    // Menus release the pointer (pause, settings, the end screen, a text
+    // field). Those keys belong to the page: an online match keeps simulating,
+    // and W used to walk you while you could not look. The buy menu is the
+    // one overlay that still wants its key, so that key still closes it.
+    if (!this.locked) {
+      const buyOpen = !!(this.game.state?.buyOpen || this.game.hud?.buyOpen);
+      if (!(buyOpen && key === 'b')) return;
+    }
+
     // Auto-repeat guard: browser flag first, held-set second (synthetic
     // events dispatched by tests may omit `repeat` on held-key repeats).
     if (this._down.has(key)) return;
@@ -547,7 +560,7 @@ export default class Input {
   }
 
   _normalizePhysicalKey(e) {
-    // The digit row is matched by position: with Shift held (walk) or on
+    // The digit row is matched by position: with Shift held (sprint) or on
     // AZERTY, e.key is a symbol ('!'), which would block weapon slots and
     // leave a key pressed before Shift stuck when its keyup arrives as '!'.
     const digit = /^Digit([0-9])$/.exec(e?.code || '');

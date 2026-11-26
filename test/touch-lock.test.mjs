@@ -64,6 +64,7 @@ test('the automatic touch lock ends with play, so menu fields take keys again', 
   let prevented = false;
   input._onKeyDown({ key: 'w', code: 'KeyW', preventDefault() { prevented = true; } });
   assert.equal(prevented, false, 'W types into the callsign field');
+  assert.equal(input.isDown('w'), false, 'and does not walk the soldier behind the end screen');
 });
 
 test('Escape out of a real lock during play pauses instead of re-locking next frame', (t) => {

@@ -148,12 +148,15 @@ also has look sensitivity (`0.25×–3.00×`), field of view (65–100), brightn
 (`−0.50–+0.50 EV`), master volume, an announcer voice toggle, the killcam
 (a replay of how you died; Jump or a click skips it), toggle aim (right
 click aims in and out instead of holding; sprint cancels it), Show FPS and
-**Graphics** (Auto, High, Low or Chromebook / Low-power; applies on reload).
-Auto picks by device: Chromebooks and low-power GPUs start on the Chromebook
-preset (below-native resolution, simple shadows and shading, no lamp or
-effect lights), phones and older Intel laptops on Low, everything else on
-High. A device that can't hold about 40 fps in a match drops ambient
-occlusion, then resolution, and starts one preset lower next time. Add
+**Graphics** (Auto, High, Medium, Low, or Low Power; a preset applies on
+reload). **Render scale** (Auto or 50–100%) and a **frame rate cap** (off,
+30, 60, or 120) apply immediately. Auto starts a desktop on Medium, a phone
+or an older Intel laptop on Low, and a Chromebook or low-power GPU on Low
+Power (below-native resolution, simple shadows and shading, no lamp or
+effect lights). High is the full picture: soft shadows, bloom, and ambient
+occlusion. A device that can't hold about 40 fps in a match drops ambient
+occlusion, then the pixel ratio, then render scale, and starts one preset
+lighter next time. A chosen frame cap is not treated as a slow device. Add
 `?perf` to the URL for draw calls, triangles and shader programs next to the
 frame rate. Preferences are saved on this device. See
 [docs/PERFORMANCE-PLAN.md](docs/PERFORMANCE-PLAN.md) for what each preset
@@ -180,7 +183,7 @@ changes and what is planned.
 | 5 / 6 / 7 | Scorestreak slot 1 / slot 2 / care-package bonus (respawn modes) |
 | 1–5 (while dead) | Pick the class for your next spawn (respawn modes; touch: CLASS button) |
 | Space (while dead, S&D) | Next spectator view |
-| Esc | Pause (solo matches stop; online ones keep running). Settings, How to Play and Quit to Main Menu are on the pause screen |
+| Esc | Pause. The mouse is released and the keyboard stops driving your soldier (solo matches freeze; online ones keep running). Settings, How to Play and Quit to Main Menu are on the pause screen |
 
 ## Arsenal
 
