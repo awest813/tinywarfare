@@ -57,7 +57,7 @@ export function headCentreHeight(height) {
 }
 
 // --- Penetration -----------------------------------------------------------
-const PEN_PROBE = 0.4;             // max wall thickness probe (m)
+const PEN_STEP = 0.02;             // how finely a round walks out of a solid (m)
 const PEN_MAX_THICKNESS = 0.35;    // wall a penetration-1.0 round beats (m)
 const PEN_DMG_SCALE = 0.55;        // damage a penetration-1.0 round keeps
 
@@ -638,24 +638,36 @@ export default class Combat {
       if (!canPen) return;
       canPen = false;
 
-      // Probe: step past the entry point, cast back toward it. The backside
-      // face of a thin wall faces the probe origin, so a front-face raycast
-      // finds it; anything thicker than the probe yields no hit (we would be
-      // casting from inside the solid).
-      this._probeOrigin.copy(this._wallPoint).addScaledVector(this._sDir, PEN_PROBE);
-      this._negDir.copy(this._sDir).negate();
-      let back = null;
-      if (world && typeof world.raycast === 'function') {
-        back = world.raycast(this._probeOrigin, this._negDir, PEN_PROBE - 0.005);
-      }
-      if (!back) return;
-      const thickness = PEN_PROBE - back.distance;
-      // The weapon's penetration rating decides how much wall it beats and how
-      // much damage survives: it used to be a bare on/off switch, so a Glock
-      // (0.25) wallbanged exactly like the LMG (1.1). Now the Glock gets through
-      // a door or a fence (~9 cm), a rifle most interior walls.
+      // Walk out of the solid just entered, and stop at the first open air.
+      // A probe that started 0.4 m ahead treated the far side of a second
+      // wall as this wall's exit, so a player standing in the gap was never
+      // tested. The weapon's penetration rating decides how much wall it
+      // beats and how much damage survives: it used to be a bare on/off
+      // switch, so a Glock (0.25) wallbanged exactly like the LMG (1.1).
+      // Now the Glock gets through a door or a fence (~9 cm), a rifle most
+      // interior walls.
       const pen = Math.min(1.1, Math.max(0, def.penetration || 0));
-      if (thickness <= 0 || thickness > PEN_MAX_THICKNESS * pen) return;
+      const maxThick = PEN_MAX_THICKNESS * pen;
+      const boxes = world && world.colliders;
+      if (!Array.isArray(boxes)) return;
+      let thickness = 0;
+      let open = false;
+      for (let t = PEN_STEP; t <= maxThick + PEN_STEP; t += PEN_STEP) {
+        this._probeOrigin.copy(this._wallPoint).addScaledVector(this._sDir, t);
+        let inside = false;
+        for (let i = 0; i < boxes.length; i++) {
+          if (boxes[i].containsPoint(this._probeOrigin)) { inside = true; break; }
+        }
+        if (!inside) { thickness = t; open = true; break; }
+      }
+      if (!open || !world || typeof world.raycast !== 'function') return;
+      // The first open point is one step past the back face. Cast back that
+      // far and no further, so the face we find is this wall's.
+      this._negDir.copy(this._sDir).negate();
+      const back = world.raycast(this._probeOrigin, this._negDir, thickness + PEN_STEP);
+      if (!back) return;
+      thickness -= back.distance;
+      if (thickness <= 0.005 || thickness > maxThick) return;
 
       this._exitPoint.copy(back.point);
       this._exitNormal.copy(back.normal);
@@ -676,10 +688,10 @@ export default class Combat {
       dmgScale *= Math.min(0.75, PEN_DMG_SCALE * (0.5 + 0.5 * pen));
       this._sOrigin.copy(this._exitPoint).addScaledVector(this._sDir, 0.01);
       // A thin slab laid against a thicker one (Dustyard's open door leaves on
-      // the 0.6 m mid wall) "exits" straight into the next solid. Raycasts
-      // from inside a solid hit nothing (front faces only), so the bullet then
-      // crossed the whole wall: rifles killed through concrete at mid. The
-      // probe only measured the slab; the wall is thicker, so the round stops.
+      // the 0.6 m mid wall) can leave a hair of air in the numbers. Raycasts
+      // from inside a solid hit nothing (front faces only), so a round that
+      // resumed there would cross the rest of the wall. If the exit is still
+      // inside a collider, the round stops.
       if (Array.isArray(world.colliders) && world.colliders.some((box) => box.containsPoint(this._sOrigin))) return;
     }
   }

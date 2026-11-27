@@ -58,7 +58,7 @@ passing), and boots cleanly in a headless browser with no console errors.
 |---|---|---|
 | Keyboard still drives gameplay after Esc releases the pointer | `src/core/input.js:483` | Touch play uses a virtual lock, and the buy menu runs unlocked; needs care |
 | Shots follow the camera, so view punch and shake move bullets | `src/weapons/weapons.js:635` | Deliberate CS-style aim punch; revisit when ADS lands |
-| Wall penetration can skip a player standing between two thin walls | `src/combat/combat.js:474` | Rare |
+| ~~Wall penetration can skip a player standing between two thin walls~~ | `src/combat/combat.js` | Fixed: a round walks out of the first solid and stops at the gap, so the next segment tests whoever is standing there |
 | ~~No per-message rate limit on the Node server's sockets~~ | `server.mjs` | Fixed in the release pass: a per-connection message budget, depth limit and guarded dispatch on both servers |
 | About 325 MB of trailer MP4s in git history | repo root | Needs `git filter-repo` and a force push; owner's call |
 | ~~Deploy config still points at the upstream author's domain and Worker~~ | `wrangler.jsonc`, `server.mjs` origins | Fixed: both allow `awest813.github.io` |
