@@ -314,8 +314,10 @@ Done:
 1. **Culling**: split the whole-map batches into spatial chunks (about 20 m
    cells) so frustum culling works; fit the shadow camera to the view instead
    of the whole arena on Low and Chromebook.
-2. **LOD for held guns**: a few-hundred-triangle proxy for third-person
-   rifles beyond 15 m (each is about 40k triangles today).
+2. **LOD for held guns** (done): beyond 15 m a soldier's gun is one mesh of
+   a few dozen triangles (`buildWeaponSilhouette`), back to the merged gun
+   inside 12 m. The detailed model stays in the rig so the support hand and
+   the muzzle tracer do not change. A grenade lob still stows both.
 3. **Medium preset** (see above).
 4. **Light budget**: on High, merge the 5 effect lights into 2; on all
    presets, cull map lamps by distance into a fixed budget so the light count

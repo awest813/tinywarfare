@@ -399,6 +399,94 @@ export function collapseWeaponObject(source, mats) {
   return group;
 }
 
+const _silBox = new THREE.Box3();
+const _silUnion = new THREE.Box3();
+
+/**
+ * A few boxes in the merged gun's own bounds: barrel, body, and a magazine
+ * when the gun has one. One mesh, one material, under a hundred triangles.
+ * At 15 m the full gun is a few dozen pixels and this reads as the same shape.
+ *
+ * The union of the boxes matches the source bounds, so the swap does not
+ * shrink the silhouette or poke past it.
+ *
+ * @param {THREE.Object3D} source  a collapsed third-person weapon
+ * @param {import('./materials.js').WeaponMaterials} mats
+ * @returns {THREE.Group | null}
+ */
+export function buildWeaponSilhouette(source, mats) {
+  source.updateMatrixWorld(true);
+  const box = _silUnion.makeEmpty();
+  let any = false;
+  source.traverse((o) => {
+    if (!o.isMesh || !o.geometry) return;
+    any = true;
+    box.union(_silBox.setFromObject(o));
+  });
+  if (!any || box.isEmpty()) return null;
+
+  const { min, max } = box;
+  const geos = [];
+  const add = (x0, y0, z0, x1, y1, z1) => {
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const dz = z1 - z0;
+    if (dx < 0.003 || dy < 0.003 || dz < 0.003) return;
+    const geo = new THREE.BoxGeometry(dx, dy, dz);
+    geo.translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+    geos.push(geo);
+  };
+
+  const length = max.z - min.z;
+  const cx = (min.x + max.x) / 2;
+  const halfW = Math.max(0.004, (max.x - min.x) / 2);
+  // Short pistols stay one block. Longer guns get a thinner barrel in front.
+  const split = length > 0.22 ? min.z + length * 0.42 : max.z;
+  const barrelHalf = Math.min(halfW * 0.55, 0.012);
+  const barrelY0 = Math.max(min.y, -0.01);
+  const barrelY1 = Math.min(max.y, 0.012);
+  if (split < max.z - 0.02 && barrelY1 - barrelY0 >= 0.003) {
+    add(cx - barrelHalf, barrelY0, min.z, cx + barrelHalf, barrelY1, split);
+  } else {
+    add(min.x, min.y, min.z, max.x, max.y, max.z);
+  }
+
+  if (geos.length === 1 && length <= 0.22) {
+    // The single block above is the whole pistol.
+  } else {
+    const hasMag = min.y < -0.028;
+    const bodyY0 = hasMag ? Math.min(-0.006, max.y - 0.016) : min.y;
+    const zBody = geos.length ? split : min.z;
+    add(min.x, Math.max(min.y, bodyY0), zBody, max.x, max.y, max.z);
+    if (hasMag && bodyY0 > min.y + 0.004) {
+      const magHalf = halfW * 0.55;
+      const mz0 = Math.max(min.z, Math.min(-0.085, max.z - 0.03));
+      const mz1 = Math.min(max.z, Math.max(mz0 + 0.025, -0.012));
+      add(cx - magHalf, min.y, mz0, cx + magHalf, bodyY0, mz1);
+    }
+  }
+
+  if (!geos.length) return null;
+  const geo = geos.length === 1 ? geos[0] : mergeGeometries(geos, false);
+  if (!geo) {
+    for (const g of geos) g.dispose();
+    return null;
+  }
+  if (geos.length > 1) for (const g of geos) g.dispose();
+
+  const group = new THREE.Group();
+  group.name = `${source.name}:lod`;
+  const mesh = new THREE.Mesh(geo, mats.get('steel_black'));
+  mesh.name = `${source.userData.weaponId || 'weapon'}-lod`;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  group.add(mesh);
+  group.userData.weaponId = source.userData.weaponId;
+  group.userData.tris = triCount(geo);
+  group.userData.lod = true;
+  return group;
+}
+
 /**
  * Find a built (or cloned) weapon's moving parts again.
  *

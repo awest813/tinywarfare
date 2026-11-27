@@ -12,7 +12,7 @@
 // they were built against lives.
 // ============================================================================
 import { WeaponMaterials } from './materials.js';
-import { buildWeaponObject, collapseWeaponObject, resolveParts } from './build.js';
+import { buildWeaponObject, buildWeaponSilhouette, collapseWeaponObject, resolveParts } from './build.js';
 import { buildWeaponModel, PROCEDURAL_WEAPON_IDS } from './catalogue.js';
 
 const templates = new Map(); // id -> { object, model }
@@ -26,6 +26,8 @@ const templates = new Map(); // id -> { object, model }
  * the material library is replaced, which only happens on a session teardown.
  */
 const thirdPerson = new Map();
+/** id -> THREE.Group | null — the shared silhouette template. */
+const silhouettes = new Map();
 let materials = null;
 let library = null;
 
@@ -36,6 +38,7 @@ function ensureMaterials(materialLibrary) {
     materials = new WeaponMaterials(materialLibrary);
     templates.clear();
     thirdPerson.clear();
+    silhouettes.clear();
   }
   return materials;
 }
@@ -112,6 +115,43 @@ export function thirdPersonTemplate(id, materialLibrary) {
   }
   thirdPerson.set(id, merged);
   return merged;
+}
+
+/**
+ * The shared silhouette for a third-person gun: one mesh of a few dozen
+ * triangles standing in for the ~30k-triangle model past 15 m.
+ * Built once from the merged template and cloned per soldier, geometry shared.
+ * @returns {THREE.Group | null}
+ */
+export function weaponProxy(id, materialLibrary, opts = {}) {
+  if (!ensureMaterials(materialLibrary)) return null;
+  if (silhouettes.has(id)) {
+    const cached = silhouettes.get(id);
+    return cached ? cloneProxy(cached, opts) : null;
+  }
+  const merged = thirdPersonTemplate(id, materialLibrary);
+  let template = null;
+  if (merged && materials) {
+    try {
+      template = buildWeaponSilhouette(merged, materials);
+    } catch (e) {
+      console.warn(`[weapons] silhouette failed for ${id}`, e);
+      template = null;
+    }
+  }
+  silhouettes.set(id, template);
+  return template ? cloneProxy(template, opts) : null;
+}
+
+function cloneProxy(template, opts) {
+  const copy = template.clone(true);
+  copy.traverse((o) => {
+    if (!o.isMesh) return;
+    o.castShadow = opts.castShadow !== false;
+    o.receiveShadow = true;
+    o.frustumCulled = true;
+  });
+  return copy;
 }
 
 /**
