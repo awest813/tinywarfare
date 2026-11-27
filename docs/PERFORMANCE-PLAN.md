@@ -295,9 +295,11 @@ Done:
 
 ### Phase 3: CPU scaling
 
-1. **Raycast index**: a uniform grid (or BVH) over the world's boxes for
-   `World.raycast`, bot sight checks and bullets. Expect 5-20x fewer
-   box tests per ray.
+1. **Raycast index** (done): `World.raycast` marches a 4 m grid of the
+   static solids. A box is listed in every cell it touches, an equal
+   distance still keeps the earlier solid, and the march stops once the
+   next cell starts past the closest hit. A short ray tests a handful of
+   boxes instead of all ~300.
 2. **Perception budget**: cap sight rays per frame across all bots, round
    robin; skip candidates outside engagement range before the ray.
 3. **Animation LOD**: update the mixers of off-screen bots at 10 Hz and of
