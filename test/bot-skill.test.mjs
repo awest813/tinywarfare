@@ -288,15 +288,53 @@ test('Regular and Veteran frag a target that ducked behind cover; Recruit does n
   }
 });
 
+test('a frag too far to reach is kept for when the target is closer', () => {
+  const { brain, events } = makeBrain('veteran');
+  const bot = makeBot({ grenades: 1, lastSeenPos: new THREE.Vector3(0, 0, -30), lastSeenTime: 4 });
+  brain.all = [bot];
+  const random = Math.random;
+  Math.random = () => 0;
+  try {
+    assert.equal(brain._tryGrenade(bot, brain._skill()), false);
+    assert.equal(bot.grenades, 1, 'the throw was impossible, so the frag stays');
+    assert.notEqual(bot.grenadeFor, bot.lastSeenTime);
+    bot.lastSeenPos.set(0, 0, -17);
+    assert.equal(brain._tryGrenade(bot, brain._skill()), true, 'a longer arc reaches 17 m');
+  } finally {
+    Math.random = random;
+  }
+  const thrown = events.filter(([type]) => type === 'bot:grenade');
+  assert.equal(thrown.length, 1);
+  assert.ok(thrown[0][1].strength > 6 && thrown[0][1].strength <= 18, `strength ${thrown[0][1].strength}`);
+});
+
 test('no grenade into a teammate standing at the spot', () => {
   const { brain } = makeBrain('veteran');
-  const bot = makeBot({ grenades: 1, lastSeenPos: new THREE.Vector3(0, 0, -11) });
+  const bot = makeBot({ grenades: 1, lastSeenPos: new THREE.Vector3(0, 0, -11), lastSeenTime: 4 });
   const mate = makeBot({ pos: new THREE.Vector3(1, 0, -11) });
   brain.all = [bot, mate];
   const random = Math.random;
   Math.random = () => 0;
   try {
     assert.equal(brain._tryGrenade(bot, brain._skill()), false);
+    assert.equal(bot.grenades, 1);
+    assert.notEqual(bot.grenadeFor, bot.lastSeenTime, 'a blocked throw can be tried once the teammate moves');
+  } finally {
+    Math.random = random;
+  }
+});
+
+test('deciding not to frag spends the sighting', () => {
+  const { brain } = makeBrain('regular');
+  const bot = makeBot({ grenades: 1, lastSeenPos: new THREE.Vector3(0, 0, -11), lastSeenTime: 4 });
+  brain.all = [bot];
+  const random = Math.random;
+  Math.random = () => 0.99;
+  try {
+    assert.equal(brain._tryGrenade(bot, brain._skill()), false);
+    assert.equal(bot.grenadeFor, bot.lastSeenTime);
+    assert.equal(brain._tryGrenade(bot, brain._skill()), false);
+    assert.equal(bot.grenades, 1);
   } finally {
     Math.random = random;
   }

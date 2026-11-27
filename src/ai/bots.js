@@ -243,6 +243,10 @@ const GRUDGE_TIME = 45;         // s a bot remembers who killed it
 const GRUDGE_HUNT = 0.5;        // chance a free hunt goes after its killer instead of the nearest enemy
 const CORPSE_REACH = 1.9;        // m: how far a falling body lands behind its feet
 const NEAR_MISS_OFFSET = 0.7;   // m: a deliberate miss passes at least this far from the body
+// Frag arcs, shallow first. The game clamps a throw at 20; staying under 18
+// leaves room for the roll that carries the grenade the last metre.
+const GRENADE_ANGLES = [0.70, 0.90, 1.05, 1.20];
+const GRENADE_SPEED_CAP = 18;
 const COVER_HEALTH = 45;        // hp below which a bot breaks off to cover
 const COVER_RANGE = 10;         // m it will run for cover
 const COVER_COOLDOWN = 8;       // s between cover decisions
@@ -2344,36 +2348,52 @@ export default class Bots {
   /**
    * Frag a target that ducked behind cover, once per sighting. Regular and
    * Veteran bots carry one per life. Returns true when a grenade was thrown.
+   *
+   * The sighting is spent only when a throw is actually decided. A target
+   * that breaks line of sight too far away used to burn the frag on the
+   * first check, so the bot never threw even after closing in, and a 40°
+   * lob at 14 m/s fell short of anyone past about 12 m.
    */
   _tryGrenade(bot, sk) {
     if (!(sk.grenade > 0) || !(bot.grenades > 0) || bot.reloadTimer > 0) return false;
     if (bot.grenadeFor === bot.lastSeenTime) return false;
-    bot.grenadeFor = bot.lastSeenTime;
-    if (Math.random() >= sk.grenade) return false;
     const target = bot.lastSeenPos;
     const eye = this._botEye(bot, _eyeA);
     const dx = target.x - eye.x, dz = target.z - eye.z;
     const flat = Math.hypot(dx, dz);
-    if (flat < 5 || flat > 16) return false;
+    // Inside 5 m the bounce lands in the thrower's own feet. Past 18 m no
+    // arc under the game's throw-speed cap reaches.
+    if (flat < 5 || flat > 18) return false;
     // Never into a teammate's lap.
     for (const o of this.all) {
       if (o === bot || !o.alive || hostile(this.game, o, bot)) continue;
       if (o.pos.distanceToSquared(target) < 20) return false;
     }
-    // Lob at 40 degrees, landing a little short so the roll carries it in.
+    // Land a little short so the roll carries it in. Pick the slowest arc
+    // that reaches: a low toss when it can, a higher one for a longer gap.
     const g = 20;
     const d = flat - 1.2;
     const h = target.y + 0.2 - eye.y;
-    const theta = 0.7;
+    let theta = 0;
+    let speed = Infinity;
+    for (const angle of GRENADE_ANGLES) {
+      const c = Math.cos(angle);
+      const denom = 2 * c * c * (d * Math.tan(angle) - h);
+      if (!(denom > 0)) continue;
+      const v = Math.sqrt(g * d * d / denom);
+      if (v < 6 || v > GRENADE_SPEED_CAP || v >= speed) continue;
+      theta = angle;
+      speed = v;
+    }
+    if (!(speed <= GRENADE_SPEED_CAP)) return false;
+    // Decided, including a choice not to throw: this sighting is done.
+    bot.grenadeFor = bot.lastSeenTime;
+    if (Math.random() >= sk.grenade) return false;
     const c = Math.cos(theta);
-    const denom = 2 * c * c * (d * Math.tan(theta) - h);
-    if (denom <= 0) return false;
-    const v = Math.sqrt(g * d * d / denom);
-    if (!(v <= 14)) return false;
     const ux = dx / flat, uz = dz / flat;
     const dir = new THREE.Vector3(ux * c, Math.sin(theta), uz * c);
     this.game.events.emit('bot:grenade', {
-      bot, type: 'hegrenade', origin: eye.clone(), dir, strength: v,
+      bot, type: 'hegrenade', origin: eye.clone(), dir, strength: speed,
     });
     bot.grenades--;
     this._say(bot, 'frag');
