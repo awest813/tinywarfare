@@ -11,7 +11,8 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { weaponInstance, hasWeaponModel } from '../gfx/weapons/registry.js';
+import { weaponInstance, weaponProxy, hasWeaponModel } from '../gfx/weapons/registry.js';
+import { weaponLodMode } from '../gfx/weapons/lod.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { isRespawnMode } from '../game/tdm.js';
@@ -1796,11 +1797,7 @@ export default class Bots {
     // both soldier GLBs load asynchronously, so whichever arrives second sees its
     // bots swap off the other team's fallback rig, taking their guns with them.
     // Geometry and materials belong to the shared weapon template — never dispose.
-    if (actor.heldWeapon) {
-      actor.heldWeapon.parent?.remove(actor.heldWeapon);
-      actor.heldWeapon = null;
-      actor.heldWeaponId = null;
-    }
+    this._clearHeldWeapon(actor);
     actor.rig = null;
     actor.visualAssetTeam = null;
     actor.mixer = null;
@@ -1889,20 +1886,12 @@ export default class Bots {
     // Nothing to hold (a weapon with no third-person model, or its prop still
     // loading): put the last gun away rather than leave it in the hand.
     if (!library || !anchor || !anchor.parent || !hasWeaponModel(bot.weaponId)) {
-      if (bot.heldWeapon) {
-        bot.heldWeapon.parent?.remove(bot.heldWeapon);
-        bot.heldWeapon = null;
-        bot.heldWeaponId = null;
-      }
+      this._clearHeldWeapon(bot);
       return false;
     }
 
     if (bot.heldWeaponId === bot.weaponId && bot.heldWeapon) return true;
-    if (bot.heldWeapon) {
-      bot.heldWeapon.parent?.remove(bot.heldWeapon);
-      bot.heldWeapon = null;
-      bot.heldWeaponId = null;
-    }
+    this._clearHeldWeapon(bot);
 
     const weapon = weaponInstance(bot.weaponId, library, {
       viewmodel: false,
@@ -1912,14 +1901,25 @@ export default class Bots {
     return this._seatInHand(bot, anchor, weapon);
   }
 
+  /** Take the detailed gun and its silhouette off the rig. Geometry stays shared. */
+  _clearHeldWeapon(actor) {
+    if (!actor) return;
+    if (actor.heldWeapon) {
+      actor.heldWeapon.parent?.remove(actor.heldWeapon);
+      actor.heldWeapon = null;
+    }
+    if (actor.heldWeaponProxy) {
+      actor.heldWeaponProxy.parent?.remove(actor.heldWeaponProxy);
+      actor.heldWeaponProxy = null;
+    }
+    actor.heldWeaponId = null;
+    actor._weaponLod = 'near';
+  }
+
   /** Parent `weapon` at `anchor`, at true size (see _attachHeldWeapon). */
   _seatInHand(bot, anchor, weapon) {
     if (bot.heldWeaponId === bot.weaponId && bot.heldWeapon) return true;
-    if (bot.heldWeapon) {
-      bot.heldWeapon.parent?.remove(bot.heldWeapon);
-      bot.heldWeapon = null;
-      bot.heldWeaponId = null;
-    }
+    this._clearHeldWeapon(bot);
     anchor.parent.updateMatrixWorld(true);
     _gunScale.setFromMatrixScale(anchor.parent.matrixWorld);
     const inv = 1 / Math.max(1e-6, _gunScale.x);
@@ -1930,9 +1930,39 @@ export default class Bots {
     weapon.name = `held:${bot.weaponId}`;
     anchor.parent.add(weapon);
 
+    const proxy = weaponProxy(bot.weaponId, this.game?.materials, {
+      castShadow: this.game?.gfx?.weaponShadows !== false,
+    });
+    if (proxy) {
+      proxy.position.copy(weapon.position);
+      proxy.quaternion.copy(weapon.quaternion);
+      proxy.scale.copy(weapon.scale);
+      proxy.visible = false;
+      proxy.name = `held-lod:${bot.weaponId}`;
+      anchor.parent.add(proxy);
+      bot.heldWeaponProxy = proxy;
+    }
+
     bot.heldWeapon = weapon;
     bot.heldWeaponId = bot.weaponId;
+    bot._weaponLod = 'near';
     return true;
+  }
+
+  /**
+   * Past 15 m the detailed gun is hidden and the silhouette shows. A grenade
+   * lob stows both. Visibility only — no shader or light change.
+   */
+  _applyWeaponLod(bot, dist2, stowed) {
+    const detail = bot.heldWeapon;
+    const proxy = bot.heldWeaponProxy;
+    if (!detail && !proxy) return;
+    const mode = weaponLodMode(bot._weaponLod, dist2, !!proxy);
+    bot._weaponLod = mode;
+    const showProxy = !stowed && mode === 'far';
+    const showDetail = !stowed && !showProxy;
+    if (detail && detail.visible !== showDetail) detail.visible = showDetail;
+    if (proxy && proxy.visible !== showProxy) proxy.visible = showProxy;
   }
 
   _respawnBot(bot, spawn, round) {
@@ -4095,8 +4125,9 @@ export default class Bots {
       bot.animator.update(bot, dt, ctx);
       bot.fireAnim = Math.max(0, (bot.fireAnim || 0) - dt * 8);
       // The throwing hand is the gun hand: stow what it holds for the lob
-      // (a knife stays in it for the slash).
-      if (bot.heldWeapon) bot.heldWeapon.visible = bot.animator.gesture?.kind !== 'lob';
+      // (a knife stays in it for the slash). Past 15 m the detailed gun is
+      // swapped for its silhouette either way.
+      this._applyWeaponLod(bot, dist2, bot.animator.gesture?.kind === 'lob');
       return;
     }
 
@@ -4119,6 +4150,9 @@ export default class Bots {
       }
       bot.fireAnim = Math.max(0, (bot.fireAnim || 0) - dt * 8);
       bot.mixer.update(dt);
+      const camera = this.game && this.game.camera;
+      const dist2 = camera && bot.pos ? camera.position.distanceToSquared(bot.pos) : 0;
+      this._applyWeaponLod(bot, dist2, false);
       return;
     }
 
@@ -4206,12 +4240,15 @@ export default class Bots {
         bot.deathPlayed = true;
         bot.deathYaw = this._corpseYaw(bot);
         bot.gesture = null;
-        // Killed mid-lob: the stowed gun goes back in the corpse's hand.
-        if (bot.heldWeapon) bot.heldWeapon.visible = true;
         bot.animator.die(Math.random(), bot.crouching ? 0.22 : 0.08);
       }
       m.position.copy(bot.pos);
       m.rotation.set(0, Number.isFinite(bot.deathYaw) ? bot.deathYaw : bot.yaw, 0);
+      // Killed mid-lob: the stowed gun goes back in the hand, still the
+      // silhouette when the body is far from the camera.
+      const camera = this.game && this.game.camera;
+      const dist2 = camera && bot.pos ? camera.position.distanceToSquared(bot.pos) : 0;
+      this._applyWeaponLod(bot, dist2, false);
       if (!bot.corpseSettled) {
         bot.mixer.update(dt);
         if (bot.animator.deathDone) bot.corpseSettled = true;
@@ -4234,6 +4271,9 @@ export default class Bots {
           bot.corpseSettled = true;
         }
       }
+      const camera = this.game && this.game.camera;
+      const dist2 = camera && bot.pos ? camera.position.distanceToSquared(bot.pos) : 0;
+      this._applyWeaponLod(bot, dist2, false);
       return;
     }
 
