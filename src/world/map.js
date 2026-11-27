@@ -48,6 +48,12 @@ const WALL_H = 5; // default interior wall height
 // night; a day map's two or three lamps add a few hundredths.
 const LAMP_FILL_PER_UNIT = 0.001;
 const LAMP_FILL_MAX = 0.36;
+// World.raycast walks a uniform grid of the static solids instead of every
+// box. A 4 m cell is enough that a bullet or a sight line crosses a handful,
+// and a box is listed in every cell its bounds touch so the first hit cannot
+// hide in a neighbour. An equal distance keeps the earlier solid, which is
+// what the old front-to-back scan did.
+const RAY_CELL = 4;
 /** Metres covered by one tile of the skyline's window texture (4 x 4 storeys/bays). */
 const WINDOW_TILE = 12;
 const _Y = new THREE.Vector3(0, 1, 0);
@@ -2075,11 +2081,12 @@ export default class World {
   // =========================================================================
   // Raycast against world solids (one shared THREE.Raycaster).
   //
-  // The targets are the per-box meshes, and they answer whether or not they are
-  // drawn: `_batchSolids` hides them behind a merged copy, and three's
-  // `Raycaster` never looks at `visible`. The batch group is `solids.children`'s
-  // last entry, and `recursive = false` below plus `Object3D.raycast` being a
-  // no-op is why the merged copy is not a second, surface-less hit.
+  // The solids are static, so they sit in a 4 m grid and a ray only tests the
+  // cells it crosses. The targets are still the per-box meshes, and they answer
+  // whether or not they are drawn: `_batchSolids` hides them behind a merged
+  // copy, and three's
+  // `Raycaster` never looks at `visible`. The batch group is not a mesh, so it
+  // is not in the list and cannot answer as a second, surface-less hit.
   // =========================================================================
   /**
    * Height of the first floor below `pos` (within `reach` metres), or null.
@@ -2096,10 +2103,10 @@ export default class World {
 
   /**
    * Each solid mesh with its world box, cached per map (the solids are
-   * static). raycast() rejects a mesh with a ray-vs-box test before three's
-   * own mesh test: that one bounding-spheres all ~300 solids, inverts a matrix
-   * and runs triangle tests for each candidate, and allocates a hit object
-   * per triangle crossed.
+   * static), plus the grid `raycast` marches. A box test still runs before
+   * three's mesh test: that one bounding-spheres the candidate, inverts a
+   * matrix and runs triangle tests, and allocates a hit object per triangle
+   * crossed. The grid is what keeps a ray from paying that for all ~300.
    */
   _raySolids() {
     const kids = this.solids.children;
@@ -2107,12 +2114,170 @@ export default class World {
     if (c && c.kids === kids && c.n === kids.length) return c.list;
     const list = [];
     this.solids.updateMatrixWorld(true);
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
     for (const mesh of kids) {
       if (!mesh.isMesh) continue;
-      list.push({ mesh, box: new THREE.Box3().setFromObject(mesh) });
+      const box = new THREE.Box3().setFromObject(mesh);
+      if (box.isEmpty()) continue;
+      list.push({ mesh, box });
+      if (box.min.x < minX) minX = box.min.x;
+      if (box.min.y < minY) minY = box.min.y;
+      if (box.min.z < minZ) minZ = box.min.z;
+      if (box.max.x > maxX) maxX = box.max.x;
+      if (box.max.y > maxY) maxY = box.max.y;
+      if (box.max.z > maxZ) maxZ = box.max.z;
     }
-    this._rayCache = { kids, n: kids.length, list };
+    const grid = this._buildRayGrid(list, minX, minY, minZ, maxX, maxY, maxZ);
+    this._rayCache = { kids, n: kids.length, list, grid };
     return list;
+  }
+
+  /** Cell lists for `_marchRayGrid`. Empty when the map has no solids. */
+  _buildRayGrid(list, minX, minY, minZ, maxX, maxY, maxZ) {
+    if (!list.length) return null;
+    const pad = 0.05;
+    minX -= pad; minY -= pad; minZ -= pad;
+    maxX += pad; maxY += pad; maxZ += pad;
+    const cell = RAY_CELL;
+    const nx = Math.max(1, Math.ceil((maxX - minX) / cell));
+    const ny = Math.max(1, Math.ceil((maxY - minY) / cell));
+    const nz = Math.max(1, Math.ceil((maxZ - minZ) / cell));
+    const cells = new Array(nx * ny * nz);
+    const ixOf = (x) => Math.min(nx - 1, Math.max(0, Math.floor((x - minX) / cell)));
+    const iyOf = (y) => Math.min(ny - 1, Math.max(0, Math.floor((y - minY) / cell)));
+    const izOf = (z) => Math.min(nz - 1, Math.max(0, Math.floor((z - minZ) / cell)));
+    for (let i = 0; i < list.length; i++) {
+      const box = list[i].box;
+      const x0 = ixOf(box.min.x), x1 = ixOf(box.max.x);
+      const y0 = iyOf(box.min.y), y1 = iyOf(box.max.y);
+      const z0 = izOf(box.min.z), z1 = izOf(box.max.z);
+      for (let x = x0; x <= x1; x++) {
+        for (let y = y0; y <= y1; y++) {
+          for (let z = z0; z <= z1; z++) {
+            const id = (x * ny + y) * nz + z;
+            const bucket = cells[id];
+            if (bucket) bucket.push(i);
+            else cells[id] = [i];
+          }
+        }
+      }
+    }
+    return {
+      minX, minY, minZ, nx, ny, nz, cell, cells,
+      stamp: new Uint32Array(list.length),
+      gen: 1,
+    };
+  }
+
+  /**
+   * Visit the cells the ray crosses and test each solid once. Stops once the
+   * next cell starts past the best hit: a box that could be closer overlaps
+   * an earlier cell and was already tested.
+   */
+  _marchRayGrid(grid, ray, maxDist, state, list) {
+    const { minX, minY, minZ, nx, ny, nz, cell, cells, stamp } = grid;
+    let gen = ++grid.gen;
+    if (gen >= 0xffffffff) {
+      stamp.fill(0);
+      gen = grid.gen = 1;
+    }
+    const ox = ray.origin.x, oy = ray.origin.y, oz = ray.origin.z;
+    const dx = ray.direction.x, dy = ray.direction.y, dz = ray.direction.z;
+    const maxX = minX + nx * cell;
+    const maxY = minY + ny * cell;
+    const maxZ = minZ + nz * cell;
+    let t0 = 0;
+    let t1 = maxDist;
+    const clip = (min, max, o, d) => {
+      if (Math.abs(d) < 1e-12) return o >= min && o <= max;
+      let ta = (min - o) / d;
+      let tb = (max - o) / d;
+      if (ta > tb) { const swap = ta; ta = tb; tb = swap; }
+      if (ta > t0) t0 = ta;
+      if (tb < t1) t1 = tb;
+      return t0 <= t1;
+    };
+    if (!clip(minX, maxX, ox, dx) || !clip(minY, maxY, oy, dy) || !clip(minZ, maxZ, oz, dz)) return;
+    if (t1 < 0) return;
+    if (t0 < 0) t0 = 0;
+
+    let ix = Math.floor((ox + dx * t0 - minX) / cell);
+    let iy = Math.floor((oy + dy * t0 - minY) / cell);
+    let iz = Math.floor((oz + dz * t0 - minZ) / cell);
+    if (ix < 0) ix = 0; else if (ix >= nx) ix = nx - 1;
+    if (iy < 0) iy = 0; else if (iy >= ny) iy = ny - 1;
+    if (iz < 0) iz = 0; else if (iz >= nz) iz = nz - 1;
+
+    const stepX = dx > 1e-12 ? 1 : dx < -1e-12 ? -1 : 0;
+    const stepY = dy > 1e-12 ? 1 : dy < -1e-12 ? -1 : 0;
+    const stepZ = dz > 1e-12 ? 1 : dz < -1e-12 ? -1 : 0;
+    const tDeltaX = stepX === 0 ? Infinity : cell / Math.abs(dx);
+    const tDeltaY = stepY === 0 ? Infinity : cell / Math.abs(dy);
+    const tDeltaZ = stepZ === 0 ? Infinity : cell / Math.abs(dz);
+    const planeT = (i, step, min, o, d) => {
+      if (step === 0) return Infinity;
+      const plane = min + (step > 0 ? (i + 1) * cell : i * cell);
+      return (plane - o) / d;
+    };
+    let tMaxX = planeT(ix, stepX, minX, ox, dx);
+    let tMaxY = planeT(iy, stepY, minY, oy, dy);
+    let tMaxZ = planeT(iz, stepZ, minZ, oz, dz);
+
+    const hits = this._rayHits;
+    const entry = this._rayEntry || (this._rayEntry = new THREE.Vector3());
+    const rc = this._raycaster;
+    let tEnter = t0;
+    const limit = nx + ny + nz + 3;
+    for (let steps = 0; steps < limit; steps++) {
+      if (tEnter > state.bestD + 1e-3) break;
+      const bucket = cells[(ix * ny + iy) * nz + iz];
+      if (bucket) {
+        for (let b = 0; b < bucket.length; b++) {
+          const index = bucket[b];
+          if (stamp[index] === gen) continue;
+          stamp[index] = gen;
+          this._rayBoxTests++;
+          const it = list[index];
+          if (!ray.intersectBox(it.box, entry)) continue;
+          // A box whose nearest point is beyond the best hit cannot beat it.
+          // (With a little slack: coplanar faces of two boxes tie to the last bit.)
+          if (it.box.containsPoint(ray.origin) === false && entry.distanceTo(ray.origin) > state.bestD + 1e-6) continue;
+          hits.length = 0;
+          it.mesh.raycast(rc, hits);
+          for (let k = 0; k < hits.length; k++) {
+            const d = hits[k].distance;
+            const closer = state.hit === null ? d <= state.bestD : d < state.bestD;
+            // Same distance: the earlier solid wins, as in the linear scan.
+            const tie = state.hit !== null && d === state.bestD && index < state.hitIndex;
+            if (closer || tie) {
+              state.bestD = d;
+              state.hit = hits[k];
+              state.hitIndex = index;
+            }
+          }
+        }
+      }
+      if (tMaxX <= tMaxY && tMaxX <= tMaxZ) {
+        if (tMaxX > t1) break;
+        ix += stepX;
+        if (ix < 0 || ix >= nx) break;
+        tEnter = tMaxX;
+        tMaxX += tDeltaX;
+      } else if (tMaxY <= tMaxZ) {
+        if (tMaxY > t1) break;
+        iy += stepY;
+        if (iy < 0 || iy >= ny) break;
+        tEnter = tMaxY;
+        tMaxY += tDeltaY;
+      } else {
+        if (tMaxZ > t1) break;
+        iz += stepZ;
+        if (iz < 0 || iz >= nz) break;
+        tEnter = tMaxZ;
+        tMaxZ += tDeltaZ;
+      }
+    }
   }
 
   raycast(origin, dir, maxDist) {
@@ -2122,26 +2287,16 @@ export default class World {
     ray.direction.copy(dir).normalize();
     rc.near = 0;
     rc.far = maxDist;
-    const hits = this._rayHits;
     const list = this._raySolids();
-    const entry = this._rayEntry || (this._rayEntry = new THREE.Vector3());
-    let hit = null;
-    let bestD = maxDist;
-    for (let i = 0; i < list.length; i++) {
-      const it = list[i];
-      if (!ray.intersectBox(it.box, entry)) continue;
-      // A box whose nearest point is beyond the best hit cannot beat it.
-      // (With a little slack: coplanar faces of two boxes tie to the last bit.)
-      if (it.box.containsPoint(ray.origin) === false && entry.distanceTo(ray.origin) > bestD + 1e-6) continue;
-      hits.length = 0;
-      it.mesh.raycast(rc, hits);
-      for (let k = 0; k < hits.length; k++) {
-        // First hit wins a tie, as in intersectObjects' stable sort.
-        const d = hits[k].distance;
-        if (hit === null ? d <= bestD : d < bestD) { bestD = d; hit = hits[k]; }
-      }
-    }
-    hits.length = 0;
+    const state = this._rayState || (this._rayState = { hit: null, bestD: 0, hitIndex: 0 });
+    state.hit = null;
+    state.bestD = maxDist;
+    state.hitIndex = list.length;
+    this._rayBoxTests = 0;
+    const grid = this._rayCache && this._rayCache.grid;
+    if (grid) this._marchRayGrid(grid, ray, maxDist, state, list);
+    this._rayHits.length = 0;
+    const hit = state.hit;
     if (!hit) return null;
     const normal = hit.face
       ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld)
