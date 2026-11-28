@@ -433,10 +433,14 @@ export class OperativeAnimator {
     const firing = actor.burstLeft > 0 || (actor.fireAnim || 0) > 0.05;
     let upper;
     const gesture = this._gestureStep(step);
+    // A slide clears sprinting the same frame it starts, and a player's aim
+    // blend stays high, so the torso used to crossfade into the shouldered
+    // aim over a static crouch. Keep the low carry until a shot or a reload.
+    const carrying = (sprinting || !!actor.sliding) && !firing && !this.reloading && !kneeling && !gesture;
     if (gesture) upper = gesture.clip;
     else if (kneeling && this.actions.Kneel_Work) upper = 'Kneel_Work';
     else if (this.reloading) upper = HOLD[family].reload;
-    else if (sprinting && !firing) upper = family === 'Rifle' ? 'Rifle_Sprint' : 'Pistol_Ready';
+    else if (carrying) upper = family === 'Rifle' ? 'Rifle_Sprint' : 'Pistol_Ready';
     else if (firing || (actor.aimBlend ?? 1) > 0.3 || (actor.crouching && !moving)) upper = HOLD[family].aim;
     else upper = HOLD[family].ready;
     const wasUpper = this.upperName;
@@ -454,8 +458,10 @@ export class OperativeAnimator {
       if (restart && wasUpper === upper) torso.reset().play();
       torso.setEffectiveTimeScale(torso.getClip().duration / this.reloadDuration);
     }
-    // Eased so the torso does not snap between sprint and aim posture.
-    this.sprintBlend += ((sprinting ? 1 : 0) - this.sprintBlend) * (1 - Math.exp(-10 * step));
+    // Eased so the torso does not snap between the low carry and the aim.
+    // A slide counts: sprinting is already false, and dropping this blend
+    // pitches the sprint clip back up onto the shoulder.
+    this.sprintBlend += ((carrying ? 1 : 0) - this.sprintBlend) * (1 - Math.exp(-10 * step));
     const ikTarget = this.reloading || gesture || kneeling ? 0 : 1;
     // A new gun in the hand: the support hand comes off and eases onto the
     // new handguard with the torso's crossfade instead of snapping there.

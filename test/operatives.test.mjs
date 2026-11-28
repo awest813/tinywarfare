@@ -301,6 +301,15 @@ test('a sliding soldier glides on still, crouched legs', async () => {
   const actor = { pos, yaw: 0, onGround: true, aimBlend: 1, moveSpeed: 7, crouching: true, sliding: true };
   for (let i = 0; i < 10; i++) { pos.z -= 7 / 30; animator.update(actor, 1 / 30, { family: 'Rifle' }); }
   assert.equal(animator.lowerName, 'CrouchIdle');
+  // aimBlend stays 1 on a player, and the slide has already cleared sprinting,
+  // so the torso used to shoulder the rifle over those still legs.
+  assert.equal(animator.upperName, 'Rifle_Sprint', 'the rifle stays in the low carry');
+  assert.ok(animator.sprintBlend > 0.8, 'the carry blend does not pitch the gun back up');
+  actor.burstLeft = 1;
+  animator.update(actor, 1 / 30, { family: 'Rifle' });
+  assert.equal(animator.upperName, 'Rifle_Aim', 'a shot during the slide shoulders the rifle');
+  actor.burstLeft = 0;
+  actor.fireAnim = 0;
   actor.sliding = false;
   actor.moveSpeed = 1;
   for (let i = 0; i < 10; i++) { pos.z -= 1 / 30; animator.update(actor, 1 / 30, { family: 'Rifle' }); }
