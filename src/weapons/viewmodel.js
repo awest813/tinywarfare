@@ -708,6 +708,7 @@ export default class ViewModel {
     this._landK = 0;
     this._airY = 0;
     this._sprint = 0;
+    this._slide = 0;
 
     // equip raise
     this._equipT = 1;
@@ -755,6 +756,7 @@ export default class ViewModel {
         this._pitchVel = 0;
         // Frozen while dead: a death mid-sprint would respawn in sprint carry.
         this._sprint = 0;
+        this._slide = 0;
         this._wallK = 0;
       };
       ev.on('player:respawn', resetLook);
@@ -978,6 +980,15 @@ export default class ViewModel {
     const sprintOut = weapons && typeof weapons.sprintOutTime === 'function' ? weapons.sprintOutTime() : 0.2;
     const sprintRate = sprintTarget > (this._sprint || 0) ? 10 : 3 / Math.max(0.05, sprintOut);
     this._sprint = (this._sprint || 0) + (sprintTarget - (this._sprint || 0)) * (1 - Math.exp(-sprintRate * dt));
+    // The slide clears sprinting immediately and lasts most of a second. The
+    // sprint blend above would lift the gun back to the hip in ~0.2 s, in the
+    // middle of the glide. Hold a low pose for the whole slide; a shot lets
+    // it ease back up so the muzzle is where the bullet goes.
+    const shooting = !!(input && input.firing);
+    const slideHold = !!(player && player.sliding) && !shooting;
+    const slideTarget = slideHold ? 1 : 0;
+    const slideRate = slideTarget > (this._slide || 0) ? 8 : 12;
+    this._slide = (this._slide || 0) + (slideTarget - (this._slide || 0)) * (1 - Math.exp(-slideRate * dt));
     this._updateWall(cam, g.world, dt);
     // Down the sights a procedural gun's own sight point lands on the view
     // axis with the sight line parallel to it (see adsAlignment); the hand
@@ -1006,15 +1017,20 @@ export default class ViewModel {
     ry += clamp(-this._yawVel * SWAY_ROT_Y, -SWAY_ROT_CLAMP, SWAY_ROT_CLAMP) * sway;
     rx += clamp(-this._pitchVel * SWAY_ROT_X, -SWAY_ROT_CLAMP, SWAY_ROT_CLAMP) * sway;
 
-    // sprint carry: gun swings low and across the chest
-    const sp = this._sprint;
-    if (sp > 0.001) {
-      px -= 0.035 * sp;
-      py -= 0.04 * sp;
-      pz += 0.02 * sp;
-      rx -= 0.3 * sp;
-      ry += 0.62 * sp;
-      rz += 0.22 * sp;
+    // Sprint carry, then a lower forward tuck once the slide has taken over.
+    // `carry` stays at 1 for the whole slide so the gun never visits the hip
+    // while the sprint blend is still falling and the slide blend is rising.
+    const sp = this._sprint || 0;
+    const slideK = this._slide || 0;
+    const carry = Math.max(sp, slideK, slideHold ? 1 : 0);
+    if (carry > 0.001) {
+      const shape = Math.min(1, slideK / carry); // 0 sprint across the chest, 1 slide
+      px -= (0.035 + (0.012 - 0.035) * shape) * carry;
+      py -= (0.04 + (0.07 - 0.04) * shape) * carry;
+      pz += (0.02 + (0.05 - 0.02) * shape) * carry;
+      rx -= (0.3 + (0.55 - 0.3) * shape) * carry;
+      ry += (0.62 + (0.18 - 0.62) * shape) * carry;
+      rz += (0.22 + (0.04 - 0.22) * shape) * carry;
     }
 
     // run/walk bob
